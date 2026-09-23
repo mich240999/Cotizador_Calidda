@@ -83,6 +83,17 @@ function siguienteCodigoAMCA(existentes: string[]): string {
   return `COT-AMCA-${String(max + 1).padStart(5, "0")}`;
 }
 
+/** Siguiente id con prefijo (OFV/GVE/POF + 4 dígitos), ej. OFV0002. */
+function siguienteId(prefijo: string, existentes: (string | null | undefined)[], pad = 4): string {
+  let max = 0;
+  const re = new RegExp(`^${prefijo}(\\d{${pad}})$`);
+  for (const c of existentes) {
+    const m = re.exec(String(c ?? "").trim());
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `${prefijo}${String(max + 1).padStart(pad, "0")}`;
+}
+
 // ---------------------------------------------------------------- schemas
 
 const EsquemaQ = z.object({ q: z.string().trim().max(120).optional().default(""), limit: zLimit });
@@ -94,8 +105,29 @@ const EsquemaProveedorSGT = z.object({
   telefono: z.string().trim().max(30).optional().default("")
 });
 const EsquemaVinculo = z.object({
-  proveedor_id: z.coerce.number().int().positive(),
-  oficina_id: z.coerce.number().int().positive()
+  proveedor_id: z.string().trim().min(1).max(20),
+  oficina_id: z.string().trim().min(1).max(20)
+});
+const EsquemaCrearOficina = z.object({
+  codigo_sap: z.string().trim().min(2).max(30).transform((s) => s.toUpperCase()),
+  nombre: z.string().trim().min(2).max(200),
+  descripcion: z.string().trim().max(500).optional().default("")
+});
+const EsquemaActualizarOficina = z.object({
+  id: z.string().trim().min(1).max(20),
+  nombre: z.string().trim().min(2).max(200).optional(),
+  descripcion: z.string().trim().max(500).optional(),
+  estado: z.enum(["ACTIVO", "INACTIVO"]).optional()
+});
+const EsquemaCrearGrupo = z.object({
+  vinculacion_id: z.string().trim().regex(/^POF[0-9]{4}$/, "vinculacion_id debe ser POFxxxx"),
+  codigo_sap: z.string().trim().min(2).max(30).transform((s) => s.toUpperCase()),
+  nombre: z.string().trim().min(2).max(200)
+});
+const EsquemaActualizarGrupo = z.object({
+  id: z.string().trim().regex(/^GVE[0-9]{4}$/, "id debe ser GVExxxx"),
+  nombre: z.string().trim().min(2).max(200).optional(),
+  estado: z.enum(["ACTIVO", "INACTIVO"]).optional()
 });
 const EsquemaVacio = z.object({}).passthrough();
 const EsquemaMaterialesSGT = z.object({
@@ -170,7 +202,18 @@ async function hCrearProveedorSGT(args: z.infer<typeof EsquemaProveedorSGT>, ctx
 }
 
 async function hListarOficinasVentas(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
+  // SGT real primero (mae_oficinas_ventas), fallback a tabla base.
   try {
+    let q = ctx.service.from("mae_oficinas_ventas").select("*").order("nombre").limit(args.limit);
+    if (args.q) q = q.or(`nombre.ilike.%${args.q}%,codigo_sap.ilike.%${args.q}%,id.ilike.%${args.q}%`);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((o: Record<string, unknown>) => ({
+      ...o,
+      codigo: o.codigo_sap ?? o.codigo ?? null // alias para UI legacy
+    }));
+  } catch (e) {
+    if (!esTablaFaltante(e)) throw e;
     const r = await leerPrimeraTabla(ctx, ["oficinas_ventas", "oficinas"], "*", { col: "nombre" }, args.limit);
     let rows = r.data as Record<string, unknown>[];
     if (args.q) {
@@ -178,43 +221,201 @@ async function hListarOficinasVentas(args: z.infer<typeof EsquemaQ>, ctx: Operac
       rows = rows.filter((o) => String(o.nombre ?? "").toLowerCase().includes(s));
     }
     return rows;
-  } catch (e) {
-    throw new Error((e as Error).message);
   }
 }
 
-const TABLAS_VINCULO = ["proveedor_oficina", "proveedor_oficinas", "oficina_proveedores", "proveedores_oficinas"];
+async function hCrearOficina(args: z.infer<typeof EsquemaCrearOficina>, ctx: OperacionContext) {
+  // ID correlativo OFVxxxx; codigo_sap único (409 si duplica).
+  const { data: ex } = await ctx.service.from("mae_oficinas_ventas").select("id").limit(500);
+  const id = siguienteId("OFV", ((ex ?? []) as { id?: string }[]).map((r) => r.id));
+  const { data, error } = await ctx.service.from("mae_oficinas_ventas").insert({
+    id,
+    codigo_sap: args.codigo_sap,
+    nombre: args.nombre,
+    descripcion: args.descripcion || null,
+    estado: "ACTIVO" // en creación siempre ACTIVO; el estado se cambia desde el listado
+  }).select().single();
+  if (error) {
+    if (/duplicate|unique|llave duplicada/i.test(error.message)) {
+      const e = new Error(`Código SAP ya registrado: ${args.codigo_sap}`) as Error & { status?: number };
+      e.status = 409; throw e;
+    }
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+async function hActualizarOficina(args: z.infer<typeof EsquemaActualizarOficina>, ctx: OperacionContext) {
+  // codigo_sap inmutable: no se acepta en el patch.
+  const patch: Record<string, unknown> = {};
+  if (args.nombre !== undefined) patch.nombre = args.nombre;
+  if (args.descripcion !== undefined) patch.descripcion = args.descripcion || null;
+  if (args.estado !== undefined) patch.estado = args.estado;
+  if (Object.keys(patch).length === 0) throw new Error("Nada que actualizar (nombre/descripcion/estado)");
+  const { data, error } = await ctx.service.from("mae_oficinas_ventas").update(patch).eq("id", args.id).select().single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+const TABLAS_VINCULO = ["rel_proveedor_oficinas", "proveedor_oficina", "proveedor_oficinas", "oficina_proveedores", "proveedores_oficinas"];
+
+async function hListarVinculaciones(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
+  // SGT real con nombres de proveedor y oficina para la UI.
+  try {
+    let q = ctx.service.from("rel_proveedor_oficinas")
+      .select("*, mae_proveedores(id,interlocutor,ruc,razon_social,nombre_comercial), mae_oficinas_ventas(id,codigo_sap,nombre)")
+      .order("created_at", { ascending: false }).limit(args.limit);
+    if (args.q) q = q.or(`id.ilike.%${args.q}%`);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((v: Record<string, any>) => ({
+      id: v.id,
+      estado: v.estado,
+      created_at: v.created_at,
+      id_proveedor: v.id_proveedor,
+      id_oficina: v.id_oficina,
+      proveedor: v.mae_proveedores?.nombre_comercial || v.mae_proveedores?.razon_social || v.mae_proveedores?.interlocutor || v.id_proveedor,
+      proveedor_ruc: v.mae_proveedores?.ruc ?? null,
+      oficina: v.mae_oficinas_ventas?.nombre || v.id_oficina,
+      oficina_sap: v.mae_oficinas_ventas?.codigo_sap ?? null
+    }));
+  } catch (e) {
+    if (!esTablaFaltante(e)) throw e;
+    // Fallback legacy: primera tabla vieja que exista.
+    for (const t of TABLAS_VINCULO.slice(1)) {
+      try {
+        const { data, error } = await ctx.service.from(t).select("*").limit(args.limit);
+        if (error) throw new Error(error.message);
+        return data ?? [];
+      } catch (e2) {
+        if (!esTablaFaltante(e2)) throw e2;
+      }
+    }
+    return [];
+  }
+}
 
 async function hVincularProveedorOficina(args: z.infer<typeof EsquemaVinculo>, ctx: OperacionContext) {
-  for (const t of TABLAS_VINCULO) {
-    try {
-      const { data: ex, error: eSel } = await ctx.service.from(t).select("id")
-        .eq("proveedor_id", args.proveedor_id).eq("oficina_id", args.oficina_id).limit(1);
-      if (eSel) throw new Error(eSel.message);
-      if ((ex ?? []).length > 0) {
-        const e = new Error(`Vínculo inmutable: proveedor ${args.proveedor_id} ya asignado a oficina ${args.oficina_id}`) as Error & { status?: number };
+  // SGT real: rel_proveedor_oficinas (POFxxxx, UNIQUE par). Inmutable: 409 si ya existe.
+  try {
+    const { data: ex, error: eSel } = await ctx.service.from("rel_proveedor_oficinas").select("id")
+      .eq("id_proveedor", args.proveedor_id).eq("id_oficina", args.oficina_id).limit(1);
+    if (eSel) throw new Error(eSel.message);
+    if ((ex ?? []).length > 0) {
+      const e = new Error(`Vínculo inmutable: ese proveedor ya está asignado a esa oficina`) as Error & { status?: number };
+      e.status = 409; throw e;
+    }
+    const { data: ids } = await ctx.service.from("rel_proveedor_oficinas").select("id").limit(500);
+    const id = siguienteId("POF", ((ids ?? []) as { id?: string }[]).map((r) => r.id));
+    const { data, error: eIns } = await ctx.service.from("rel_proveedor_oficinas").insert({
+      id, id_proveedor: args.proveedor_id, id_oficina: args.oficina_id, estado: "ACTIVO"
+    }).select().single();
+    if (eIns) {
+      if (/duplicate|unique|llave duplicada/i.test(eIns.message)) {
+        const e = new Error(`Vínculo inmutable: ese proveedor ya está asignado a esa oficina`) as Error & { status?: number };
         e.status = 409; throw e;
       }
-      const { data, error: eIns } = await ctx.service.from(t).insert({
-        proveedor_id: args.proveedor_id, oficina_id: args.oficina_id
-      }).select().single();
-      if (eIns) throw new Error(eIns.message);
-      return data;
-    } catch (e) {
-      if (esTablaFaltante(e)) continue;
-      throw e;
+      throw new Error(eIns.message);
     }
+    return data;
+  } catch (e) {
+    if (!esTablaFaltante(e)) throw e;
+    // Fallback legacy (ids numéricos).
+    for (const t of TABLAS_VINCULO.slice(1)) {
+      try {
+        const num = (v: string) => { const n = parseInt(v, 10); if (!Number.isInteger(n)) throw new Error("IDs legacy deben ser numéricos"); return n; };
+        const { data: ex, error: eSel } = await ctx.service.from(t).select("id")
+          .eq("proveedor_id", num(args.proveedor_id)).eq("oficina_id", num(args.oficina_id)).limit(1);
+        if (eSel) throw new Error(eSel.message);
+        if ((ex ?? []).length > 0) {
+          const e2 = new Error(`Vínculo inmutable: ese proveedor ya está asignado a esa oficina`) as Error & { status?: number };
+          e2.status = 409; throw e2;
+        }
+        const { data, error: eIns } = await ctx.service.from(t).insert({
+          proveedor_id: num(args.proveedor_id), oficina_id: num(args.oficina_id)
+        }).select().single();
+        if (eIns) throw new Error(eIns.message);
+        return data;
+      } catch (e2) {
+        if (!esTablaFaltante(e2)) throw e2;
+      }
+    }
+    throw new Error("Tabla de vínculo proveedor↔oficina no existe: ejecute supabase/schema_sgt360.sql");
   }
-  throw new Error("Tabla de vínculo proveedor↔oficina no existe: cree proveedor_oficina(proveedor_id int, oficina_id int, unique(proveedor_id,oficina_id))");
 }
 
 async function hListarGruposVendedores(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
+  // SGT real con proveedor y oficina para la tabla.
   try {
+    let q = ctx.service.from("mae_grupos_vendedores")
+      .select("*, mae_proveedores(id,interlocutor,ruc,razon_social,nombre_comercial), mae_oficinas_ventas(id,codigo_sap,nombre)")
+      .order("created_at", { ascending: false }).limit(args.limit);
+    if (args.q) q = q.or(`nombre.ilike.%${args.q}%,codigo_sap.ilike.%${args.q}%,id.ilike.%${args.q}%`);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((g: Record<string, any>) => ({
+      id: g.id,
+      codigo: g.codigo_sap,
+      codigo_sap: g.codigo_sap,
+      nombre: g.nombre,
+      grupo: g.nombre,
+      estado: g.estado,
+      created_at: g.created_at,
+      id_proveedor: g.id_proveedor,
+      id_oficina: g.id_oficina,
+      proveedor: g.mae_proveedores?.nombre_comercial || g.mae_proveedores?.razon_social || g.mae_proveedores?.interlocutor || g.id_proveedor,
+      oficina: g.mae_oficinas_ventas?.nombre || g.id_oficina,
+      oficina_sap: g.mae_oficinas_ventas?.codigo_sap ?? null
+    }));
+  } catch (e) {
+    if (!esTablaFaltante(e)) throw e;
     const r = await leerPrimeraTabla(ctx, ["grupos_vendedores", "grupo_vendedores", "asesores"], "*", { col: "id" }, args.limit);
     return r.data;
-  } catch (e) {
-    throw new Error((e as Error).message);
   }
+}
+
+async function hCrearGrupoVendedores(args: z.infer<typeof EsquemaCrearGrupo>, ctx: OperacionContext) {
+  // RESTRICCIÓN: la vinculación debe existir y estar ACTIVA. Proveedor+oficina inmutables tras guardar.
+  const { data: vinc, error: eV } = await ctx.service.from("rel_proveedor_oficinas")
+    .select("id_proveedor,id_oficina,estado").eq("id", args.vinculacion_id).single();
+  if (eV || !vinc) {
+    const e = new Error("Vinculación no encontrada") as Error & { status?: number };
+    e.status = 404; throw e;
+  }
+  const v = vinc as { id_proveedor: string; id_oficina: string; estado: string };
+  if (v.estado !== "ACTIVO") {
+    const e = new Error("Debe existir al menos una vinculación activa entre proveedor y oficina antes de crear un grupo") as Error & { status?: number };
+    e.status = 422; throw e;
+  }
+  const { data: ids } = await ctx.service.from("mae_grupos_vendedores").select("id").limit(500);
+  const id = siguienteId("GVE", ((ids ?? []) as { id?: string }[]).map((r) => r.id));
+  const { data, error } = await ctx.service.from("mae_grupos_vendedores").insert({
+    id,
+    codigo_sap: args.codigo_sap,
+    nombre: args.nombre,
+    id_proveedor: v.id_proveedor,
+    id_oficina: v.id_oficina,
+    estado: "ACTIVO"
+  }).select().single();
+  if (error) {
+    if (/duplicate|unique|llave duplicada/i.test(error.message)) {
+      const e = new Error(`Código SAP ya registrado: ${args.codigo_sap}`) as Error & { status?: number };
+      e.status = 409; throw e;
+    }
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+async function hActualizarGrupoVendedores(args: z.infer<typeof EsquemaActualizarGrupo>, ctx: OperacionContext) {
+  // Proveedor y oficina inmutables: solo nombre y estado.
+  const patch: Record<string, unknown> = {};
+  if (args.nombre !== undefined) patch.nombre = args.nombre;
+  if (args.estado !== undefined) patch.estado = args.estado;
+  if (Object.keys(patch).length === 0) throw new Error("Nada que actualizar (nombre/estado)");
+  const { data, error } = await ctx.service.from("mae_grupos_vendedores").update(patch).eq("id", args.id).select().single();
+  if (error) throw new Error(error.message);
+  return data;
 }
 
 async function hListarAsignaciones(args: z.infer<typeof EsquemaVacio>, ctx: OperacionContext) {
@@ -513,8 +714,13 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarProveedoresSGT: { descripcion: "SGT: lista proveedores (+interlocutor)", roles: TODOS, schema: EsquemaQ, handler: hListarProveedoresSGT },
   crearProveedorSGT: { descripcion: "SGT: crea proveedor (RUC 11 dígitos + interlocutor)", roles: OPERATIVO, schema: EsquemaProveedorSGT, handler: hCrearProveedorSGT },
   listarOficinasVentas: { descripcion: "SGT: lista oficinas de ventas", roles: TODOS, schema: EsquemaQ, handler: hListarOficinasVentas },
+  crearOficina: { descripcion: "SGT: crea oficina de ventas (codigo_sap único)", roles: SOLO_ADMIN, schema: EsquemaCrearOficina, handler: hCrearOficina },
+  actualizarOficina: { descripcion: "SGT: actualiza oficina (codigo_sap inmutable)", roles: SOLO_ADMIN, schema: EsquemaActualizarOficina, handler: hActualizarOficina },
+  listarVinculaciones: { descripcion: "SGT: lista vinculaciones proveedor↔oficina", roles: TODOS, schema: EsquemaQ, handler: hListarVinculaciones },
   vincularProveedorOficina: { descripcion: "SGT: vincula proveedor↔oficina (inmutable)", roles: SOLO_ADMIN, schema: EsquemaVinculo, handler: hVincularProveedorOficina },
   listarGruposVendedores: { descripcion: "SGT: lista grupos de vendedores", roles: TODOS, schema: EsquemaQ, handler: hListarGruposVendedores },
+  crearGrupoVendedores: { descripcion: "SGT: crea grupo (requiere vinculación activa)", roles: SOLO_ADMIN, schema: EsquemaCrearGrupo, handler: hCrearGrupoVendedores },
+  actualizarGrupoVendedores: { descripcion: "SGT: actualiza grupo (proveedor/oficina inmutables)", roles: SOLO_ADMIN, schema: EsquemaActualizarGrupo, handler: hActualizarGrupoVendedores },
   listarAsignaciones: { descripcion: "SGT: lista asignaciones", roles: TODOS, schema: EsquemaVacio, handler: hListarAsignaciones },
   listarRolesSGT: { descripcion: "SGT: lista roles", roles: TODOS, schema: EsquemaVacio, handler: hListarRolesSGT },
   getMatrizPermisos: { descripcion: "SGT: matriz de permisos por rol", roles: TODOS, schema: EsquemaVacio, handler: hGetMatrizPermisos },

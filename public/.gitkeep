@@ -1,0 +1,3 @@
+Colocar aquí el logo oficial como logo-calidda.png (160x60 o mayor).
+El componente components/LogoCalidda.tsx lo sirve desde /logo-calidda.png
+y muestra el texto "Cálidda" como respaldo si el archivo aún no existe.

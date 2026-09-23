@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
+import LogoCalidda from "@/components/LogoCalidda";
 
 const ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: "▦" },
@@ -39,15 +40,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
         <div className="flex items-center gap-3 px-4 lg:px-6 h-16">
           <Link href="/dashboard" className="flex items-center gap-2.5">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#0099D8] text-white font-black text-lg">
-                ✦
-              </span>
+            <span className="inline-flex items-center gap-2">
+              <LogoCalidda priority className="h-9 w-auto" />
               <span className="leading-tight">
-                <span className="block font-extrabold text-[#0099D8] text-lg tracking-tight">
-                  Cálidda
-                </span>
-                <span className="block text-[11px] font-semibold text-slate-500 -mt-0.5">
+                <span className="block text-[11px] font-semibold text-slate-500">
                   Soluciones Hogar
                 </span>
               </span>

@@ -138,16 +138,30 @@ export default function CotizacionDetallePage({
     setAccionando("correo");
     setError(null);
     try {
-      // Backend enviarCorreo: { para, asunto, mensaje, cotizacion_id? }
-      await apiOperacion("enviarCorreo", {
-        para: emailDestino.trim(),
-        asunto: `Cotización ${cot?.codigo ?? cot?.numero ?? id.slice(0, 8)} — Soluciones Hogar`,
-        mensaje: `Estimado cliente, adjuntamos su cotización ${cot?.codigo ?? id} por ${formatoMoneda(cot?.total)}. Estado: ${cot?.estado}.`,
-        cotizacion_id: id,
+      // POST directo con PDF real adjunto (buffer del builder, no texto plano).
+      const res = await fetch(`/api/cotizaciones/${id}/enviar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ para: emailDestino.trim() }),
       });
-      alert("Correo enviado (verifica SMTP en servidor)");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.ok === false) throw new Error(json?.error || "No se pudo enviar");
+      alert(`Correo enviado con PDF adjunto (${json?.datos?.filename ?? "cotizacion.pdf"})`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo enviar");
+    } finally {
+      setAccionando(null);
+    }
+  };
+
+  const regenerarPDF = async () => {
+    setAccionando("regenerar");
+    setError(null);
+    try {
+      await apiOperacion("regenerarPDF", { cotizacion_id: id });
+      window.open(`/api/cotizaciones/${id}/pdf`, "_blank");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo regenerar");
     } finally {
       setAccionando(null);
     }
@@ -192,11 +206,18 @@ export default function CotizacionDetallePage({
           )}
           <div className="ml-auto flex flex-wrap gap-2 no-print">
             <button
+              onClick={regenerarPDF}
+              disabled={!cot || accionando !== null}
+              className="btn-secondary text-sm"
+            >
+              {accionando === "regenerar" ? "Regenerando…" : "Regenerar PDF"}
+            </button>
+            <button
               onClick={descargarPDF}
               disabled={!cot}
               className="btn-secondary text-sm"
             >
-              PDF
+              Ver PDF
             </button>
           </div>
         </div>

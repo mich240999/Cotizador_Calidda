@@ -4,6 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Cálidda | Soluciones Hogar — Gestión comercial y financiamiento",
   description: "Plataforma comercial Soluciones Hogar: clientes, cotizaciones, materiales y administración.",
+  icons: { icon: "/logo-calidda.png" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

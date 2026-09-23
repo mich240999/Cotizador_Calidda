@@ -7,16 +7,21 @@ import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
 function CuentaValidada() {
   const [email, setEmail] = useState<string | null>(null);
-  const [name, setName] = useState<string>("MS ADMIN");
+  const [name, setName] = useState<string>("—");
+  // Sin endpoint getMiPerfil en /api/operacion: rol se muestra como "—".
+  const rol = "—";
   useEffect(() => {
     const sb = getSupabaseBrowser();
     sb.auth.getSession().then(({ data }) => {
       const u = data.session?.user;
       setEmail(u?.email ?? null);
       const meta = (u?.user_metadata ?? {}) as Record<string, unknown>;
-      const n =
-        (meta.full_name as string) || (meta.name as string) || u?.email?.split("@")[0] || "MS ADMIN";
-      setName(String(n).toUpperCase());
+      const raw =
+        (meta.full_name as string) ||
+        (meta.name as string) ||
+        (u?.email ? u.email.split("@")[0] : "") ||
+        "";
+      setName(raw ? String(raw).toUpperCase() : "—");
     });
   }, []);
 
@@ -47,8 +52,8 @@ function CuentaValidada() {
           <div className="mt-6 card p-5 text-left text-sm space-y-2">
             <div className="flex justify-between"><span className="text-slate-400">Nombre</span><span className="font-semibold">{name}</span></div>
             <div className="flex justify-between"><span className="text-slate-400">Email</span><span className="font-semibold truncate ml-4">{email ?? "—"}</span></div>
-            <div className="flex justify-between"><span className="text-slate-400">Rol</span><span className="font-semibold">ADMIN</span></div>
-            <div className="flex justify-between"><span className="text-slate-400">Vigencia</span><span className="font-semibold">2026 activo</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Rol</span><span className="font-semibold">{rol}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Vigencia</span><span className="font-semibold">—</span></div>
           </div>
           <Link href="/dashboard" className="btn-green w-full !py-3 mt-6">
             Entrar a Soluciones Hogar
