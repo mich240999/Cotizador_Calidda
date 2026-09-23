@@ -708,6 +708,244 @@ async function hRegenerarPDF(args: z.infer<typeof EsquemaRegenerar>, ctx: Operac
   };
 }
 
+// ---------------------------------------------------------------- clientes SGT (mae_clientes)
+
+const EsquemaFiltrosClientesSGT = z.object({
+  q: z.string().trim().max(200).optional().default(""),
+  tipo_persona: z.string().trim().max(20).optional().default(""),
+  tipo_doc: z.string().trim().max(20).optional().default(""),
+  estado: z.string().trim().max(20).optional().default(""),
+  revision: z.string().trim().max(20).optional().default(""), // Validado | Pendiente | ""
+  limit: zLimit,
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(25)
+});
+
+const EsquemaCrearClienteSGT = z.object({
+  tipo_persona: z.enum(["NATURAL", "JURIDICA"]),
+  tipo_doc: z.string().trim().min(1).max(20),
+  nro_doc: z.string().trim().min(1).max(20),
+  nombre_razon_social: z.string().trim().min(2).max(300),
+  contacto: z.string().trim().max(300).optional().default(""),
+  correo: z.string().trim().email().max(160).optional().or(z.literal("")).default(""),
+  telefono: z.string().trim().max(30).optional().default(""),
+  codigo_sap: z.string().trim().max(30).optional().default("")
+});
+
+const EsquemaActualizarClienteSGT = z.object({
+  id: z.string().trim().min(1).max(20),
+  nombre_razon_social: z.string().trim().min(2).max(300).optional(),
+  contacto: z.string().trim().max(300).optional(),
+  correo: z.string().trim().email().max(160).optional().or(z.literal("")),
+  telefono: z.string().trim().max(30).optional(),
+  codigo_sap: z.string().trim().max(30).optional(),
+  estado: z.enum(["ACTIVO", "INACTIVO"]).optional()
+});
+
+const EsquemaCargaClientes = z.object({
+  csv: z.string().min(1).max(2_000_000),
+  validar_sap: z.coerce.boolean().optional().default(true)
+});
+const EsquemaValidarClientes = z.object({ csv: z.string().min(1).max(2_000_000) });
+
+/** Revisión comercial: con código SAP queda Validado, sin él queda Pendiente. */
+export function revisionCliente(codigoSap: unknown): "Validado" | "Pendiente" {
+  return String(codigoSap ?? "").trim() ? "Validado" : "Pendiente";
+}
+
+interface FilaClienteCSV {
+  fila: number;
+  tipo_persona: string;
+  tipo_doc: string;
+  nro_doc: string;
+  nombre_razon_social: string;
+  contacto: string;
+  correo: string;
+  telefono: string;
+  codigo_sap: string;
+}
+
+function parseCSVClientes(csv: string): { filas: FilaClienteCSV[]; errores: string[] } {
+  const lineas = csv.replace(/^\uFEFF/, "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const errores: string[] = [];
+  if (lineas.length < 2) return { filas: [], errores: ["Archivo vacío o sin filas de datos"] };
+  const sep = (lineas[0].match(/;/g) ?? []).length >= (lineas[0].match(/,/g) ?? []).length ? ";" : ",";
+  const head = lineas[0].split(sep).map((h) => h.trim().toLowerCase());
+  const idx = (nombres: string[]) => {
+    for (const n of nombres) {
+      const i = head.indexOf(n);
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const iTip = idx(["tipo_persona", "tipopersona", "tipo"]);
+  const iDoc = idx(["tipo_documento", "tipodocumento", "tipo_doc", "documento_tipo"]);
+  const iNro = idx(["numero_documento", "numerodocumento", "nro_doc", "nrodoc", "documento", "dni"]);
+  const iNom = idx(["nombre_razon_social", "nombre", "razon_social", "razonsocial", "cliente"]);
+  const iCon = idx(["contacto", "nombre_contacto"]);
+  const iCor = idx(["correo", "email", "mail"]);
+  const iTel = idx(["telefono", "teléfono", "celular"]);
+  const iSap = idx(["codigo_sap", "codigosap", "sap", "codigo_cliente_sap"]);
+  if (iNro < 0 || iNom < 0) {
+    return { filas: [], errores: ["Cabecera inválida: se requiere al menos numero_documento y nombre_razon_social (usa la plantilla oficial)"] };
+  }
+  if (lineas.length - 1 > 500) {
+    return { filas: [], errores: ["Máximo 500 filas por archivo"] };
+  }
+  const filas: FilaClienteCSV[] = [];
+  lineas.slice(1).forEach((ln, k) => {
+    const c = ln.split(sep).map((x) => x.trim());
+    const nro = c[iNro] ?? "";
+    const nom = c[iNom] ?? "";
+    if (!nro && !nom) return; // línea vacía
+    const tip = (c[iTip] ?? "").toUpperCase() || "NATURAL";
+    if (!["NATURAL", "JURIDICA"].includes(tip)) {
+      errores.push(`Fila ${k + 2}: tipo_persona debe ser NATURAL o JURIDICA`);
+      return;
+    }
+    if (!nro) { errores.push(`Fila ${k + 2}: numero_documento obligatorio`); return; }
+    if (nom.length < 2) { errores.push(`Fila ${k + 2}: nombre_razon_social muy corto`); return; }
+    const cor = c[iCor] ?? "";
+    if (cor && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cor)) { errores.push(`Fila ${k + 2}: correo inválido`); return; }
+    filas.push({
+      fila: k + 2,
+      tipo_persona: tip,
+      tipo_doc: c[iDoc] || "DNI",
+      nro_doc: nro,
+      nombre_razon_social: nom,
+      contacto: c[iCon] ?? "",
+      correo: cor,
+      telefono: c[iTel] ?? "",
+      codigo_sap: c[iSap] ?? ""
+    });
+  });
+  return { filas, errores };
+}
+
+async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT>, ctx: OperacionContext) {
+  try {
+    const desde = (args.page - 1) * args.pageSize;
+    let q = ctx.service.from("mae_clientes").select("*", { count: "exact" }).order("created_at", { ascending: false });
+    if (args.q) q = q.or(`nombre_razon_social.ilike.%${args.q}%,nro_doc.ilike.%${args.q}%,codigo_sap.ilike.%${args.q}%,contacto.ilike.%${args.q}%`);
+    if (args.tipo_persona) q = q.eq("tipo_persona", args.tipo_persona.toUpperCase());
+    if (args.tipo_doc) q = q.eq("tipo_doc", args.tipo_doc.toUpperCase());
+    if (args.estado) q = q.eq("estado", args.estado.toUpperCase());
+    if (args.revision === "Validado") q = q.not("codigo_sap", "is", null).neq("codigo_sap", "");
+    if (args.revision === "Pendiente") q = q.or("codigo_sap.is.null,codigo_sap.eq.");
+    const { data, error, count } = await q.range(desde, desde + args.pageSize - 1);
+    if (error) throw new Error(error.message);
+    const rows = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+      ...r,
+      revision_label: revisionCliente(r.codigo_sap)
+    }));
+    return { rows, total: count ?? rows.length, page: args.page, pageSize: args.pageSize };
+  } catch (e) {
+    if (!esTablaFaltante(e)) throw e;
+    // Fallback tabla base.
+    const r = await leerPrimeraTabla(ctx, ["clientes"], "*", { col: "created_at" }, args.limit);
+    const rows = (r.data as Record<string, unknown>[]).map((c) => ({
+      id: c.id,
+      tipo_persona: "NATURAL",
+      tipo_doc: "DNI",
+      nro_doc: c.dni ?? c.documento ?? "",
+      nombre_razon_social: c.nombres ?? c.nombre ?? "",
+      contacto: "",
+      correo: c.email ?? "",
+      telefono: c.telefono ?? "",
+      codigo_sap: null,
+      revision_label: "Pendiente" as const,
+      estado: "ACTIVO"
+    }));
+    return { rows, total: rows.length, page: 1, pageSize: args.pageSize };
+  }
+}
+
+async function hCrearClienteSGT(args: z.infer<typeof EsquemaCrearClienteSGT>, ctx: OperacionContext) {
+  const { data: ex } = await ctx.service.from("mae_clientes").select("id").limit(500);
+  const id = siguienteId("CLI", ((ex ?? []) as { id?: string }[]).map((r) => r.id), 6);
+  const { data, error } = await ctx.service.from("mae_clientes").insert({
+    id,
+    tipo_persona: args.tipo_persona,
+    tipo_doc: args.tipo_doc.toUpperCase(),
+    nro_doc: args.nro_doc,
+    nombre_razon_social: args.nombre_razon_social,
+    contacto: args.contacto || null,
+    correo: args.correo || null,
+    telefono: args.telefono || null,
+    codigo_sap: args.codigo_sap || null,
+    estado: "ACTIVO"
+  }).select().single();
+  if (error) {
+    if (/duplicate|unique|llave duplicada/i.test(error.message)) {
+      const e = new Error(`Documento ya registrado: ${args.tipo_doc} ${args.nro_doc}`) as Error & { status?: number };
+      e.status = 409; throw e;
+    }
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+async function hActualizarClienteSGT(args: z.infer<typeof EsquemaActualizarClienteSGT>, ctx: OperacionContext) {
+  const patch: Record<string, unknown> = {};
+  if (args.nombre_razon_social !== undefined) patch.nombre_razon_social = args.nombre_razon_social;
+  if (args.contacto !== undefined) patch.contacto = args.contacto || null;
+  if (args.correo !== undefined) patch.correo = args.correo || null;
+  if (args.telefono !== undefined) patch.telefono = args.telefono || null;
+  if (args.codigo_sap !== undefined) patch.codigo_sap = args.codigo_sap || null;
+  if (args.estado !== undefined) patch.estado = args.estado;
+  if (Object.keys(patch).length === 0) throw new Error("Nada que actualizar");
+  const { data, error } = await ctx.service.from("mae_clientes").update(patch).eq("id", args.id).select().single();
+  if (error) {
+    if (/duplicate|unique|llave duplicada/i.test(error.message)) {
+      const e = new Error("Código SAP ya asignado a otro cliente") as Error & { status?: number };
+      e.status = 409; throw e;
+    }
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+async function hValidarArchivoClientes(args: z.infer<typeof EsquemaValidarClientes>) {
+  const { filas, errores } = parseCSVClientes(args.csv);
+  return { total: filas.length + errores.length, validas: filas.length, errores };
+}
+
+async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, ctx: OperacionContext) {
+  const { filas, errores } = parseCSVClientes(args.csv);
+  let insertadas = 0;
+  const duenos: string[] = [...errores];
+  const { data: ex } = await ctx.service.from("mae_clientes").select("id").limit(2000);
+  let corr = ((ex ?? []) as { id?: string }[]).map((r) => r.id);
+  for (const f of filas) {
+    try {
+      const id = siguienteId("CLI", corr, 6);
+      const { error } = await ctx.service.from("mae_clientes").insert({
+        id,
+        tipo_persona: f.tipo_persona,
+        tipo_doc: f.tipo_doc.toUpperCase(),
+        nro_doc: f.nro_doc,
+        nombre_razon_social: f.nombre_razon_social,
+        contacto: f.contacto || null,
+        correo: f.correo || null,
+        telefono: f.telefono || null,
+        codigo_sap: f.codigo_sap || null,
+        estado: "ACTIVO"
+      });
+      if (error) throw new Error(error.message);
+      corr = [...corr, id];
+      insertadas++;
+    } catch (e) {
+      duenos.push(`Fila ${f.fila}: ${(e as Error).message}`);
+    }
+  }
+  return {
+    total: filas.length,
+    insertadas,
+    validacion_sap: args.validar_sap ? "auto" : "manual",
+    errores: duenos
+  };
+}
+
 // ---------------------------------------------------------------- mapa
 
 export const OPERACIONES_SGT: Record<string, DefOp> = {
@@ -721,6 +959,11 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarGruposVendedores: { descripcion: "SGT: lista grupos de vendedores", roles: TODOS, schema: EsquemaQ, handler: hListarGruposVendedores },
   crearGrupoVendedores: { descripcion: "SGT: crea grupo (requiere vinculación activa)", roles: SOLO_ADMIN, schema: EsquemaCrearGrupo, handler: hCrearGrupoVendedores },
   actualizarGrupoVendedores: { descripcion: "SGT: actualiza grupo (proveedor/oficina inmutables)", roles: SOLO_ADMIN, schema: EsquemaActualizarGrupo, handler: hActualizarGrupoVendedores },
+  listarClientesSGT: { descripcion: "SGT: lista clientes con filtros y paginación", roles: TODOS, schema: EsquemaFiltrosClientesSGT, handler: hListarClientesSGT },
+  crearClienteSGT: { descripcion: "SGT: crea cliente (documento único, SAP opcional)", roles: OPERATIVO, schema: EsquemaCrearClienteSGT, handler: hCrearClienteSGT },
+  actualizarClienteSGT: { descripcion: "SGT: actualiza cliente (estado/SAP/datos)", roles: OPERATIVO, schema: EsquemaActualizarClienteSGT, handler: hActualizarClienteSGT },
+  validarArchivoClientes: { descripcion: "SGT: valida CSV/XLSX de clientes sin guardar", roles: OPERATIVO, schema: EsquemaValidarClientes, handler: hValidarArchivoClientes },
+  cargaMasivaClientes: { descripcion: "SGT: carga masiva clientes (máx 500)", roles: OPERATIVO, schema: EsquemaCargaClientes, handler: hCargaMasivaClientes },
   listarAsignaciones: { descripcion: "SGT: lista asignaciones", roles: TODOS, schema: EsquemaVacio, handler: hListarAsignaciones },
   listarRolesSGT: { descripcion: "SGT: lista roles", roles: TODOS, schema: EsquemaVacio, handler: hListarRolesSGT },
   getMatrizPermisos: { descripcion: "SGT: matriz de permisos por rol", roles: TODOS, schema: EsquemaVacio, handler: hGetMatrizPermisos },

@@ -49,8 +49,19 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     let vivo = true;
     (async () => {
       // Carga tolerante: si un catálogo falla, los otros igual se muestran.
+      // Clientes: SGT primero (mae_clientes), fallback a tabla base.
+      const qp: Promise<unknown> = (async () => {
+        try {
+          const r = await apiOperacion<unknown>("listarClientesSGT", { limit: 500, pageSize: 500 });
+          if (r && typeof r === "object" && Array.isArray((r as { rows?: unknown }).rows)) {
+            return (r as { rows: unknown }).rows;
+          }
+          if (Array.isArray(r)) return r;
+        } catch { /* fallback base */ }
+        return apiOperacion<unknown>("listarClientes", { limit: 500 });
+      })();
       const [rc, rp, rm] = await Promise.allSettled([
-        apiOperacion<unknown>("listarClientes", { limit: 200 }),
+        qp,
         apiOperacion<unknown>("listarProveedoresSGT", { limit: 200 }),
         apiOperacion<unknown>("listarMaterialesSGT", { limit: 200 }),
       ]);
