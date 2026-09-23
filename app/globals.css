@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
+:root {
+  --calidda-blue: #0099d8;
+  --calidda-green: #00a651;
+  --calidda-bg: #f4f7fa;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-[#F4F7FA] text-slate-900 antialiased;
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+.card {
+  @apply bg-white rounded-2xl shadow-sm border border-slate-200;
+}
+
+.btn-green {
+  @apply inline-flex items-center justify-center gap-2 bg-[#00A651] hover:bg-[#008844] text-white font-semibold px-4 py-2.5 rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed text-sm;
+}
+
+.btn-white {
+  @apply inline-flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 font-semibold px-4 py-2.5 rounded-xl border border-slate-300 transition disabled:opacity-50 text-sm;
+}
+
+.btn-blue {
+  @apply inline-flex items-center justify-center gap-2 bg-[#0099D8] hover:bg-[#0077A8] text-white font-semibold px-4 py-2.5 rounded-xl transition text-sm;
+}
+
+.input {
+  @apply w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0099D8] focus:border-[#0099D8] bg-white;
+}
+
+.label {
+  @apply block text-xs font-semibold text-slate-500 mb-1;
+}
+
+.table-wrap {
+  @apply overflow-x-auto rounded-2xl border border-slate-200 bg-white;
+}
+
+table.tabla {
+  @apply min-w-full text-sm;
+}
+
+table.tabla thead {
+  @apply bg-slate-50 text-slate-500 uppercase text-[11px] tracking-wide;
+}
+
+table.tabla th {
+  @apply px-4 py-3 text-left font-semibold whitespace-nowrap;
+}
+
+table.tabla td {
+  @apply px-4 py-3 border-t border-slate-100 align-middle;
+}
+
+table.tabla tbody tr:hover {
+  @apply bg-slate-50/70;
+}
