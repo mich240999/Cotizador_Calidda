@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { cuotaFrancesa, tablaSimulacion, temDesdeTea, PLAZOS_SIMULACION } from "./financiamiento";
+import { cuotaFrancesa, tablaSimulacion, PLAZOS_SIMULACION } from "./financiamiento";
 
 /** SOLO SERVER: construcción del PDF estilo captura COT-AMCA-00012.
  *  Fuente 100% BD SGT360: ven_cotizaciones + ven_cotizacion_items +
@@ -24,10 +24,11 @@ export interface DatosPdf {
   items: { idx: number; material: string; cant: number; punit: number; dscto: number; neto: number }[];
 }
 
-const AZUL = [0, 51, 102] as const;
-const ROJO = [227, 6, 19] as const;
+const TEAL = [0, 133, 173] as const;
+const VERDE = [0, 150, 90] as const;
 const AMARILLO = [255, 193, 7] as const;
-const GRIS = [245, 245, 245] as const;
+const GRIS_BG = [244, 247, 250] as const;
+const GRIS_LINEA = [210, 218, 226] as const;
 
 const CONSIDERACIONES = [
   "1. Precios en soles, incluyen IGV salvo indicación contraria.",
@@ -213,163 +214,230 @@ export async function obtenerDatosPdf(service: SupabaseClient, id: string): Prom
 
 export function buildCotizacionPdf(d: DatosPdf): jsPDF {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
-  const W = 210;
+  const W = 210, ML = 14, MR = W - 14, ANCHO = W - 28;
   const fmt = (n: number) => `S/ ${Number(n || 0).toFixed(2)}`;
   const pct = (n: number) => `${Number(n || 0).toFixed(0)}%`;
+  const gris = (v: number) => doc.setTextColor(v, v, v);
 
-  // ---- header: logo Cálidda + COTIZACIÓN + número + Fecha/Estado ----
-  doc.setFillColor(...AZUL);
-  doc.rect(0, 0, W, 26, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold"); doc.setFontSize(16);
-  doc.text("Cálidda", 14, 11);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-  doc.text("Soluciones Hogar", 14, 17);
-  doc.setFont("helvetica", "bold"); doc.setFontSize(13);
-  doc.text(`COTIZACIÓN ${d.codigo}`, W - 14, 11, { align: "right" });
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-  doc.text(`Fecha: ${d.fecha}   Estado: ${d.estado}`, W - 14, 17, { align: "right" });
-  doc.setTextColor(0, 0, 0);
-
-  let y = 33;
-  const seccion = (t: string) => {
-    doc.setFillColor(...GRIS);
-    doc.rect(14, y - 5, W - 28, 8, "F");
-    doc.setFont("helvetica", "bold"); doc.setFontSize(10);
-    doc.text(t, 16, y);
-    y += 6;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+  const linea = (y: number, grosor = 0.3, color: readonly number[] = GRIS_LINEA) => {
+    doc.setDrawColor(color[0], color[1], color[2]);
+    doc.setLineWidth(grosor);
+    doc.line(ML, y, MR, y);
   };
 
-  // ---- CLIENTE Y CONTACTO COMERCIAL ----
-  seccion("CLIENTE Y CONTACTO COMERCIAL");
-  const provLinea = [d.proveedor ?? "—", d.proveedorRuc ? `RUC ${d.proveedorRuc}` : ""].filter(Boolean).join(" · ");
-  const asesorLinea = [d.asesor ?? "—", d.asesorTelefono && d.asesorTelefono !== "—" ? `Tel. ${d.asesorTelefono}` : "", d.asesorEmail && d.asesorEmail !== "—" ? d.asesorEmail : ""].filter(Boolean).join(" · ");
-  const filasCli: [string, string][] = [
-    ["CLIENTE:", d.clienteNombre ?? "—"],
-    ["DOCUMENTO:", d.clienteDoc ?? "—"],
-    ["CORREO DEL CLIENTE:", d.clienteEmail ?? "—"],
-    ["TELÉFONO:", d.clienteTel ?? "—"],
-    ["PROVEEDOR:", provLinea || "—"],
-    ["ASESOR-CONTACTO:", asesorLinea || "—"]
+  const tituloSeccion = (t: string, y: number) => {
+    doc.setFillColor(...TEAL);
+    doc.rect(ML, y - 4.2, 1.6, 6, "F");
+    doc.setTextColor(...TEAL);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9.5);
+    doc.text(t, ML + 4, y);
+    doc.setTextColor(0, 0, 0);
+    return y + 5;
+  };
+
+  // ---- header blanco estilo modelo: logo izquierda, COTIZACIÓN derecha ----
+  doc.setTextColor(...TEAL);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(14);
+  doc.text("Cálidda", ML, 12);
+  gris(120); doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
+  doc.text("Soluciones Hogar", ML, 17);
+  doc.setTextColor(...TEAL);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(13);
+  doc.text("COTIZACIÓN", MR, 11, { align: "right" });
+  gris(80); doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+  doc.text(d.codigo, MR, 16, { align: "right" });
+  doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
+  doc.text(`Fecha: ${d.fecha} · Estado: ${d.estado}`, MR, 20.5, { align: "right" });
+  doc.setTextColor(0, 0, 0);
+  doc.setDrawColor(...VERDE); doc.setLineWidth(0.8);
+  doc.line(ML, 24, MR, 24);
+
+  let y = 31;
+
+  // ---- CLIENTE Y CONTACTO COMERCIAL: tabla 2 columnas con bordes ----
+  y = tituloSeccion("CLIENTE Y CONTACTO COMERCIAL", y);
+  const celdaCli = (x: number, w: number, etiqueta: string, valor: string, yy: number) => {
+    gris(130); doc.setFont("helvetica", "normal"); doc.setFontSize(6.5);
+    doc.text(etiqueta, x + 2, yy + 3.5);
+    doc.setTextColor(0, 0, 0); doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
+    const ls = doc.splitTextToSize(String(valor || "—").slice(0, 90), w - 4) as string[];
+    doc.text(ls.slice(0, 2), x + 2, yy + 7.5);
+    return Math.max(1, Math.min(2, ls.length)) * 4 + 4.5;
+  };
+  const filasCli: [string, string, string, string][] = [
+    ["CLIENTE", d.clienteNombre ?? "—", "DOCUMENTO", d.clienteDoc ?? "—"],
+    ["CORREO DEL CLIENTE", d.clienteEmail ?? "—", "TELÉFONO DEL CLIENTE", d.clienteTel ?? "—"],
+    ["PROVEEDOR", [d.proveedor ?? "—", d.proveedorRuc ? `RUC ${d.proveedorRuc}` : ""].filter(Boolean).join(" · "), "ASESOR-CONTACTO",
+      [d.asesor ?? "—", d.asesorTelefono && d.asesorTelefono !== "—" ? d.asesorTelefono : "", d.asesorEmail && d.asesorEmail !== "—" ? d.asesorEmail : ""].filter(Boolean).join(" · ")],
   ];
-  for (const [k, v] of filasCli) {
-    const lineas = doc.splitTextToSize(String(v).slice(0, 160), 120) as string[];
-    doc.setFont("helvetica", "bold"); doc.text(k, 16, y);
-    doc.setFont("helvetica", "normal"); doc.text(lineas, 62, y);
-    y += Math.max(1, lineas.length) * 4.5;
+  const colW = ANCHO / 2;
+  const topCli = y;
+  const alturas = filasCli.map(([a, b, c, e]) =>
+    Math.max(celdaAlto(a, b, colW), celdaAlto(c, e, colW)));
+  function celdaAlto(et: string, v: string, w: number) {
+    const ls = doc.splitTextToSize(String(v || "—").slice(0, 90), w - 4) as string[];
+    return Math.max(1, Math.min(2, ls.length)) * 4 + 4.5;
+  }
+  doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
+  let yy = topCli;
+  const dibujadas: number[] = [];
+  for (let i = 0; i < filasCli.length; i++) {
+    dibujadas.push(yy);
+    yy += alturas[i];
+  }
+  doc.rect(ML, topCli, ANCHO, yy - topCli);
+  doc.line(ML + colW, topCli, ML + colW, yy);
+  for (let i = 1; i < filasCli.length; i++) doc.line(ML, dibujadas[i], MR, dibujadas[i]);
+  for (let i = 0; i < filasCli.length; i++) {
+    const [a, b, c, e] = filasCli[i];
+    celdaCli(ML, colW, a, b, dibujadas[i]);
+    celdaCli(ML + colW, colW, c, e, dibujadas[i]);
   }
   if (d.clienteContacto) {
-    doc.setFont("helvetica", "bold"); doc.text("CONTACTO:", 16, y);
-    doc.setFont("helvetica", "normal"); doc.text(String(d.clienteContacto).slice(0, 80), 62, y);
-    y += 4.5;
+    yy += 2;
+    gris(130); doc.setFont("helvetica", "normal"); doc.setFontSize(6.5);
+    doc.text("CONTACTO", ML, yy);
+    doc.setTextColor(0, 0, 0); doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
+    doc.text(String(d.clienteContacto).slice(0, 100), ML + 22, yy);
+    yy += 4;
   }
-  y += 2;
+  y = yy + 5;
 
-  // ---- MATERIALES Y SERVICIOS (descripción multilínea) ----
-  seccion("MATERIALES Y SERVICIOS");
-  const cols = [14, 24, 118, 134, 154, 172]; // ITEM/MATERIAL/CANT/P.UNIT/DSCTO/NETO
-  doc.setFont("helvetica", "bold");
-  doc.text("ITEM", cols[0], y); doc.text("MATERIAL", cols[1], y);
-  doc.text("CANT", cols[2], y); doc.text("P.UNITARIO", cols[3], y);
-  doc.text("DSCTO", cols[4], y); doc.text("NETO", cols[5], y);
-  y += 2; doc.line(14, y, W - 14, y); y += 4;
-  doc.setFont("helvetica", "normal");
+  // ---- MATERIALES Y SERVICIOS: tabla con bordes ----
+  y = tituloSeccion("MATERIALES Y SERVICIOS", y);
+  const cx = [ML, ML + 12, ML + 108, ML + 126, ML + 148, ML + 162, MR]; // ITEM/MAT/CANT/PUNIT/DSCTO/NETO
+  const headM = ["ITEM", "MATERIAL", "CANT.", "P. UNITARIO", "DSCTO.", "NETO"];
+  const dibujaHeadMat = (yyy: number) => {
+    doc.setFillColor(...GRIS_BG);
+    doc.rect(ML, yyy, ANCHO, 6, "F");
+    doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
+    doc.rect(ML, yyy, ANCHO, 6);
+    for (let i = 1; i < cx.length - 1; i++) doc.line(cx[i], yyy, cx[i], yyy + 6);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); gris(60);
+    headM.forEach((h, i) => doc.text(h, cx[i] + 1.5, yyy + 4.2));
+    doc.setTextColor(0, 0, 0);
+    return yyy + 6;
+  };
+  y = dibujaHeadMat(y);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8);
   for (const it of d.items) {
-    const matLineas = doc.splitTextToSize(it.material || "—", 90) as string[];
-    const h = Math.max(1, matLineas.length) * 4.2 + 1;
-    if (y + h > 250) { doc.addPage(); y = 18; }
-    doc.text(String(it.idx), cols[0], y);
-    doc.text(matLineas, cols[1], y);
-    doc.text(String(it.cant), cols[2], y);
-    doc.text(Number(it.punit).toFixed(2), cols[3], y);
-    doc.text(pct(it.dscto), cols[4], y);
-    doc.text(Number(it.neto).toFixed(2), cols[5], y);
+    const matLineas = doc.splitTextToSize(it.material || "—", cx[2] - cx[1] - 3) as string[];
+    const h = Math.max(1, matLineas.length) * 4 + 2;
+    if (y + h > 255) {
+      doc.setDrawColor(...GRIS_LINEA); doc.line(ML, y, MR, y);
+      doc.addPage(); y = 18; y = dibujaHeadMat(y);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+    }
+    const y0 = y;
+    doc.text(String(it.idx), cx[0] + 1.5, y + 4);
+    doc.text(matLineas, cx[1] + 1.5, y + 4);
+    doc.text(String(it.cant), cx[2] + 1.5, y + 4);
+    doc.text(Number(it.punit).toFixed(2), cx[3] + 1.5, y + 4);
+    doc.text(pct(it.dscto), cx[4] + 1.5, y + 4);
+    doc.setFont("helvetica", "bold");
+    doc.text(Number(it.neto).toFixed(2), cx[5] + 1.5, y + 4);
+    doc.setFont("helvetica", "normal");
     y += h;
-  }
-  y += 2; doc.line(14, y, W - 14, y); y += 6;
-  doc.setFont("helvetica", "bold");
-  doc.text(`Subtotal: ${fmt(d.subtotal)}`, W - 14, y, { align: "right" }); y += 5;
-  doc.text(`Descuento: ${fmt(d.descuento)}`, W - 14, y, { align: "right" }); y += 5;
-  doc.setFontSize(12);
-  doc.text(`Total: ${fmt(d.total)}`, W - 14, y, { align: "right" });
-  doc.setFontSize(9);
-  y += 8;
-
-  // ---- página 2: FINANCIAMIENTO ----
-  doc.addPage();
-  y = 18;
-  doc.setFillColor(...AZUL);
-  doc.rect(0, 0, W, 18, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold"); doc.setFontSize(12);
-  doc.text(`FINANCIAMIENTO · ${d.codigo}`, 14, 11);
-  doc.setTextColor(0, 0, 0);
-  doc.setFontSize(9); doc.setFont("helvetica", "normal");
-  seccion("FINANCIAMIENTO");
-  const tem = temDesdeTea(d.tea);
-  const resumenFin: [string, string][] = [
-    ["CUOTA INICIAL:", fmt(d.cuotaInicial)],
-    ["CAPITAL:", fmt(d.capital)],
-    ["TEA:", `${(d.tea * 100).toFixed(2)}% (TEM ${(tem * 100).toFixed(3)}%)`],
-    ["PLAZO:", `${d.plazo} meses`],
-    ["CUOTA MENSUAL:", fmt(d.cuotaMensual)],
-  ];
-  for (const [k, v] of resumenFin) {
-    doc.setFont("helvetica", "bold"); doc.text(k, 16, y);
-    doc.setFont("helvetica", "normal"); doc.text(String(v), 62, y);
-    y += 4.5;
+    doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
+    doc.line(ML, y, MR, y);
+    for (let i = 1; i < cx.length - 1; i++) doc.line(cx[i], y0, cx[i], y);
   }
   y += 3;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+  doc.text("Subtotal:", MR - 52, y); doc.text(fmt(d.subtotal), MR, y, { align: "right" }); y += 4.5;
+  doc.text("Descuento:", MR - 52, y); doc.text(fmt(d.descuento), MR, y, { align: "right" }); y += 4.5;
+  doc.setDrawColor(...VERDE); doc.setLineWidth(0.5); doc.line(MR - 62, y, MR, y); y += 4.5;
+  doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+  doc.text("Total:", MR - 52, y); doc.text(fmt(d.total), MR, y, { align: "right" });
+  doc.setFontSize(8.5);
+  y += 8;
 
-  doc.setFont("helvetica", "bold");
-  doc.text("CUOTAS", 16, y); doc.text("VALOR CUOTA", 130, y);
-  y += 2; doc.line(14, y, W - 14, y); y += 4;
-  doc.setFont("helvetica", "normal");
-  for (const f of d.tabla) {
+  // ---- FINANCIAMIENTO: 5 cajas + matriz horizontal con elegida en verde ----
+  if (y > 230) { doc.addPage(); y = 18; }
+  y = tituloSeccion("FINANCIAMIENTO", y);
+  const boxW = ANCHO / 5;
+  const boxes: [string, string][] = [
+    ["CUOTA INICIAL", fmt(d.cuotaInicial)],
+    ["CAPITAL", fmt(d.capital)],
+    ["TEA", `${(d.tea * 100).toFixed(2)}%`],
+    ["PLAZO", `${d.plazo} cuotas`],
+    ["CUOTA MENSUAL", fmt(d.cuotaMensual)],
+  ];
+  const yBox = y;
+  doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
+  boxes.forEach(([lab, val], i) => {
+    const x = ML + i * boxW;
+    doc.rect(x, yBox, boxW, 11);
+    gris(130); doc.setFont("helvetica", "normal"); doc.setFontSize(6.5);
+    doc.text(lab, x + 2, yBox + 3.8);
+    doc.setTextColor(0, 0, 0); doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
+    doc.text(String(val).slice(0, 24), x + 2, yBox + 8);
+  });
+  y = yBox + 15;
+
+  const nCuotas = d.tabla.length;
+  const c0 = 30, cw = (ANCHO - c0) / Math.max(1, nCuotas);
+  const headY = y;
+  doc.setFillColor(...GRIS_BG);
+  doc.rect(ML, headY, ANCHO, 6, "F");
+  doc.setDrawColor(...GRIS_LINEA); doc.rect(ML, headY, ANCHO, 12);
+  doc.line(ML, headY + 6, MR, headY + 6);
+  doc.line(ML + c0, headY, ML + c0, headY + 12);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); gris(60);
+  doc.text("CUOTAS", ML + 2, headY + 4.2);
+  doc.text("VALOR CUOTA", ML + 2, headY + 10.2);
+  doc.setTextColor(0, 0, 0);
+  d.tabla.forEach((f, i) => {
+    const x = ML + c0 + i * cw;
     const elegida = f.plazo === d.plazo;
     if (elegida) {
-      doc.setFillColor(...ROJO);
-      doc.rect(14, y - 3.6, W - 28, 6, "F");
+      doc.setFillColor(...VERDE);
+      doc.rect(x, headY, cw, 12, "F");
       doc.setTextColor(255, 255, 255);
-      doc.setFont("helvetica", "bold");
     }
-    doc.text(`${f.plazo} cuotas${elegida ? "  · Elegida" : ""}`, 16, y);
-    doc.text(fmt(f.cuota), 130, y);
-    if (elegida) { doc.setTextColor(0, 0, 0); doc.setFont("helvetica", "normal"); }
-    y += 5.5;
-  }
-  y += 4;
+    if (i > 0) { doc.setDrawColor(...GRIS_LINEA); doc.line(x, headY, x, headY + 12); }
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8);
+    const cxC = x + cw / 2;
+    doc.text(String(f.plazo), cxC, headY + 4.2, { align: "center" });
+    doc.setFont("helvetica", elegida ? "bold" : "normal"); doc.setFontSize(7);
+    doc.text(fmt(f.cuota), cxC, headY + 10.2, { align: "center" });
+    if (elegida) doc.setTextColor(0, 0, 0);
+  });
+  y = headY + 16;
 
-  doc.setFont("helvetica", "bold"); doc.setFontSize(10);
-  doc.text("CONSIDERACIONES", 14, y); y += 5;
-  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+  // ---- CONSIDERACIONES + banda amarilla ----
+  if (y > 225) { doc.addPage(); y = 18; }
+  y = tituloSeccion("CONSIDERACIONES", y);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8);
   for (const c of CONSIDERACIONES) {
-    const ls = doc.splitTextToSize(c, W - 28);
-    if (y + ls.length * 4 > 258) { doc.addPage(); y = 18; }
-    doc.text(ls, 14, y);
-    y += ls.length * 4 + 1;
+    const ls = doc.splitTextToSize(c, ANCHO) as string[];
+    if (y + ls.length * 3.8 > 258) { doc.addPage(); y = 18; }
+    doc.text(ls, ML, y);
+    y += ls.length * 3.8 + 1;
   }
-  y += 4;
-  // Banda amarilla: ESTA COTIZACIÓN NO ES UN CONTRATO
+  y += 3;
   doc.setFillColor(...AMARILLO);
-  doc.rect(14, y - 4, W - 28, 9, "F");
+  doc.rect(ML, y - 4, ANCHO, 8, "F");
+  doc.setDrawColor(200, 150, 0); doc.setLineWidth(0.4);
+  doc.rect(ML, y - 4, ANCHO, 8);
   doc.setTextColor(0, 0, 0);
-  doc.setFont("helvetica", "bold"); doc.setFontSize(10);
-  doc.text("ESTA COTIZACIÓN NO ES UN CONTRATO", W / 2, y + 2.5, { align: "center" });
+  doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+  doc.text("ESTA COTIZACIÓN NO ES UN CONTRATO", W / 2, y + 1.8, { align: "center" });
+  y += 8;
   if (d.observaciones) {
-    y += 10;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
-    const lo = doc.splitTextToSize(`Observaciones: ${d.observaciones}`, W - 28);
-    if (y + lo.length * 4 > 280) { doc.addPage(); y = 18; }
-    doc.text(lo, 14, y);
+    y += 2;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+    const lo = doc.splitTextToSize(`Observaciones: ${d.observaciones}`, ANCHO) as string[];
+    if (y + lo.length * 3.8 > 280) { doc.addPage(); y = 18; }
+    doc.text(lo, ML, y);
+    y += lo.length * 3.8;
   }
 
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
     doc.setPage(i);
-    doc.setFont("helvetica", "italic"); doc.setFontSize(7.5);
-    doc.setTextColor(100, 100, 100);
+    doc.setFont("helvetica", "italic"); doc.setFontSize(7);
+    gris(120);
     doc.text(`Documento generado por Soluciones Hogar Cálidda · ${d.codigo} · pág. ${i}/${n}`, W / 2, 290, { align: "center" });
     doc.setTextColor(0, 0, 0);
   }
