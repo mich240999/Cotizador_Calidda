@@ -19,10 +19,11 @@ type Material = {
 
 function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onProcesado: () => void }) {
   const [texto, setTexto] = useState("");
+  const [archivo, setArchivo] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [trabajando, setTrabajando] = useState(false);
 
-  const descargarPlantilla = () => {
+  const descargarPlantillaCSV = () => {
     const csv = "codigo;precio;vigente_desde;vigente_hasta\nMAT-001;1299.00;01.01.2026;\n";
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -33,10 +34,45 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
     URL.revokeObjectURL(url);
   };
 
+  const descargarPlantillaXLSX = async () => {
+    const XLSX = await import("xlsx");
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["codigo", "precio", "vigente_desde", "vigente_hasta"],
+      ["MAT-001", 1299.0, "01.01.2026", ""],
+    ]);
+    ws["!cols"] = [{ wch: 14 }, { wch: 12 }, { wch: 16 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Tarifas");
+    XLSX.writeFile(wb, "plantilla_tarifas.xlsx");
+  };
+
+  const leerArchivo = async (f: File) => {
+    setMsg(null);
+    setArchivo(f.name);
+    try {
+      if (/\.xlsx?$|\.xls$/i.test(f.name) || f.type.includes("spreadsheet") || f.type.includes("excel")) {
+        const XLSX = await import("xlsx");
+        const buf = await f.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        // Primera hoja -> CSV con ; como separador (mismo formato del backend).
+        const csv = XLSX.utils.sheet_to_csv(ws, { FS: ";" });
+        setTexto(csv.trim());
+        setMsg(`Archivo ${f.name} leído. Revisa el contenido y pulsa Procesar.`);
+      } else {
+        const t = await f.text();
+        setTexto(t.trim());
+        setMsg(`Archivo ${f.name} leído. Revisa el contenido y pulsa Procesar.`);
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? `No se pudo leer el archivo: ${e.message}` : "No se pudo leer el archivo");
+    }
+  };
+
   const procesar = async () => {
     setMsg(null);
     if (!texto.trim()) {
-      setMsg("Pega el contenido CSV (cabecera codigo;precio;vigente_desde;vigente_hasta)");
+      setMsg("Selecciona un archivo CSV/XLSX o pega el contenido (cabecera codigo;precio;vigente_desde;vigente_hasta)");
       return;
     }
     setTrabajando(true);
@@ -54,12 +90,24 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
       <div className="bg-white rounded-2xl w-full max-w-lg p-6">
-        <h2 className="text-lg font-extrabold">Carga masiva CSV</h2>
+        <h2 className="text-lg font-extrabold">Carga masiva CSV / XLSX</h2>
         <p className="text-xs text-slate-500 mt-1">Fechas en formato dd.mm.yyyy · máximo 1000 filas por archivo.</p>
-        <textarea className="input min-h-[140px] mt-4 font-mono text-xs" placeholder="codigo;precio;vigente_desde;vigente_hasta" value={texto} onChange={(e) => setTexto(e.target.value)} />
+        <label className="label mt-4">Archivo (.csv, .xlsx, .xls)</label>
+        <input
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          className="input"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) leerArchivo(f);
+          }}
+        />
+        {archivo && <p className="text-[11px] text-slate-500 mt-1">Seleccionado: {archivo}</p>}
+        <textarea className="input min-h-[120px] mt-3 font-mono text-xs" placeholder="codigo;precio;vigente_desde;vigente_hasta" value={texto} onChange={(e) => setTexto(e.target.value)} />
         {msg && <p className="mt-2 text-xs text-slate-600">{msg}</p>}
         <div className="flex gap-2 mt-4">
-          <button className="btn-white flex-1" onClick={descargarPlantilla}>Descargar plantilla</button>
+          <button className="btn-white flex-1 !text-xs" onClick={descargarPlantillaCSV}>Plantilla CSV</button>
+          <button className="btn-white flex-1 !text-xs" onClick={descargarPlantillaXLSX}>Plantilla XLSX</button>
           <button className="btn-green flex-1" onClick={procesar} disabled={trabajando}>{trabajando ? "Procesando…" : "Procesar"}</button>
         </div>
         <button onClick={onClose} className="mt-3 w-full text-xs text-slate-400 font-semibold">Cerrar</button>
