@@ -10,7 +10,7 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ----------------------------------------------------------------------------
--- 0. Helpers: updated_at + is_admin
+-- 0. Helpers: updated_at (is_admin va en sección 5, tras crear tablas)
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_sgt360_set_updated_at()
 RETURNS trigger LANGUAGE plpgsql AS $$
@@ -19,21 +19,8 @@ BEGIN
   RETURN NEW;
 END $$;
 
--- ADMIN = fila en seg_usuarios con rol ADMIN + estado ACTIVO cuyo correo
--- coincide con el email del JWT (auth.jwt() ->> 'email').
-CREATE OR REPLACE FUNCTION public.fn_sgt360_is_admin()
-RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS (
-    SELECT 1
-      FROM public.seg_usuarios u
-      JOIN public.seg_roles r ON r.codigo = u.rol_codigo
-     WHERE u.estado = 'ACTIVO'
-       AND r.codigo = 'ADMIN'
-       AND lower(u.correo) = lower(coalesce(auth.jwt() ->> 'email', ''))
-  );
-$$;
-COMMENT ON FUNCTION public.fn_sgt360_is_admin() IS 'SGT360: true si el JWT pertenece a un seg_usuarios con rol ADMIN activo.';
-
+-- NOTA: fn_sgt360_is_admin() se define en la sección 4 (después de crear las
+-- tablas), porque las funciones LANGUAGE sql validan las tablas al crearse.
 -- Cuota francesa con TEA (por defecto 40%):
 --   i = (1+TEA)^(1/12)-1 ; cuota = P*i / (1-(1+i)^-n) ; redondeo 2 dec.
 CREATE OR REPLACE FUNCTION public.fn_cuota_francesa(
@@ -257,7 +244,25 @@ CREATE TABLE IF NOT EXISTS public.ven_financiamiento_sim (
 COMMENT ON TABLE public.ven_financiamiento_sim IS 'SGT360 ven: simulación de cuotas por cotización (cuota francesa, ver fn_cuota_francesa).';
 
 -- ----------------------------------------------------------------------------
--- 5. Índices
+-- 5. Función is_admin (aquí porque LANGUAGE sql valida las tablas al crearse)
+-- ----------------------------------------------------------------------------
+-- ADMIN = fila en seg_usuarios con rol ADMIN + estado ACTIVO cuyo correo
+-- coincide con el email del JWT (auth.jwt() ->> 'email').
+CREATE OR REPLACE FUNCTION public.fn_sgt360_is_admin()
+RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.seg_usuarios u
+      JOIN public.seg_roles r ON r.codigo = u.rol_codigo
+     WHERE u.estado = 'ACTIVO'
+       AND r.codigo = 'ADMIN'
+       AND lower(u.correo) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  );
+$$;
+COMMENT ON FUNCTION public.fn_sgt360_is_admin() IS 'SGT360: true si el JWT pertenece a un seg_usuarios con rol ADMIN activo.';
+
+-- ----------------------------------------------------------------------------
+-- 6. Índices
 -- ----------------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS ix_rel_pof_proveedor ON public.rel_proveedor_oficinas(id_proveedor);
 CREATE INDEX IF NOT EXISTS ix_rel_pof_oficina   ON public.rel_proveedor_oficinas(id_oficina);
@@ -279,7 +284,7 @@ CREATE INDEX IF NOT EXISTS ix_item_material     ON public.ven_cotizacion_items(i
 CREATE INDEX IF NOT EXISTS ix_sim_cot           ON public.ven_financiamiento_sim(numero_cot);
 
 -- ----------------------------------------------------------------------------
--- 6. Triggers updated_at
+-- 7. Triggers updated_at
 -- ----------------------------------------------------------------------------
 DROP TRIGGER IF EXISTS trg_mae_proveedores_upd ON public.mae_proveedores;
 CREATE TRIGGER trg_mae_proveedores_upd BEFORE UPDATE ON public.mae_proveedores
@@ -325,7 +330,7 @@ CREATE TRIGGER trg_sim_upd BEFORE UPDATE ON public.ven_financiamiento_sim
   FOR EACH ROW EXECUTE FUNCTION public.fn_sgt360_set_updated_at();
 
 -- ----------------------------------------------------------------------------
--- 7. RLS básico: authenticated lectura, admin todo
+-- 8. RLS básico: authenticated lectura, admin todo
 -- ----------------------------------------------------------------------------
 ALTER TABLE public.mae_proveedores      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mae_oficinas_ventas  ENABLE ROW LEVEL SECURITY;
@@ -363,7 +368,7 @@ BEGIN
 END $$;
 
 -- ----------------------------------------------------------------------------
--- 8. Seed mínimo
+-- 9. Seed mínimo
 -- ----------------------------------------------------------------------------
 -- 8.1 Roles (4)
 INSERT INTO public.seg_roles (codigo, descripcion, nivel, alcance, estado) VALUES
