@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
+import Shell from "@/components/Shell";
 import {
   apiOperacion,
   BadgeEstado,
@@ -190,37 +191,37 @@ export default function CotizacionDetallePage({
     (it.materiales ? `${it.materiales.codigo ?? ""} ${it.materiales.nombre ?? ""}`.trim() : "—");
 
   return (
-    <AuthGate>
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <Link href="/cotizaciones" className="btn-secondary text-sm no-print">
-            ← Lista
-          </Link>
-          <h1 className="text-xl font-bold">
-            Cotización {cot?.codigo ?? cot?.numero ?? id.slice(0, 8)}
-          </h1>
-          {cot && (
-            <span className="ml-2">
-              <BadgeEstado estado={String(cot.estado).toUpperCase()} />
-            </span>
-          )}
-          <div className="ml-auto flex flex-wrap gap-2 no-print">
-            <button
-              onClick={regenerarPDF}
-              disabled={!cot || accionando !== null}
-              className="btn-secondary text-sm"
-            >
-              {accionando === "regenerar" ? "Regenerando…" : "Regenerar PDF"}
-            </button>
-            <button
-              onClick={descargarPDF}
-              disabled={!cot}
-              className="btn-secondary text-sm"
-            >
-              Ver PDF
-            </button>
+    <AuthGate><Shell>
+      <div className="rounded-2xl bg-emerald-50/60 border border-emerald-100/70 p-5 md:p-6 flex flex-wrap items-center gap-3">
+        <div className="flex-1 min-w-[220px]">
+          <Link href="/cotizaciones" className="text-xs font-bold text-[#0099D8] no-print">← Lista</Link>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-extrabold">
+              Cotización {cot?.codigo ?? cot?.numero ?? id.slice(0, 8)}
+            </h1>
+            {cot && <BadgeEstado estado={String(cot.estado).toUpperCase()} />}
           </div>
+          <p className="text-sm text-slate-500 mt-1">Detalle, estados, PDF y envío por correo.</p>
         </div>
+        <div className="flex gap-2 flex-wrap no-print">
+          <button
+            onClick={regenerarPDF}
+            disabled={!cot || accionando !== null}
+            className="btn-white !text-[#0099D8] text-sm"
+          >
+            {accionando === "regenerar" ? "Regenerando…" : "Regenerar PDF"}
+          </button>
+          <button
+            onClick={descargarPDF}
+            disabled={!cot}
+            className="btn-white !text-[#0099D8] text-sm"
+          >
+            Ver PDF
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-4 mt-4">
 
         {loading && <div className="card p-8 text-slate-500">Cargando…</div>}
         {error && (
@@ -289,7 +290,8 @@ export default function CotizacionDetallePage({
             </div>
 
             <div className="card">
-              <div className="px-5 py-3 border-b font-semibold">Ítems</div>
+              <div className="px-5 py-3 border-b font-semibold">Ítems · {items.length}</div>
+              <div className="overflow-x-auto">
               <table className="tabla">
                 <thead>
                   <tr>
@@ -312,6 +314,7 @@ export default function CotizacionDetallePage({
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
 
             <div className="card p-5 no-print">
@@ -326,21 +329,15 @@ export default function CotizacionDetallePage({
                 <button
                   onClick={enviarCorreo}
                   disabled={accionando === "correo"}
-                  className="btn-primary text-sm"
+                  className="btn-green text-sm"
                 >
                   {accionando === "correo" ? "Enviando…" : "Enviar correo"}
                 </button>
               </div>
-              <p className="mt-2 text-[11px] text-slate-400">
-                Operaciones: <code>listarCotizaciones</code> ·{" "}
-                <code>generarPDF</code> · <code>cambiarEstadoCotizacion</code> ·{" "}
-                <code>enviarCorreo</code> · PDF directo{" "}
-                <code>/api/cotizaciones/[id]/pdf</code>
-              </p>
             </div>
           </>
         )}
       </div>
-    </AuthGate>
+    </Shell></AuthGate>
   );
 }
