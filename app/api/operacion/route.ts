@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { createSupabaseServiceRole } from "@/lib/supabaseServer";
 import { ejecutarOperacionSegura } from "@/lib/operaciones";
 import { ejecutarOperacionSeguraSGT, OPERACIONES_SGT } from "@/lib/operacionesSGT";
+import { ejecutarOperacionSeguraVentas, OPERACIONES_VENTAS } from "@/lib/operacionesVentas";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,9 +57,15 @@ export async function POST(req: Request) {
       }));
     } catch (e) {
       const err = e as Error & { status?: number };
-      // Solo cae al mapa SGT si la op. no existe en el base (404) y sí en SGT.
+      // Solo cae a los mapas SGT/Ventas si la op. no existe en el base (404) y sí en ellos.
       if (err.status === 404 && (OPERACIONES_SGT as Record<string, unknown>)[operacion]) {
         ({ datos } = await ejecutarOperacionSeguraSGT(operacion, argumentos ?? {}, {
+          service,
+          sesion,
+          modulo
+        }));
+      } else if (err.status === 404 && (OPERACIONES_VENTAS as Record<string, unknown>)[operacion]) {
+        ({ datos } = await ejecutarOperacionSeguraVentas(operacion, argumentos ?? {}, {
           service,
           sesion,
           modulo

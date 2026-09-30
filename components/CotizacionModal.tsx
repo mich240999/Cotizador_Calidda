@@ -255,7 +255,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
             <div className="flex items-center justify-between mb-1">
               <div>
                 <h3 className="font-bold">Materiales</h3>
-                <p className="text-xs text-slate-400">Agrega una línea y selecciona el material desde su lista desplegable. Los precios y datos se validan nuevamente al guardar.</p>
+                <p className="text-xs text-slate-400">Agrega una línea y selecciona el material desde su lista desplegable. El precio es EDITABLE: se precarga con el precio vigente de la tarifa pero puedes ajustarlo. Los precios y datos se validan nuevamente al guardar.</p>
               </div>
               <button className="btn-white !py-1.5 !text-xs whitespace-nowrap" onClick={() => setMat((p) => [...p, { ...FILA_VACIA }])}>Agregar material</button>
             </div>
@@ -279,8 +279,8 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                         </select>
                         {f.descripcion && <p className="text-[11px] text-slate-400 mt-1 leading-snug">{f.descripcion}</p>}
                       </td>
-                      <td><input type="number" min={0.01} step="any" className="input !w-20 !py-1" value={f.cant} onChange={(e) => setFila(i, { cant: Number(e.target.value) })} /></td>
-                      <td className="whitespace-nowrap font-semibold text-emerald-700">S/ {f.precio.toFixed(2)}</td>
+                      <td><input type="number" min={0} step="any" className="input !w-20 !py-1" value={f.cant} onChange={(e) => setFila(i, { cant: Number(e.target.value) })} /></td>
+                      <td><input type="number" min={0} step="any" className="input !w-24 !py-1 font-semibold text-emerald-700" value={f.precio} onChange={(e) => setFila(i, { precio: Number(e.target.value) })} title="Precio editable (precargado con tarifa vigente)" /></td>
                       <td><input type="number" min={0} max={100} step="any" className="input !w-20 !py-1" value={f.dsctoPct} onChange={(e) => setFila(i, { dsctoPct: Number(e.target.value) })} /></td>
                       <td className="whitespace-nowrap">S/ {brutoFila(f).toFixed(2)}</td>
                       <td className="whitespace-nowrap font-bold text-emerald-700">S/ {netoFila(f).toFixed(2)}</td>

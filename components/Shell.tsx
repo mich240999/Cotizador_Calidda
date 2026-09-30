@@ -10,6 +10,7 @@ const ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: "▦" },
   { href: "/clientes", label: "Clientes", icon: "◉" },
   { href: "/cotizaciones", label: "Cotizaciones", icon: "▤" },
+  { href: "/ventas", label: "Ventas", icon: "◈" },
   { href: "/materiales", label: "Materiales", icon: "▣" },
   { href: "/admin", label: "Administración", icon: "⚙" },
 ];
