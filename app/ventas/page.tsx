@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import VentaModal from "@/components/VentaModal";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
@@ -154,6 +155,7 @@ export default function VentasPage() {
   const [fEst, setFEst] = useState("TODOS");
   const [fCanal, setFCanal] = useState("TODOS");
   const [aprobar, setAprobar] = useState<Venta | null>(null);
+  const [nueva, setNueva] = useState(false);
   const [exportando, setExportando] = useState(false);
 
   const cargar = async () => {
@@ -250,7 +252,7 @@ export default function VentasPage() {
           <div className="flex gap-2">
             <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Actualizando…" : "Actualizar"}</button>
             <button className="btn-white" onClick={exportar} disabled={exportando}>{exportando ? "Exportando…" : "Exportar XLSX"}</button>
-            <Link href="/ventas/nueva" className="btn-green !no-underline text-center">+ Nueva solicitud</Link>
+            <button className="btn-green" onClick={() => setNueva(true)}>+ Nueva solicitud</button>
           </div>
         </div>
 
@@ -319,6 +321,10 @@ export default function VentasPage() {
             onClose={() => setAprobar(null)}
             onOk={() => { setAprobar(null); setInfo("Solicitud aprobada."); cargar(); }}
           />
+        )}
+
+        {nueva && (
+          <VentaModal onClose={() => { setNueva(false); cargar(); }} />
         )}
       </Shell>
     </AuthGate>
