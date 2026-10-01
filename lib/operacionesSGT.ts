@@ -101,8 +101,45 @@ const EsquemaProveedorSGT = z.object({
   nombre: z.string().trim().min(2).max(200),
   ruc: z.string().trim().regex(/^\d{11}$/, "RUC debe tener 11 dígitos"),
   interlocutor: z.string().trim().min(2).max(200),
+  nombre_comercial: z.string().trim().max(200).optional().default(""),
   email: z.string().trim().email().max(160).optional().or(z.literal("")).default(""),
   telefono: z.string().trim().max(30).optional().default("")
+});
+const EsquemaActualizarProveedorSGT = z.object({
+  id: z.string().trim().min(1).max(20),
+  nombre_comercial: z.string().trim().max(200).optional(),
+  interlocutor: z.string().trim().min(2).max(200).optional(),
+  email: z.string().trim().email().max(160).optional().or(z.literal("")),
+  telefono: z.string().trim().max(30).optional(),
+  estado: z.enum(["ACTIVO", "INACTIVO"]).optional(),
+});
+const EsquemaActualizarVinculo = z.object({
+  id: z.string().trim().regex(/^POF[0-9]{4}$/, "id debe ser POFxxxx"),
+  estado: z.enum(["ACTIVO", "INACTIVO"]),
+});
+const EsquemaCrearAsignacion = z.object({
+  id_asesor: z.string().trim().min(1).max(20),
+  id_supervisor: z.string().trim().max(20).optional().nullable(),
+  id_proveedor: z.string().trim().max(20).optional().nullable(),
+  id_oficina: z.string().trim().max(20).optional().nullable(),
+  id_grupo: z.string().trim().max(20).optional().nullable(),
+  fecha_inicio: zFechaFlexible,
+  fecha_fin: zFechaFlexible.optional().nullable(),
+  estado: z.enum(["VIGENTE", "PROGRAMADA", "FINALIZADA", "CANCELADA"]).optional().default("VIGENTE"),
+});
+const EsquemaActualizarAsignacion = z.object({
+  id: z.string().trim().regex(/^ASG[0-9]{4}$/, "id debe ser ASGxxxx"),
+  id_supervisor: z.string().trim().max(20).optional().nullable(),
+  id_proveedor: z.string().trim().max(20).optional().nullable(),
+  id_oficina: z.string().trim().max(20).optional().nullable(),
+  id_grupo: z.string().trim().max(20).optional().nullable(),
+  fecha_inicio: zFechaFlexible.optional(),
+  fecha_fin: zFechaFlexible.optional().nullable(),
+  estado: z.enum(["VIGENTE", "PROGRAMADA", "FINALIZADA", "CANCELADA"]).optional(),
+});
+const EsquemaActualizarRecurso = z.object({
+  clave: z.enum(["logo_header", "login_image", "pdf_image", "favicon"]),
+  url: z.string().trim().min(8).max(2000),
 });
 const EsquemaVinculo = z.object({
   proveedor_id: z.string().trim().min(1).max(20),
@@ -198,11 +235,36 @@ async function hListarProveedoresSGT(args: z.infer<typeof EsquemaQ>, ctx: Operac
 }
 
 async function hCrearProveedorSGT(args: z.infer<typeof EsquemaProveedorSGT>, ctx: OperacionContext) {
-  // RUC 11 dígitos ya validado por zod; interlocutor texto min 2 ya validado.
+  // Maestro mae_proveedores (PRVxxxx, razón social + RUC único).
+  try {
+    const { data: ids } = await ctx.service.from("mae_proveedores").select("id").limit(5000);
+    const id = siguienteId("PRV", ((ids ?? []) as { id?: string }[]).map((r) => r.id));
+    const { data, error } = await ctx.service.from("mae_proveedores").insert({
+      id,
+      interlocutor: args.interlocutor,
+      ruc: args.ruc,
+      razon_social: args.nombre,
+      nombre_comercial: args.nombre_comercial || null,
+      correo: args.email || null,
+      telefono: args.telefono || null,
+      estado: "ACTIVO",
+    }).select().single();
+    if (error) {
+      if (/duplicate|unique|llave duplicada/i.test(error.message)) {
+        const e = new Error(`RUC o interlocutor ya registrado: ${args.ruc}`) as Error & { status?: number };
+        e.status = 409; throw e;
+      }
+      throw new Error(error.message);
+    }
+    return { ...(data as object), nombre: args.nombre };
+  } catch (e) {
+    if (!esTablaFaltante(e)) throw e;
+  }
+  // Fallback tabla base (sin mae).
   const { data, error } = await ctx.service.from("proveedores").insert({
     nombre: args.nombre,
     ruc: args.ruc,
-    contacto: args.interlocutor, // columna base; interlocutor es alias SGT
+    contacto: args.interlocutor,
     email: args.email || null,
     telefono: args.telefono || null
   }).select().single();
@@ -214,6 +276,33 @@ async function hCrearProveedorSGT(args: z.infer<typeof EsquemaProveedorSGT>, ctx
     throw new Error(error.message);
   }
   return { ...(data as object), interlocutor: args.interlocutor };
+}
+
+async function hActualizarProveedorSGT(args: z.infer<typeof EsquemaActualizarProveedorSGT>, ctx: OperacionContext) {
+  // RUC y razón social inmutables (identidad tributaria).
+  const patch: Record<string, unknown> = {};
+  if (args.nombre_comercial !== undefined) patch.nombre_comercial = args.nombre_comercial || null;
+  if (args.interlocutor !== undefined) patch.interlocutor = args.interlocutor;
+  if (args.email !== undefined) patch.correo = args.email || null;
+  if (args.telefono !== undefined) patch.telefono = args.telefono || null;
+  if (args.estado !== undefined) patch.estado = args.estado;
+  if (Object.keys(patch).length === 0) throw new Error("Nada que actualizar");
+  const { data, error } = await ctx.service.from("mae_proveedores").update(patch).eq("id", args.id).select().single();
+  if (error) {
+    if (/duplicate|unique|llave duplicada/i.test(error.message)) {
+      const e = new Error("Interlocutor ya registrado en otro proveedor") as Error & { status?: number };
+      e.status = 409; throw e;
+    }
+    throw new Error(error.message);
+  }
+  return { ...(data as object), nombre: (data as { razon_social?: string })?.razon_social ?? null };
+}
+
+async function hActualizarVinculacion(args: z.infer<typeof EsquemaActualizarVinculo>, ctx: OperacionContext) {
+  // Solo el estado cambia (proveedor/oficina inmutables).
+  const { data, error } = await ctx.service.from("rel_proveedor_oficinas").update({ estado: args.estado }).eq("id", args.id).select().single();
+  if (error) throw new Error(error.message);
+  return data;
 }
 
 async function hListarOficinasVentas(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
@@ -433,15 +522,105 @@ async function hActualizarGrupoVendedores(args: z.infer<typeof EsquemaActualizar
   return data;
 }
 
-async function hListarAsignaciones(args: z.infer<typeof EsquemaVacio>, ctx: OperacionContext) {
-  const limit = Number((args as { limit?: unknown }).limit ?? 200);
-  try {
-    const r = await leerPrimeraTabla(ctx, ["asignaciones", "vendedor_asignaciones"], "*", { col: "id" }, Math.min(Math.max(limit || 200, 1), 500));
-    return r.data;
-  } catch (e) {
-    if (esTablaFaltante(e)) return []; // sin migración aún → lista vacía sin romper
-    throw new Error((e as Error).message);
+async function hListarAsignaciones(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
+  const { data, error } = await ctx.service.from("seg_asignaciones_asesores")
+    .select("*").order("created_at", { ascending: false }).limit(args.limit);
+  if (error) {
+    if (esTablaFaltante(new Error(error.message))) return []; // sin migración → vacío sin romper
+    throw new Error(error.message);
   }
+  const rows = ((data ?? []) as Record<string, any>[]);
+  if (args.q) {
+    const s = args.q.toLowerCase();
+    return rows.filter((a) => [a.id, a.id_asesor, a.id_supervisor, a.id_proveedor, a.id_oficina, a.id_grupo]
+      .filter(Boolean).join(" ").toLowerCase().includes(s));
+  }
+  // Resuelve nombres por lotes (best-effort).
+  const ids = (col: string) => [...new Set(rows.map((a) => String(a[col] ?? "")).filter(Boolean))];
+  const mapa = async (tabla: string, colId: string, colNom: string[], idsArr: string[]) => {
+    const m = new Map<string, string>();
+    if (idsArr.length === 0) return m;
+    const { data: d } = await ctx.service.from(tabla).select(`${colId},${colNom.join(",")}`).in(colId, idsArr.slice(0, 500));
+    for (const r of ((d ?? []) as Record<string, any>[])) {
+      m.set(String(r[colId]), String(colNom.map((c) => r[c]).find((v) => v) ?? r[colId]));
+    }
+    return m;
+  };
+  const [us, prv, ofi, gru] = await Promise.all([
+    mapa("seg_usuarios", "id", ["nombre"], [...ids("id_asesor"), ...ids("id_supervisor")]),
+    mapa("mae_proveedores", "id", ["razon_social", "nombre_comercial"], ids("id_proveedor")),
+    mapa("mae_oficinas_ventas", "id", ["nombre"], ids("id_oficina")),
+    mapa("mae_grupos_vendedores", "id", ["nombre"], ids("id_grupo")),
+  ]);
+  return rows.map((a) => ({
+    ...a,
+    asesor_nombre: us.get(String(a.id_asesor)) ?? a.id_asesor,
+    supervisor_nombre: a.id_supervisor ? (us.get(String(a.id_supervisor)) ?? a.id_supervisor) : null,
+    proveedor_nombre: a.id_proveedor ? (prv.get(String(a.id_proveedor)) ?? a.id_proveedor) : null,
+    oficina_nombre: a.id_oficina ? (ofi.get(String(a.id_oficina)) ?? a.id_oficina) : null,
+    grupo_nombre: a.id_grupo ? (gru.get(String(a.id_grupo)) ?? a.id_grupo) : null,
+  }));
+}
+
+async function hCrearAsignacion(args: z.infer<typeof EsquemaCrearAsignacion>, ctx: OperacionContext) {
+  const { data: ase } = await ctx.service.from("seg_usuarios").select("id").eq("id", args.id_asesor).maybeSingle();
+  if (!ase) {
+    const e = new Error(`Asesor no encontrado: ${args.id_asesor}`) as Error & { status?: number };
+    e.status = 422; throw e;
+  }
+  const inicio = normalizarFecha(args.fecha_inicio);
+  const fin = args.fecha_fin ? normalizarFecha(args.fecha_fin) : null;
+  if (fin && fin < inicio) throw new Error("fecha_fin anterior a fecha_inicio");
+  const { data: ids } = await ctx.service.from("seg_asignaciones_asesores").select("id").limit(5000);
+  const id = siguienteId("ASG", ((ids ?? []) as { id?: string }[]).map((r) => r.id));
+  const { data, error } = await ctx.service.from("seg_asignaciones_asesores").insert({
+    id,
+    id_asesor: args.id_asesor,
+    id_supervisor: args.id_supervisor || null,
+    id_proveedor: args.id_proveedor || null,
+    id_oficina: args.id_oficina || null,
+    id_grupo: args.id_grupo || null,
+    fecha_inicio: inicio,
+    fecha_fin: fin,
+    estado: args.estado ?? "VIGENTE",
+  }).select().single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function hActualizarAsignacion(args: z.infer<typeof EsquemaActualizarAsignacion>, ctx: OperacionContext) {
+  const patch: Record<string, unknown> = {};
+  if (args.id_supervisor !== undefined) patch.id_supervisor = args.id_supervisor || null;
+  if (args.id_proveedor !== undefined) patch.id_proveedor = args.id_proveedor || null;
+  if (args.id_oficina !== undefined) patch.id_oficina = args.id_oficina || null;
+  if (args.id_grupo !== undefined) patch.id_grupo = args.id_grupo || null;
+  if (args.fecha_inicio !== undefined) patch.fecha_inicio = normalizarFecha(args.fecha_inicio);
+  if (args.fecha_fin !== undefined) patch.fecha_fin = args.fecha_fin ? normalizarFecha(args.fecha_fin) : null;
+  if (args.estado !== undefined) patch.estado = args.estado;
+  if (Object.keys(patch).length === 0) throw new Error("Nada que actualizar");
+  const { data, error } = await ctx.service.from("seg_asignaciones_asesores").update(patch).eq("id", args.id).select().single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function hListarRecursosVisuales(_args: unknown, ctx: OperacionContext) {
+  try {
+    const { data, error } = await ctx.service.from("seg_recursos_visuales").select("*").order("clave");
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  } catch (e) {
+    if (!esTablaFaltante(e)) throw e;
+    return [];
+  }
+}
+
+async function hActualizarRecursoVisual(args: z.infer<typeof EsquemaActualizarRecurso>, ctx: OperacionContext) {
+  const { data: prev } = await ctx.service.from("seg_recursos_visuales").select("version").eq("clave", args.clave).maybeSingle();
+  const { data, error } = await ctx.service.from("seg_recursos_visuales")
+    .upsert({ clave: args.clave, url: args.url, version: Number((prev as { version?: number } | null)?.version ?? 0) + 1 })
+    .select().single();
+  if (error) throw new Error(error.message);
+  return data;
 }
 
 async function hListarRolesSGT(_args: unknown, ctx: OperacionContext) {
@@ -1242,12 +1421,14 @@ async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, 
 
 export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarProveedoresSGT: { descripcion: "SGT: lista proveedores (+interlocutor)", roles: TODOS, schema: EsquemaQ, handler: hListarProveedoresSGT },
-  crearProveedorSGT: { descripcion: "SGT: crea proveedor (RUC 11 dígitos + interlocutor)", roles: OPERATIVO, schema: EsquemaProveedorSGT, handler: hCrearProveedorSGT },
+  crearProveedorSGT: { descripcion: "SGT: crea proveedor en maestro (PRVxxxx)", roles: OPERATIVO, schema: EsquemaProveedorSGT, handler: hCrearProveedorSGT },
+  actualizarProveedorSGT: { descripcion: "SGT: actualiza proveedor (RUC/razón inmutables)", roles: SOLO_ADMIN, schema: EsquemaActualizarProveedorSGT, handler: hActualizarProveedorSGT },
   listarOficinasVentas: { descripcion: "SGT: lista oficinas de ventas", roles: TODOS, schema: EsquemaQ, handler: hListarOficinasVentas },
   crearOficina: { descripcion: "SGT: crea oficina de ventas (codigo_sap único)", roles: SOLO_ADMIN, schema: EsquemaCrearOficina, handler: hCrearOficina },
   actualizarOficina: { descripcion: "SGT: actualiza oficina (codigo_sap inmutable)", roles: SOLO_ADMIN, schema: EsquemaActualizarOficina, handler: hActualizarOficina },
   listarVinculaciones: { descripcion: "SGT: lista vinculaciones proveedor↔oficina", roles: TODOS, schema: EsquemaQ, handler: hListarVinculaciones },
   vincularProveedorOficina: { descripcion: "SGT: vincula proveedor↔oficina (inmutable)", roles: SOLO_ADMIN, schema: EsquemaVinculo, handler: hVincularProveedorOficina },
+  actualizarVinculacion: { descripcion: "SGT: activa/desactiva vinculación (par inmutable)", roles: SOLO_ADMIN, schema: EsquemaActualizarVinculo, handler: hActualizarVinculacion },
   listarGruposVendedores: { descripcion: "SGT: lista grupos de vendedores", roles: TODOS, schema: EsquemaQ, handler: hListarGruposVendedores },
   crearGrupoVendedores: { descripcion: "SGT: crea grupo (requiere vinculación activa)", roles: SOLO_ADMIN, schema: EsquemaCrearGrupo, handler: hCrearGrupoVendedores },
   actualizarGrupoVendedores: { descripcion: "SGT: actualiza grupo (proveedor/oficina inmutables)", roles: SOLO_ADMIN, schema: EsquemaActualizarGrupo, handler: hActualizarGrupoVendedores },
@@ -1256,7 +1437,11 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   actualizarClienteSGT: { descripcion: "SGT: actualiza cliente (estado/SAP/datos)", roles: OPERATIVO, schema: EsquemaActualizarClienteSGT, handler: hActualizarClienteSGT },
   validarArchivoClientes: { descripcion: "SGT: valida CSV/XLSX de clientes sin guardar", roles: OPERATIVO, schema: EsquemaValidarClientes, handler: hValidarArchivoClientes },
   cargaMasivaClientes: { descripcion: "SGT: carga masiva clientes (máx 500)", roles: OPERATIVO, schema: EsquemaCargaClientes, handler: hCargaMasivaClientes },
-  listarAsignaciones: { descripcion: "SGT: lista asignaciones", roles: TODOS, schema: EsquemaVacio, handler: hListarAsignaciones },
+  listarAsignaciones: { descripcion: "SGT: lista asignaciones de asesores", roles: TODOS, schema: EsquemaQ, handler: hListarAsignaciones },
+  crearAsignacion: { descripcion: "SGT: crea asignación de asesor", roles: SOLO_ADMIN, schema: EsquemaCrearAsignacion, handler: hCrearAsignacion },
+  actualizarAsignacion: { descripcion: "SGT: actualiza asignación (estado/fechas/estructura)", roles: SOLO_ADMIN, schema: EsquemaActualizarAsignacion, handler: hActualizarAsignacion },
+  listarRecursosVisuales: { descripcion: "SGT: lista recursos visuales", roles: TODOS, schema: EsquemaVacio, handler: hListarRecursosVisuales },
+  actualizarRecursoVisual: { descripcion: "SGT: actualiza URL de recurso visual", roles: SOLO_ADMIN, schema: EsquemaActualizarRecurso, handler: hActualizarRecursoVisual },
   listarRolesSGT: { descripcion: "SGT: lista roles con conteo", roles: TODOS, schema: EsquemaVacio, handler: hListarRolesSGT },
   crearRolSGT: { descripcion: "SGT: crea rol (requiere migracion_roles_01)", roles: SOLO_ADMIN, schema: EsquemaCrearRolSGT, handler: hCrearRolSGT },
   actualizarRolSGT: { descripcion: "SGT: actualiza rol", roles: SOLO_ADMIN, schema: EsquemaActualizarRolSGT, handler: hActualizarRolSGT },
