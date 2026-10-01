@@ -28,6 +28,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
   const [oscuro, setOscuro] = useState(false);
+  const [plegado, setPlegado] = useState(false);
 
   useEffect(() => {
     const sb = getSupabaseBrowser();
@@ -41,6 +42,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       const g = localStorage.getItem("sh-theme") === "dark";
       setOscuro(g);
       document.documentElement.classList.toggle("dark", g);
+      setPlegado(localStorage.getItem("sh-sidebar") === "off");
     } catch { /* sin storage */ }
   }, []);
 
@@ -50,6 +52,14 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     document.documentElement.classList.toggle("dark", n);
     try {
       localStorage.setItem("sh-theme", n ? "dark" : "light");
+    } catch { /* sin storage */ }
+  };
+
+  const alternarMenu = () => {
+    const n = !plegado;
+    setPlegado(n);
+    try {
+      localStorage.setItem("sh-sidebar", n ? "off" : "on");
     } catch { /* sin storage */ }
   };
 
@@ -74,6 +84,14 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             <span className="hidden md:block text-sm font-semibold text-slate-600 dark:text-slate-300">
               Cálidda · Gas Natural del Perú
             </span>
+            <button
+              onClick={alternarMenu}
+              title={plegado ? "Desplegar menú" : "Plegar menú"}
+              aria-label={plegado ? "Desplegar menú" : "Plegar menú"}
+              className="hidden md:inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            >
+              <span aria-hidden className="text-base font-bold">{plegado ? "→" : "←"}</span>
+            </button>
           </Link>
           <div className="ml-auto flex items-center gap-3">
             <button
@@ -110,7 +128,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
       <div className="flex">
         {/* Sidebar */}
-        <aside className="hidden md:flex w-60 shrink-0 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 sticky top-16 min-h-[calc(100vh-4rem)]">
+        <aside className={`hidden md:flex shrink-0 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 sticky top-16 min-h-[calc(100vh-4rem)] transition-all duration-200 ${plegado ? "w-[68px]" : "w-60"}`}>
           <nav className="p-3 space-y-1">
             {ITEMS.map((it) => {
               const active = pathname === it.href || pathname?.startsWith(it.href + "/");
@@ -118,21 +136,26 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 <Link
                   key={it.href}
                   href={it.href}
+                  title={it.label}
                   className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
+                    plegado ? "justify-center px-0" : ""
+                  } ${
                     active
                       ? "bg-gradient-to-r from-[#0B5FA5] to-[#0099D8] text-white shadow-md shadow-sky-900/20"
                       : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                   }`}
                 >
-                  <span className="text-base w-5 text-center">{it.icon}</span>
-                  {it.label}
+                  <span className="text-base w-5 text-center shrink-0">{it.icon}</span>
+                  {!plegado && it.label}
                 </Link>
               );
             })}
           </nav>
-          <div className="mt-auto p-4 text-[11px] text-slate-400 border-t border-slate-100 dark:border-slate-800">
-            Versión 1.0.0
-          </div>
+          {!plegado && (
+            <div className="mt-auto p-4 text-[11px] text-slate-400 border-t border-slate-100 dark:border-slate-800">
+              Versión 1.0.0
+            </div>
+          )}
         </aside>
 
         {/* Mobile nav */}
