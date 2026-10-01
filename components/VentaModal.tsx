@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiOperacion } from "./Tablas";
-import { TEA_FIJA, cuotaMensual, fileToDataURL, useRolVista } from "./VentasComun";
+import { TEA_FIJA, cuotaMensual, subirArchivoStorage, useRolVista } from "./VentasComun";
 
 type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; documento?: string; email?: string; correo?: string; telefono?: string };
 type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string };
@@ -42,8 +42,8 @@ function Adjunto({
     <div className="rounded-xl border border-slate-200 p-4">
       <p className="font-bold text-sm">{titulo} {obligatorio && <span className="text-red-600">*</span>}</p>
       <label className="label mt-2">URL del documento</label>
-      <input className="input" placeholder="https://… o dataURL tras subir" value={url} onChange={(e) => setUrl(e.target.value)} />
-      <label className="label mt-2">o subir PDF/foto (se convierte a base64)</label>
+      <input className="input" placeholder="https://… (o sube el archivo)" value={url} onChange={(e) => setUrl(e.target.value)} />
+      <label className="label mt-2">o subir PDF/foto (se guarda en Storage y se pega su URL)</label>
       <input
         type="file" accept=".pdf,image/*" className="input"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }}
@@ -132,12 +132,17 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
   const descuento = items.reduce((a, f) => a + Math.min(f.dscto_monto, f.cantidad * f.precio), 0);
   const total = Math.max(subtotal - descuento, 0);
 
-  const subirArchivo = async (f: File, set: (u: string) => void) => {
+  const [subiendo, setSubiendo] = useState<string | null>(null);
+
+  const subirArchivo = async (f: File, set: (u: string) => void, marca: string) => {
     setError(null);
+    setSubiendo(marca);
     try {
-      set(await fileToDataURL(f));
+      set(await subirArchivoStorage(f, "adjuntos"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo leer el archivo");
+      setError(e instanceof Error ? e.message : "No se pudo subir el archivo");
+    } finally {
+      setSubiendo(null);
     }
   };
 
@@ -379,8 +384,8 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
             <h3 className="font-bold">Adjuntos obligatorios</h3>
             <p className="text-xs text-slate-400 mb-3">Sin ambos adjuntos no se puede registrar la solicitud.</p>
             <div className="grid md:grid-cols-2 gap-3">
-              <Adjunto titulo="Cotización del cliente (PDF/foto)" url={cotUrl} setUrl={setCotUrl} onFile={(f) => subirArchivo(f, setCotUrl)} obligatorio />
-              <Adjunto titulo="Foto DNI" url={dniUrl} setUrl={setDniUrl} onFile={(f) => subirArchivo(f, setDniUrl)} obligatorio />
+            <Adjunto titulo="Cotización del cliente (PDF/foto)" url={cotUrl} setUrl={setCotUrl} onFile={(f) => subirArchivo(f, setCotUrl, "cot")} obligatorio />
+            <Adjunto titulo="Foto DNI" url={dniUrl} setUrl={setDniUrl} onFile={(f) => subirArchivo(f, setDniUrl, "dni")} obligatorio />
             </div>
           </section>
 

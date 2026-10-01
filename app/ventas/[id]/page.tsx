@@ -14,6 +14,7 @@ import {
   SelectorRol,
   TimelineVenta,
   Venta,
+  subirArchivoStorage,
   useRolVista,
   ventaAbonos,
   ventaCliente,
@@ -51,6 +52,19 @@ export default function VentaDetallePage() {
   const [motivo, setMotivo] = useState("");
   const [etapaObs, setEtapaObs] = useState("aprobación");
   const [abonoObs, setAbonoObs] = useState<string | null>(null);
+  const [subiendo, setSubiendo] = useState<string | null>(null);
+
+  const subirA = async (f: File, carpeta: "comprobantes" | "sustentos", set: (u: string) => void, marca: string) => {
+    setError(null);
+    setSubiendo(marca);
+    try {
+      set(await subirArchivoStorage(f, carpeta));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo subir el archivo");
+    } finally {
+      setSubiendo(null);
+    }
+  };
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -244,7 +258,15 @@ export default function VentaDetallePage() {
                 <div className="p-5 grid md:grid-cols-4 gap-3 border-b bg-slate-50">
                   <div><label className="label">Monto (S/) *</label><input type="number" min={0} step="any" className="input" value={abMonto} onChange={(e) => setAbMonto(e.target.value)} /></div>
                   <div><label className="label">Medio</label><select className="input" value={abMedio} onChange={(e) => setAbMedio(e.target.value)}>{MEDIOS_ABONO.map((m) => <option key={m} value={m}>{m}</option>)}</select></div>
-                  <div className="md:col-span-2"><label className="label">Comprobante (URL)</label><input className="input" placeholder="https://…" value={abComp} onChange={(e) => setAbComp(e.target.value)} /></div>
+                  <div className="md:col-span-2">
+                    <label className="label">Comprobante (URL o archivo PDF/foto) *</label>
+                    <input className="input" placeholder="https://…" value={abComp} onChange={(e) => setAbComp(e.target.value)} />
+                    <input
+                      type="file" accept=".pdf,image/*" className="input mt-2"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) subirA(f, "comprobantes", setAbComp, "abono"); e.target.value = ""; }}
+                    />
+                    {subiendo === "abono" && <p className="text-[11px] text-slate-500 mt-1">Subiendo archivo…</p>}
+                  </div>
                   <div className="md:col-span-4 flex justify-end gap-2">
                     <button className="btn-white" onClick={() => setShowAbono(false)}>Cancelar</button>
                     <button className="btn-green" onClick={registrarAbono} disabled={busy}>{busy ? "Guardando…" : "Guardar abono"}</button>
@@ -289,7 +311,12 @@ export default function VentaDetallePage() {
                   {SUSTENTOS_INSTALACION.map((s) => (
                     <div key={s.key}>
                       <label className="label">{s.label} *</label>
-                      <input className="input" placeholder="URL del sustento" value={sustentos[s.key] ?? ""} onChange={(e) => setSustentos((p) => ({ ...p, [s.key]: e.target.value }))} />
+                      <input className="input" placeholder="https://…" value={sustentos[s.key] ?? ""} onChange={(e) => setSustentos((p) => ({ ...p, [s.key]: e.target.value }))} />
+                      <input
+                        type="file" accept=".pdf,image/*" className="input mt-2"
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) subirA(f, "sustentos", (u) => setSustentos((p) => ({ ...p, [s.key]: u })), s.key); e.target.value = ""; }}
+                      />
+                      {subiendo === s.key && <p className="text-[11px] text-slate-500 mt-1">Subiendo archivo…</p>}
                     </div>
                   ))}
                   <div className="md:col-span-2 flex justify-end gap-2">

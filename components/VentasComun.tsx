@@ -18,7 +18,25 @@ export function cuotaMensual(capital: number, n: number, tea = TEA_FIJA) {
   return (capital * i) / (1 - Math.pow(1 + i, -n));
 }
 
-/** Convierte un archivo a dataURL/base64 para enviarlo como comprobante_url (sin Storage aún). */
+/** Sube un archivo a Supabase Storage vía /api/uploads y devuelve la URL pública corta.
+ *  carpetas: adjuntos | comprobantes | sustentos. Lanza Error con el mensaje del servidor.
+ */
+export async function subirArchivoStorage(
+  f: File,
+  carpeta: "adjuntos" | "comprobantes" | "sustentos" = "adjuntos"
+): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", f, f.name);
+  fd.append("carpeta", carpeta);
+  const res = await fetch("/api/uploads", { method: "POST", body: fd });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json?.ok === false || !json?.url) {
+    throw new Error(json?.error || "No se pudo subir el archivo");
+  }
+  return String(json.url);
+}
+
+/** Convierte un archivo a dataURL/base64 (respaldo cuando no hay Storage). */
 export function fileToDataURL(f: File, maxMB = 6): Promise<string> {
   return new Promise((resolve, reject) => {
     if (f.size > maxMB * 1024 * 1024) {
