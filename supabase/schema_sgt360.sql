@@ -446,7 +446,7 @@ BEGIN
         code := m || '-' || lpad(i::text, 2, '0');
         INSERT INTO public.seg_permisos_matriz (rol_codigo, modulo, grupo, recurso, permitido)
         VALUES (r, m, m, code, false)
-        ON CONFLICT (rol_codigo, recurso) DO UPDATE SET modulo = EXCLUDED.modulo, grupo = EXCLUDED.grupo;
+        ON CONFLICT (rol_codigo, recurso) DO NOTHING; -- no pisa grupo/nombre del catálogo (migracion_permisos_01)
       END LOOP;
     END LOOP;
   END LOOP;

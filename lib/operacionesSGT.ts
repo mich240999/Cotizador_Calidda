@@ -441,22 +441,26 @@ async function hGetMatrizPermisos(_args: unknown, ctx: OperacionContext) {
     const { data: roles, error: eR } = await ctx.service.from("seg_roles").select("codigo").order("codigo");
     if (eR) throw new Error(eR.message);
     const { data: filas, error: eF } = await ctx.service.from("seg_permisos_matriz")
-      .select("rol_codigo,modulo,grupo,recurso,permitido").order("modulo").order("grupo").order("recurso").limit(5000);
+      .select("rol_codigo,modulo,grupo,recurso,nombre,permitido").order("modulo").order("grupo").order("recurso").limit(5000);
     if (eF) throw new Error(eF.message);
-    const lista = ((filas ?? []) as { rol_codigo: string; modulo: string; grupo: string; recurso: string; permitido: boolean }[]);
+    const lista = ((filas ?? []) as { rol_codigo: string; modulo: string; grupo: string; recurso: string; nombre?: string | null; permitido: boolean }[]);
     const rolCods = ((roles ?? []) as { codigo: string }[]).map((r) => r.codigo);
-    const modulosMap = new Map<string, Map<string, Map<string, Record<string, boolean>>>>();
+    const modulosMap = new Map<string, Map<string, Map<string, { nombre: string; permitido: Record<string, boolean> }>>>();
     for (const f of lista) {
       if (!modulosMap.has(f.modulo)) modulosMap.set(f.modulo, new Map());
       const g = modulosMap.get(f.modulo)!;
       if (!g.has(f.grupo)) g.set(f.grupo, new Map());
-      g.get(f.grupo)!.set(f.recurso, { ...(g.get(f.grupo)!.get(f.recurso) ?? {}), [f.rol_codigo]: !!f.permitido });
+      const actual = g.get(f.grupo)!.get(f.recurso);
+      g.get(f.grupo)!.set(f.recurso, {
+        nombre: actual?.nombre || f.nombre || f.recurso,
+        permitido: { ...(actual?.permitido ?? {}), [f.rol_codigo]: !!f.permitido },
+      });
     }
     const modulos = [...modulosMap.entries()].map(([modulo, grupos]) => ({
       modulo,
       grupos: [...grupos.entries()].map(([grupo, recursos]) => ({
         grupo,
-        recursos: [...recursos.entries()].map(([recurso, permitido]) => ({ recurso, permitido })),
+        recursos: [...recursos.entries()].map(([recurso, v]) => ({ recurso, nombre: v.nombre, permitido: v.permitido })),
       })),
     }));
     const concedidos = lista.filter((f) => f.permitido).length;

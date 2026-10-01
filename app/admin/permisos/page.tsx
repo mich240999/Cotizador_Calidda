@@ -6,7 +6,7 @@ import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion } from "@/components/Tablas";
 
-type PermRecurso = { recurso: string; permitido: Record<string, boolean> };
+type PermRecurso = { recurso: string; nombre?: string | null; permitido: Record<string, boolean> };
 type PermGrupo = { grupo: string; recursos: PermRecurso[] };
 type PermModulo = { modulo: string; grupos: PermGrupo[] };
 
@@ -172,7 +172,7 @@ export default function PermisosPage() {
                           {g.recursos.map((r) => (
                             <tr key={r.recurso}>
                               <td>
-                                <p className="font-semibold">{bonito(r.recurso)}</p>
+                                <p className="font-semibold">{r.nombre || bonito(r.recurso)}</p>
                                 <p className="font-mono text-[10px] text-slate-400">{r.recurso}</p>
                               </td>
                               {roles.map((rol) => (
