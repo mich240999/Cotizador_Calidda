@@ -517,6 +517,8 @@ const EsquemaCrearUsuarioSGT = z.object({
 const EsquemaActualizarUsuarioSGT = z.object({
   id: z.string().trim().min(1).max(20),
   nombre: z.string().trim().min(2).max(200).optional(),
+  tipo_doc: z.string().trim().min(1).max(20).optional(),
+  nro_doc: z.string().trim().min(1).max(20).optional(),
   telefono: z.string().trim().max(30).optional(),
   rol_codigo: z.string().trim().min(1).max(30).optional(),
   id_proveedor: z.string().trim().max(20).optional().nullable(),
@@ -600,6 +602,22 @@ async function hCrearUsuarioSGT(args: z.infer<typeof EsquemaCrearUsuarioSGT>, ct
 async function hActualizarUsuarioSGT(args: z.infer<typeof EsquemaActualizarUsuarioSGT>, ctx: OperacionContext) {
   const patch: Record<string, unknown> = {};
   if (args.nombre !== undefined) patch.nombre = args.nombre;
+  if (args.tipo_doc !== undefined || args.nro_doc !== undefined) {
+    const { data: actual } = await ctx.service.from("seg_usuarios").select("tipo_doc,nro_doc").eq("id", args.id).maybeSingle();
+    const td = (args.tipo_doc ?? (actual as { tipo_doc?: string } | null)?.tipo_doc ?? "DNI").toUpperCase();
+    const nd = args.nro_doc ?? (actual as { nro_doc?: string } | null)?.nro_doc ?? "";
+    if (!nd) {
+      const e = new Error("Número de documento obligatorio") as Error & { status?: number };
+      e.status = 422; throw e;
+    }
+    const { data: dup } = await ctx.service.from("seg_usuarios").select("id").eq("tipo_doc", td).eq("nro_doc", nd).neq("id", args.id).limit(1);
+    if (dup && dup.length > 0) {
+      const e = new Error(`Documento ya registrado: ${td} ${nd}`) as Error & { status?: number };
+      e.status = 409; throw e;
+    }
+    patch.tipo_doc = td;
+    patch.nro_doc = nd;
+  }
   if (args.telefono !== undefined) patch.telefono = args.telefono || null;
   if (args.rol_codigo !== undefined) {
     const { data: rol } = await ctx.service.from("seg_roles").select("codigo").eq("codigo", args.rol_codigo.toUpperCase()).maybeSingle();

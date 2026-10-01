@@ -77,6 +77,8 @@ function UsuarioModal({
         await apiOperacion("actualizarUsuarioSGT", {
           id: initial.id,
           nombre: nombre.trim(),
+          tipo_doc: tipoDoc,
+          nro_doc: nroDoc.trim(),
           telefono: telefono.trim(),
           rol_codigo: rol,
           id_proveedor: prov || null,
@@ -106,20 +108,18 @@ function UsuarioModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl w-full max-w-xl p-6 my-6">
         <h2 className="text-lg font-extrabold">{editando ? `Editar usuario · ${initial?.id}` : "Nuevo usuario"}</h2>
-        <p className="text-xs text-slate-500 mt-1">{editando ? "Documento y correo son inmutables (credencial de acceso)." : "Crea el acceso (Auth) y la ficha del usuario."}</p>
+        <p className="text-xs text-slate-500 mt-1">{editando ? "El correo es inmutable (credencial de acceso). El documento sí se puede corregir." : "Crea el acceso (Auth) y la ficha del usuario."}</p>
         <div className="grid md:grid-cols-2 gap-3 mt-4">
-          {!editando && (<>
-            <div>
-              <label className="label">Tipo de documento *</label>
-              <select className="input" value={tipoDoc} onChange={(e) => setTipoDoc(e.target.value)}>
-                {["DNI", "CE", "PASAPORTE", "RUC", "OTRO"].map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="label">Número de documento *</label>
-              <input className="input" value={nroDoc} onChange={(e) => setNroDoc(e.target.value)} />
-            </div>
-          </>)}
+          <div>
+            <label className="label">Tipo de documento {!editando && "*"}</label>
+            <select className="input" value={tipoDoc} onChange={(e) => setTipoDoc(e.target.value)}>
+              {["DNI", "CE", "PASAPORTE", "RUC", "OTRO"].map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Número de documento {!editando && "*"}</label>
+            <input className="input" value={nroDoc} onChange={(e) => setNroDoc(e.target.value)} />
+          </div>
           <div className="md:col-span-2"><label className="label">Nombre completo *</label><input className="input" placeholder="Nombres y apellidos" value={nombre} onChange={(e) => setNombre(e.target.value)} /></div>
           <div><label className="label">Correo {editando ? "(inmutable)" : "*"}</label><input className="input" value={correo} disabled={editando} onChange={(e) => setCorreo(e.target.value)} /></div>
           <div><label className="label">Teléfono</label><input className="input" placeholder="+51999999999" value={telefono} onChange={(e) => setTelefono(e.target.value)} /></div>
