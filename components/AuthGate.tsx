@@ -139,7 +139,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="min-h-screen flex flex-col lg:flex-row bg-white">
         {/* Izquierda: panel marca azul profundo */}
-        <div className="relative overflow-hidden lg:w-[46%] bg-gradient-to-br from-[#0B5FA5] via-[#0088C7] to-[#00A9CE] text-white flex flex-col justify-between p-10 lg:p-16 min-h-[420px]">
+        <div className="relative overflow-hidden lg:w-[46%] bg-gradient-to-br from-[#0B5FA5] via-[#0088C7] to-[#00A9CE] text-white flex flex-col justify-between p-6 sm:p-8 lg:p-16 min-h-0 lg:min-h-[420px]">
           <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.14]" viewBox="0 0 600 800" fill="none" stroke="white" strokeWidth="1.5" preserveAspectRatio="xMidYMid slice">
             <path d="M-40 140 C 160 200, 300 320, 380 560" />
             <path d="M-40 190 C 170 250, 320 370, 410 610" />
@@ -148,27 +148,27 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             <path d="M-40 340 C 200 400, 380 520, 500 760" />
           </svg>
           <div className="relative">
-            <Asterisco className="h-20 w-20 text-white" />
-            <h2 className="mt-10 text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight">
+            <Asterisco className="h-12 w-12 sm:h-16 sm:w-16 lg:h-20 lg:w-20 text-white" />
+            <h2 className="mt-6 lg:mt-10 text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight">
               Hola,<br />Ambientes<br />Cálidos!
             </h2>
-            <p className="mt-8 text-white/85 text-base leading-relaxed max-w-sm">
+            <p className="mt-4 lg:mt-8 text-white/85 text-sm sm:text-base leading-relaxed max-w-sm">
               Cotizaciones, clientes y gestión comercial en un solo lugar.
               Cotiza más rápido, simula financiamiento y cierra más ventas.
             </p>
           </div>
-          <p className="relative mt-10 text-sm text-white/60">© 2026 Cálidda. Todos los derechos reservados.</p>
+          <p className="relative mt-6 lg:mt-10 text-xs sm:text-sm text-white/60">© 2026 Cálidda. Todos los derechos reservados.</p>
         </div>
 
         {/* Derecha: acceso */}
-        <div className="flex-1 flex items-center justify-center p-8 lg:p-16 bg-white">
-          <div className="w-full max-w-sm">
-            <div className="flex items-center gap-3">
-              <LogoCalidda className="h-11 w-auto" />
-              <span className="text-2xl font-extrabold text-black tracking-tight">Ambientes Cálidos</span>
+        <div className="flex-1 flex items-center justify-center p-5 sm:p-8 lg:p-16 bg-white">
+          <div className="w-full max-w-sm py-6 lg:py-0">
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <LogoCalidda className="h-9 sm:h-11 w-auto" />
+              <span className="text-xl sm:text-2xl font-extrabold text-black tracking-tight">Ambientes Cálidos</span>
             </div>
 
-            <h1 className="mt-12 text-3xl font-extrabold text-black tracking-tight">
+            <h1 className="mt-8 lg:mt-12 text-2xl sm:text-3xl font-extrabold text-black tracking-tight">
               {vista === "login" ? "¡Bienvenido de nuevo!" : "Recupera tu acceso"}
             </h1>
             <p className="mt-2 text-sm text-slate-500">
