@@ -15,7 +15,7 @@ const EsquemaBody = z.object({
  * POST /api/cotizaciones/[id]/enviar { para }
  * SOLO SERVER: genera el PDF con service_role y lo envía por SMTP
  * (nodemailer) con el PDF adjunto.
- * Asunto: "Cotización COT-... Soluciones Hogar".
+ * Asunto: "Cotización COT-... Ambientes Cálidos".
  */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const sesion = await getSession();
@@ -53,8 +53,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const info = await transporter.sendMail({
       from: SMTP_FROM || SMTP_USER,
       to: body.para,
-      subject: `Cotización ${datos.codigo} Soluciones Hogar`,
-      text: `Estimado(a) ${datos.clienteNombre ?? ""}:\n\nAdjuntamos su cotización ${datos.codigo} de Soluciones Hogar Cálidda por un total de S/ ${datos.total.toFixed(2)}.\n\nFinanciamiento: cuota inicial S/ ${datos.cuotaInicial.toFixed(2)}, capital S/ ${datos.capital.toFixed(2)}, TEA ${(datos.tea * 100).toFixed(2)}%, ${datos.plazo} cuotas de S/ ${datos.cuotaMensual.toFixed(2)}.\n\n${datos.observaciones ?? ""}\n\nDocumento generado por Soluciones Hogar Cálidda.`,
+      subject: `Cotización ${datos.codigo} Ambientes Cálidos`,
+      text: `Estimado(a) ${datos.clienteNombre ?? ""}:\n\nAdjuntamos su cotización ${datos.codigo} de Ambientes Cálidos por un total de S/ ${datos.total.toFixed(2)}.\n\nFinanciamiento: cuota inicial S/ ${datos.cuotaInicial.toFixed(2)}, capital S/ ${datos.capital.toFixed(2)}, TEA ${(datos.tea * 100).toFixed(2)}%, ${datos.plazo} cuotas de S/ ${datos.cuotaMensual.toFixed(2)}.\n\n${datos.observaciones ?? ""}\n\nDocumento generado por Ambientes Cálidos.`,
       attachments: [{ filename, content: pdf, contentType: "application/pdf" }]
     });
 

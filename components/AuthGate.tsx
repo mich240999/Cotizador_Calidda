@@ -5,7 +5,7 @@ import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import LogoCalidda from "./LogoCalidda";
 
 /**
- * AuthGate — Cálidda Soluciones Hogar
+ * AuthGate — Ambientes Cálidos
  * Auth email + contraseña de Supabase (sin OAuth).
  * - Login: signInWithPassword
  * - Recuperación: resetPasswordForEmail -> link a /auth/callback?next=/actualizar-password
@@ -150,14 +150,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           <div className="relative">
             <Asterisco className="h-20 w-20 text-white" />
             <h2 className="mt-10 text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight">
-              Hola,<br />Soluciones<br />Hogar!
+              Hola,<br />Ambientes<br />Cálidos!
             </h2>
             <p className="mt-8 text-white/85 text-base leading-relaxed max-w-sm">
               Cotizaciones, clientes y gestión comercial en un solo lugar.
               Cotiza más rápido, simula financiamiento y cierra más ventas.
             </p>
           </div>
-          <p className="relative mt-10 text-sm text-white/60">© 2026 Soluciones Hogar. Todos los derechos reservados.</p>
+          <p className="relative mt-10 text-sm text-white/60">© 2026 Ambientes Cálidos. Todos los derechos reservados.</p>
         </div>
 
         {/* Derecha: acceso */}
@@ -165,7 +165,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           <div className="w-full max-w-sm">
             <div className="flex items-center gap-3">
               <LogoCalidda className="h-11 w-auto" />
-              <span className="text-2xl font-extrabold text-black tracking-tight">Soluciones Hogar</span>
+              <span className="text-2xl font-extrabold text-black tracking-tight">Ambientes Cálidos</span>
             </div>
 
             <h1 className="mt-12 text-3xl font-extrabold text-black tracking-tight">

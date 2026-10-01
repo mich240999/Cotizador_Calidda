@@ -240,7 +240,7 @@ export function buildCotizacionPdf(d: DatosPdf): jsPDF {
   doc.setFont("helvetica", "bold"); doc.setFontSize(14);
   doc.text("Cálidda", ML, 12);
   gris(120); doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
-  doc.text("Soluciones Hogar", ML, 17);
+  doc.text("Ambientes Cálidos", ML, 17);
   doc.setTextColor(...TEAL);
   doc.setFont("helvetica", "bold"); doc.setFontSize(13);
   doc.text("COTIZACIÓN", MR, 11, { align: "right" });
@@ -438,7 +438,7 @@ export function buildCotizacionPdf(d: DatosPdf): jsPDF {
     doc.setPage(i);
     doc.setFont("helvetica", "italic"); doc.setFontSize(7);
     gris(120);
-    doc.text(`Documento generado por Soluciones Hogar Cálidda · ${d.codigo} · pág. ${i}/${n}`, W / 2, 290, { align: "center" });
+    doc.text(`Documento generado por Ambientes Cálidos · ${d.codigo} · pág. ${i}/${n}`, W / 2, 290, { align: "center" });
     doc.setTextColor(0, 0, 0);
   }
   return doc;

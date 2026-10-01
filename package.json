@@ -2,7 +2,7 @@
   "name": "soluciones-hogar-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "Backend Next.js App Router que replica google.script.run de la app Soluciones Hogar",
+  "description": "Backend Next.js App Router que replica google.script.run de la app Ambientes Cálidos",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

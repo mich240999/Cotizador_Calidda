@@ -1,5 +1,5 @@
 /**
- * lib/financiamiento.ts — Matemática financiera Soluciones Hogar Cálidda.
+ * lib/financiamiento.ts — Matemática financiera Ambientes Cálidos.
  *
  * Fórmula usada (cuota fija / sistema francés):
  *   TEM   = (1 + TEA)^(1/12) − 1        (TEA en decimal, ej. 40% = 0.40)

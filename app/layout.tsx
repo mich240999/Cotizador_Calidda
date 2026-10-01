@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Cálidda | Soluciones Hogar — Gestión comercial y financiamiento",
-  description: "Plataforma comercial Soluciones Hogar: clientes, cotizaciones, materiales y administración.",
+  title: "Cálidda | Ambientes Cálidos — Gestión comercial y financiamiento",
+  description: "Plataforma comercial Ambientes Cálidos: clientes, cotizaciones, materiales y administración.",
   icons: { icon: "/logo-calidda.png" },
 };
 

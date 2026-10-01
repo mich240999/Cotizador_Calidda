@@ -43,7 +43,7 @@ export default function Navbar() {
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500 font-black">
             S
           </span>
-          <span className="hidden sm:inline">Soluciones Hogar</span>
+          <span className="hidden sm:inline">Ambientes Cálidos</span>
         </Link>
         <div className="flex items-center gap-1 overflow-x-auto">
           {LINKS.map((l) => {

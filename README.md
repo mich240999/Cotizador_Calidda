@@ -1,6 +1,6 @@
-# Soluciones Hogar — Cotizador (Next.js + Supabase)
+# Ambientes Cálidos — Cotizador (Next.js + Supabase)
 
-Réplica ingeniería inversa de la app Apps Script `Soluciones Hogar` (deployment `AKfycbyeVs8EfMmbd9FX1VlMhDwjqbhSVqMNIi1pyIAXs1MIxNokXJmYTwPezby5Hc4aTpQb`).
+Réplica ingeniería inversa de la app Apps Script `Ambientes Cálidos` (deployment `AKfycbyeVs8EfMmbd9FX1VlMhDwjqbhSVqMNIi1pyIAXs1MIxNokXJmYTwPezby5Hc4aTpQb`).
 `google.script.run` → `POST /api/operacion { operacion, argumentos, modulo }`.
 
 ## 1. Supabase (2 min)
@@ -29,7 +29,7 @@ Abre http://localhost:3000
 ```cmd
 git init
 git add .
-git commit -m "Cotizador Soluciones Hogar - Next.js + Supabase"
+git commit -m "Cotizador Ambientes Cálidos - Next.js + Supabase"
 gh repo create cotizador-hogar --private --source=. --push
 ```
 

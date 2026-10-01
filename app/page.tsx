@@ -34,7 +34,7 @@ function CuentaValidada() {
             <span className="font-extrabold text-2xl tracking-tight">Cálidda</span>
           </div>
           <p className="mt-8 text-xs font-bold tracking-[0.2em] text-white/80">PLATAFORMA COMERCIAL</p>
-          <h2 className="mt-2 text-4xl font-extrabold leading-tight">Soluciones Hogar</h2>
+          <h2 className="mt-2 text-4xl font-extrabold leading-tight">Ambientes Cálidos</h2>
           <p className="mt-4 text-white/85 text-sm leading-relaxed max-w-sm">
             Gestiona clientes, cotizaciones y financiamiento de productos para el hogar de forma
             simple y segura.
@@ -56,7 +56,7 @@ function CuentaValidada() {
             <div className="flex justify-between"><span className="text-slate-400">Vigencia</span><span className="font-semibold">—</span></div>
           </div>
           <Link href="/dashboard" className="btn-green w-full !py-3 mt-6">
-            Entrar a Soluciones Hogar
+            Entrar a Ambientes Cálidos
           </Link>
           <p className="mt-4 text-[11px] text-slate-400">Versión 1.0.0</p>
         </div>
