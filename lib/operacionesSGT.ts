@@ -1417,8 +1417,117 @@ async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, 
   };
 }
 
-// ---------------------------------------------------------------- mapa
+// ---------------------------------------------------------------- carga masiva de materiales (mae_materiales + tarifa inicial)
 
+const EsquemaCargaMateriales = z.object({ csv: z.string().min(1).max(2_000_000) });
+
+interface FilaMaterialCSV {
+  fila: number;
+  codigo_tmp: string;
+  nombre: string;
+  descripcion: string;
+  unidad: string;
+  precio: number | null;
+}
+
+function parseCSVMateriales(csv: string): { filas: FilaMaterialCSV[]; errores: string[] } {
+  const lineas = csv.replace(/^\uFEFF/, "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const errores: string[] = [];
+  if (lineas.length < 2) return { filas: [], errores: ["Archivo vacío o sin filas de datos"] };
+  const sep = (lineas[0].match(/;/g) ?? []).length >= (lineas[0].match(/,/g) ?? []).length ? ";" : ",";
+  const head = lineas[0].split(sep).map((h) => h.trim().toLowerCase());
+  const idx = (nombres: string[]) => {
+    for (const n of nombres) {
+      const i = head.indexOf(n);
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const iCod = idx(["codigo_tmp", "codigotmp", "codigo", "tmp"]);
+  const iNom = idx(["nombre", "material", "descripcion_corta"]);
+  const iDes = idx(["descripcion", "detalle", "observacion"]);
+  const iUni = idx(["unidad", "medida", "um"]);
+  const iPre = idx(["precio", "precio_unit", "tarifa", "precio_unitario"]);
+  if (iNom < 0) {
+    return { filas: [], errores: ["Cabecera inválida: se requiere al menos la columna nombre (usa la plantilla oficial)"] };
+  }
+  if (lineas.length - 1 > 500) {
+    return { filas: [], errores: ["Máximo 500 filas por archivo"] };
+  }
+  const filas: FilaMaterialCSV[] = [];
+  lineas.slice(1).forEach((ln, k) => {
+    const c = ln.split(sep).map((x) => x.trim());
+    const nom = c[iNom] ?? "";
+    if (!nom) return; // línea vacía
+    if (nom.length < 2) { errores.push(`Fila ${k + 2}: nombre muy corto`); return; }
+    const cod = iCod >= 0 ? (c[iCod] ?? "") : "";
+    if (cod && !/^TMP-[0-9]+$/i.test(cod)) { errores.push(`Fila ${k + 2}: codigo_tmp debe ser TMP-xxx o vacío`); return; }
+    let precio: number | null = null;
+    if (iPre >= 0 && (c[iPre] ?? "") !== "") {
+      const p = Number(String(c[iPre]).replace(",", "."));
+      if (!Number.isFinite(p) || p < 0) { errores.push(`Fila ${k + 2}: precio inválido`); return; }
+      precio = Math.round(p * 100) / 100;
+    }
+    filas.push({
+      fila: k + 2,
+      codigo_tmp: cod.toUpperCase(),
+      nombre: nom,
+      descripcion: iDes >= 0 ? (c[iDes] ?? "") : "",
+      unidad: (iUni >= 0 ? (c[iUni] ?? "") : "").toUpperCase() || "UND",
+      precio,
+    });
+  });
+  return { filas, errores };
+}
+
+async function hValidarArchivoMateriales(args: z.infer<typeof EsquemaCargaMateriales>) {
+  const { filas, errores } = parseCSVMateriales(args.csv);
+  return { total: filas.length + errores.length, validas: filas.length, errores };
+}
+
+async function hCargaMasivaMateriales(args: z.infer<typeof EsquemaCargaMateriales>, ctx: OperacionContext) {
+  const { filas, errores } = parseCSVMateriales(args.csv);
+  let insertadas = 0;
+  const fallos: string[] = [...errores];
+  const { data: ex } = await ctx.service.from("mae_materiales").select("id").limit(5000);
+  let corr = ((ex ?? []) as { id?: string }[]).map((r) => r.id);
+  for (const f of filas) {
+    try {
+      const id = siguienteId("MAT-", corr, 5);
+      const { error } = await ctx.service.from("mae_materiales").insert({
+        id,
+        codigo_tmp: f.codigo_tmp || null,
+        nombre: f.nombre,
+        descripcion: f.descripcion || null,
+        unidad: f.unidad,
+        tipo_medida: "LONGITUD",
+        decimales: 2,
+        estado: "ACTIVO",
+      });
+      if (error) throw new Error(error.message);
+      corr = [...corr, id];
+      if (f.precio != null) {
+        const hoy = new Date().toISOString().slice(0, 10);
+        const { error: eT } = await ctx.service.from("pre_tarifario").insert({
+          id_material: id,
+          precio: f.precio,
+          moneda: "PEN",
+          incluye_igv: true,
+          fecha_inicio: hoy,
+          fecha_fin: null,
+          estado: "VIGENTE",
+        });
+        if (eT) throw new Error(`tarifa: ${eT.message}`);
+      }
+      insertadas++;
+    } catch (e) {
+      fallos.push(`Fila ${f.fila}: ${(e as Error).message}`);
+    }
+  }
+  return { total: filas.length, insertadas, errores: fallos };
+}
+
+// ---------------------------------------------------------------- mapa
 export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarProveedoresSGT: { descripcion: "SGT: lista proveedores (+interlocutor)", roles: TODOS, schema: EsquemaQ, handler: hListarProveedoresSGT },
   crearProveedorSGT: { descripcion: "SGT: crea proveedor en maestro (PRVxxxx)", roles: OPERATIVO, schema: EsquemaProveedorSGT, handler: hCrearProveedorSGT },
@@ -1437,6 +1546,8 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   actualizarClienteSGT: { descripcion: "SGT: actualiza cliente (estado/SAP/datos)", roles: OPERATIVO, schema: EsquemaActualizarClienteSGT, handler: hActualizarClienteSGT },
   validarArchivoClientes: { descripcion: "SGT: valida CSV/XLSX de clientes sin guardar", roles: OPERATIVO, schema: EsquemaValidarClientes, handler: hValidarArchivoClientes },
   cargaMasivaClientes: { descripcion: "SGT: carga masiva clientes (máx 500)", roles: OPERATIVO, schema: EsquemaCargaClientes, handler: hCargaMasivaClientes },
+  validarArchivoMateriales: { descripcion: "SGT: valida CSV/XLSX de materiales sin guardar", roles: OPERATIVO, schema: EsquemaCargaMateriales, handler: hValidarArchivoMateriales },
+  cargaMasivaMateriales: { descripcion: "SGT: carga masiva materiales + tarifa inicial (máx 500)", roles: OPERATIVO, schema: EsquemaCargaMateriales, handler: hCargaMasivaMateriales },
   listarAsignaciones: { descripcion: "SGT: lista asignaciones de asesores", roles: TODOS, schema: EsquemaQ, handler: hListarAsignaciones },
   crearAsignacion: { descripcion: "SGT: crea asignación de asesor", roles: SOLO_ADMIN, schema: EsquemaCrearAsignacion, handler: hCrearAsignacion },
   actualizarAsignacion: { descripcion: "SGT: actualiza asignación (estado/fechas/estructura)", roles: SOLO_ADMIN, schema: EsquemaActualizarAsignacion, handler: hActualizarAsignacion },
