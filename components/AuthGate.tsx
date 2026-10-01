@@ -126,7 +126,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#1E1FA8]">
+      <div className="min-h-screen flex items-center justify-center bg-[#0B5FA5]">
         <div className="flex items-center gap-3 text-white">
           <span className="h-8 w-8 rounded-full border-[3px] border-white/30 border-t-white animate-spin" />
           <span className="text-sm font-semibold">Verificando sesión…</span>
@@ -139,7 +139,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="min-h-screen flex flex-col lg:flex-row bg-white">
         {/* Izquierda: panel marca azul profundo */}
-        <div className="relative overflow-hidden lg:w-[46%] bg-gradient-to-br from-[#2A2BD0] via-[#1E1FA8] to-[#14157A] text-white flex flex-col justify-between p-10 lg:p-16 min-h-[420px]">
+        <div className="relative overflow-hidden lg:w-[46%] bg-gradient-to-br from-[#0B5FA5] via-[#0088C7] to-[#00A9CE] text-white flex flex-col justify-between p-10 lg:p-16 min-h-[420px]">
           <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.14]" viewBox="0 0 600 800" fill="none" stroke="white" strokeWidth="1.5" preserveAspectRatio="xMidYMid slice">
             <path d="M-40 140 C 160 200, 300 320, 380 560" />
             <path d="M-40 190 C 170 250, 320 370, 410 610" />
@@ -214,7 +214,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               )}
               {vista === "login" ? (
                 <button
-                  className="w-full rounded-xl bg-black py-3.5 text-[15px] font-semibold text-white transition hover:bg-slate-800 active:bg-slate-900 disabled:opacity-60"
+                  className="w-full rounded-xl bg-[#0077B6] py-3.5 text-[15px] font-semibold text-white transition hover:bg-[#005B96] active:bg-[#004E89] disabled:opacity-60"
                   onClick={ingresar}
                   disabled={busy}
                 >
@@ -222,7 +222,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                 </button>
               ) : (
                 <button
-                  className="w-full rounded-xl bg-black py-3.5 text-[15px] font-semibold text-white transition hover:bg-slate-800 active:bg-slate-900 disabled:opacity-60"
+                  className="w-full rounded-xl bg-[#0077B6] py-3.5 text-[15px] font-semibold text-white transition hover:bg-[#005B96] active:bg-[#004E89] disabled:opacity-60"
                   onClick={recuperar}
                   disabled={busy}
                 >
