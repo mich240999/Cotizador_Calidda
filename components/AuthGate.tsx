@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
-import LogoCalidda from "@/components/LogoCalidda";
+import LogoCalidda from "./LogoCalidda";
 
 /**
  * AuthGate — Cálidda Soluciones Hogar
@@ -24,6 +24,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [email, setEmail] = useState<string | null>(null);
   const [correo, setCorreo] = useState("");
   const [clave, setClave] = useState("");
+  const [verClave, setVerClave] = useState(false);
   const [vista, setVista] = useState<"login" | "recuperar">("login");
   const [busy, setBusy] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -113,88 +114,130 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F4F7FA] text-slate-500 text-sm">
-        Verificando sesión…
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#0077B6] via-[#0099D8] to-[#00B4A2]">
+        <div className="flex items-center gap-3 text-white">
+          <span className="h-8 w-8 rounded-full border-[3px] border-white/30 border-t-white animate-spin" />
+          <span className="text-sm font-semibold">Verificando sesión…</span>
+        </div>
       </div>
     );
   }
 
   if (!email) {
     return (
-      <div className="min-h-screen flex flex-col lg:flex-row bg-white">
-        {/* Izquierda: panel azul */}
-        <div className="lg:w-[46%] bg-[#0099D8] text-white flex flex-col justify-between p-8 lg:p-12 min-h-[320px]">
-          <div>
-            <div className="flex items-center gap-2">
-              <LogoCalidda className="h-10 w-auto" fallbackClassName="text-2xl text-white" />
+      <div className="min-h-screen flex flex-col lg:flex-row">
+        {/* Izquierda: panel marca con gradiente */}
+        <div className="relative overflow-hidden lg:w-[46%] bg-gradient-to-br from-[#006494] via-[#0099D8] to-[#00B4A2] text-white flex flex-col justify-between p-8 lg:p-12 min-h-[340px]">
+          <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full bg-white/10" />
+          <div className="pointer-events-none absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-white/10" />
+          <div className="pointer-events-none absolute bottom-16 right-10 h-24 w-24 rounded-full border border-white/20" />
+          <div className="relative">
+            <div className="inline-flex items-center gap-3 rounded-2xl bg-white px-5 py-3 shadow-lg">
+              <LogoCalidda className="h-11 w-auto" />
             </div>
-            <p className="mt-8 text-xs font-bold tracking-[0.2em] text-white/80">
+            <p className="mt-10 text-xs font-bold tracking-[0.25em] text-white/80">
               PLATAFORMA COMERCIAL
             </p>
-            <h2 className="mt-2 text-4xl font-extrabold leading-tight">Soluciones Hogar</h2>
+            <h2 className="mt-2 text-4xl lg:text-5xl font-extrabold leading-tight">Soluciones<br />Hogar</h2>
             <p className="mt-4 text-white/85 text-sm leading-relaxed max-w-sm">
-              Gestiona clientes, cotizaciones y financiamiento de productos para el hogar
-              de forma simple y segura. Cotiza, simula cuotas y haz seguimiento comercial
-              en un solo lugar.
+              Cotizaciones, clientes y gestión comercial en un solo lugar.
             </p>
+            <ul className="mt-6 space-y-2.5 text-sm text-white/90">
+              {["Cotiza materiales con tarifa vigente", "Simula financiamiento con TEA", "Sigue tus ventas hasta el cierre"].map((t) => (
+                <li key={t} className="flex items-center gap-2.5">
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-xs font-bold">✓</span>
+                  {t}
+                </li>
+              ))}
+            </ul>
           </div>
-          <div className="mt-10 text-[11px] text-white/60">Versión 1.0.0</div>
+          <div className="relative mt-10 flex items-center justify-between text-[11px] text-white/60">
+            <span>Versión 1.0.0</span>
+            <span>Gas Natural del Perú</span>
+          </div>
         </div>
 
-        {/* Derecha: login email + clave */}
-        <div className="flex-1 flex items-center justify-center p-6 lg:p-12 bg-white">
-          <div className="w-full max-w-md">
+        {/* Derecha: tarjeta de acceso */}
+        <div className="flex-1 flex items-center justify-center p-6 lg:p-12 bg-[#F4F7FA] relative overflow-hidden">
+          <div className="pointer-events-none absolute -top-20 -left-20 h-64 w-64 rounded-full bg-[#0099D8]/5" />
+          <div className="relative w-full max-w-md rounded-3xl bg-white p-8 shadow-xl shadow-slate-200/70 border border-slate-100">
             <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> ACCESO SEGURO
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+              </span>
+              ACCESO SEGURO
             </span>
-            <h1 className="mt-4 text-3xl font-extrabold text-slate-900">
-              {vista === "login" ? "Inicia sesión" : "Recupera tu contraseña"}
+            <h1 className="mt-4 text-3xl font-extrabold text-slate-900 tracking-tight">
+              {vista === "login" ? "Inicia sesión" : "Recupera tu acceso"}
             </h1>
             <p className="mt-1.5 text-sm text-slate-500">
               {vista === "login"
-                ? "Ingresa con tu correo y contraseña registrados en Soluciones Hogar."
+                ? "Selecciona tu cuenta autorizada para ingresar."
                 : "Te enviaremos un enlace para crear una nueva contraseña."}
             </p>
-            <div className="mt-6 space-y-3">
+            <div className="mt-6 space-y-4">
               <div>
                 <label className="label" htmlFor="auth-email">Correo electrónico</label>
-                <input
-                  id="auth-email"
-                  type="email"
-                  autoComplete="email"
-                  className="input"
-                  placeholder="usuario@empresa.com"
-                  value={correo}
-                  onChange={(e) => setCorreo(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && (vista === "login" ? ingresar() : recuperar())}
-                />
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">✉</span>
+                  <input
+                    id="auth-email"
+                    type="email"
+                    autoComplete="email"
+                    className="input !pl-10"
+                    placeholder="usuario@empresa.com"
+                    value={correo}
+                    onChange={(e) => setCorreo(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && (vista === "login" ? ingresar() : recuperar())}
+                  />
+                </div>
               </div>
               {vista === "login" && (
                 <div>
                   <label className="label" htmlFor="auth-pass">Contraseña</label>
-                  <input
-                    id="auth-pass"
-                    type="password"
-                    autoComplete="current-password"
-                    className="input"
-                    placeholder="••••••••"
-                    value={clave}
-                    onChange={(e) => setClave(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && ingresar()}
-                  />
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">🔒</span>
+                    <input
+                      id="auth-pass"
+                      type={verClave ? "text" : "password"}
+                      autoComplete="current-password"
+                      className="input !pl-10 !pr-12"
+                      placeholder="••••••••"
+                      value={clave}
+                      onChange={(e) => setClave(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && ingresar()}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setVerClave((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm"
+                      title={verClave ? "Ocultar" : "Mostrar"}
+                    >
+                      {verClave ? "◠" : "👁"}
+                    </button>
+                  </div>
                 </div>
               )}
               {vista === "login" ? (
-                <button className="btn-green w-full !py-3" onClick={ingresar} disabled={busy}>
-                  {busy ? "Ingresando…" : "Iniciar sesión"}
+                <button
+                  className="btn-green w-full !py-3 !rounded-2xl !text-base shadow-lg shadow-emerald-600/20 hover:-translate-y-px active:translate-y-0 transition-transform disabled:transform-none"
+                  onClick={ingresar}
+                  disabled={busy}
+                >
+                  {busy ? "Ingresando…" : "Iniciar sesión →"}
                 </button>
               ) : (
-                <button className="btn-green w-full !py-3" onClick={recuperar} disabled={busy}>
+                <button
+                  className="btn-green w-full !py-3 !rounded-2xl !text-base shadow-lg shadow-emerald-600/20 hover:-translate-y-px active:translate-y-0 transition-transform disabled:transform-none"
+                  onClick={recuperar}
+                  disabled={busy}
+                >
                   {busy ? "Enviando…" : "Enviar enlace de recuperación"}
                 </button>
               )}
               <button
-                className="btn-white w-full !py-2.5 text-sm"
+                className="w-full text-sm font-semibold text-[#0099D8] hover:underline"
                 onClick={() => {
                   setVista(vista === "login" ? "recuperar" : "login");
                   setError(null);
@@ -205,20 +248,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               </button>
             </div>
             {error && (
-              <p className="mt-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2">{error}</p>
+              <p className="mt-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-2.5">{error}</p>
             )}
             {aviso && (
-              <p className="mt-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-3 py-2">{aviso}</p>
+              <p className="mt-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-4 py-2.5">{aviso}</p>
             )}
-            <div className="mt-6 rounded-2xl bg-slate-50 border border-slate-200 p-4 text-[11px] text-slate-500 leading-relaxed">
-              <p className="font-bold text-slate-600 mb-1">Notas de seguridad</p>
-              <ul className="list-disc pl-4 space-y-0.5">
-                <li>Solo pueden ingresar cuentas activas registradas en Soluciones Hogar.</li>
-                <li>El enlace de recuperación vence en 1 hora y es de un solo uso.</li>
-                <li>Sesión supervisada con heartbeat cada 120 s.</li>
-              </ul>
-            </div>
-            <p className="mt-6 text-center text-[11px] text-slate-400">Versión 1.0.0</p>
+            <p className="mt-6 text-center text-[11px] text-slate-400">
+              Solo podrán continuar las cuentas activas registradas en Soluciones Hogar · v1.0.0
+            </p>
           </div>
         </div>
       </div>
