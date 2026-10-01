@@ -106,6 +106,17 @@ function red2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Siguiente id con prefijo (CLI/PRV/MAT- + dígitos), ej. CLI001449. */
+function siguienteId(prefijo: string, existentes: (string | null | undefined)[], pad = 4): string {
+  let max = 0;
+  const re = new RegExp(`^${prefijo.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")}(\\d{${pad}})$`);
+  for (const c of existentes) {
+    const m = re.exec(String(c ?? "").trim());
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `${prefijo}${String(max + 1).padStart(pad, "0")}`;
+}
+
 /** Scope por rol: asesor/oficina solo ven lo creado por ellos (created_by propio). */
 function esAdmin(ctx: OperacionContext): boolean {
   return ctx.sesion.rol === "admin";
@@ -317,6 +328,78 @@ async function hListarVentas(args: z.infer<typeof EsquemaListarVentas>, ctx: Ope
   }
 }
 
+/** Resuelve un cliente a mae_clientes. Si viene de la tabla base, lo migra solo. */
+async function resolverClienteSGT(ctx: OperacionContext, id: string): Promise<string> {
+  const { data: ex } = await ctx.service.from("mae_clientes").select("id").eq("id", id).maybeSingle();
+  if (ex) return id;
+  const { data: base } = await ctx.service.from("clientes").select("*").eq("id", id).maybeSingle();
+  if (!base) lanzar(422, "El cliente no existe en mae_clientes: créalo en Clientes primero");
+  const b = base as Record<string, any>;
+  const { data: ids } = await ctx.service.from("mae_clientes").select("id").limit(5000);
+  const nuevo = siguienteId("CLI", ((ids ?? []) as { id?: string }[]).map((r) => r.id), 6);
+  const { error } = await ctx.service.from("mae_clientes").insert({
+    id: nuevo,
+    tipo_persona: "NATURAL",
+    tipo_doc: "DNI",
+    nro_doc: String(b.dni ?? b.documento ?? `MIG-${String(id).slice(0, 8)}`),
+    nombre_razon_social: String(b.nombres ?? b.nombre ?? "Cliente migrado"),
+    contacto: null,
+    correo: b.email ?? null,
+    telefono: b.telefono ?? null,
+    codigo_sap: null,
+    estado: "ACTIVO",
+  });
+  if (error) lanzar(422, `No se pudo migrar el cliente al maestro SGT: ${error.message}`);
+  return nuevo;
+}
+
+/** Resuelve un proveedor a mae_proveedores. Si viene de la tabla base, lo migra solo. */
+async function resolverProveedorSGT(ctx: OperacionContext, id: string): Promise<string> {
+  const { data: ex } = await ctx.service.from("mae_proveedores").select("id").eq("id", id).maybeSingle();
+  if (ex) return id;
+  const { data: base } = await ctx.service.from("proveedores").select("*").eq("id", id).maybeSingle();
+  if (!base) lanzar(422, "El proveedor no existe en mae_proveedores: créalo en Administración > Proveedores");
+  const b = base as Record<string, any>;
+  if (!b.ruc) lanzar(422, "El proveedor base no tiene RUC: complétalo en Administración > Proveedores antes de vender");
+  const { data: ids } = await ctx.service.from("mae_proveedores").select("id").limit(5000);
+  const nuevo = siguienteId("PRV", ((ids ?? []) as { id?: string }[]).map((r) => r.id));
+  const { error } = await ctx.service.from("mae_proveedores").insert({
+    id: nuevo,
+    interlocutor: String(b.contacto ?? b.nombre ?? nuevo),
+    ruc: String(b.ruc),
+    razon_social: String(b.nombre ?? nuevo),
+    nombre_comercial: String(b.nombre ?? nuevo),
+    correo: b.email ?? null,
+    telefono: b.telefono ?? null,
+    estado: "ACTIVO",
+  });
+  if (error) lanzar(422, `No se pudo migrar el proveedor al maestro SGT: ${error.message}`);
+  return nuevo;
+}
+
+/** Resuelve un material a mae_materiales. Si viene de la tabla base, lo migra solo. */
+async function resolverMaterialSGT(ctx: OperacionContext, id: string): Promise<string> {
+  const { data: ex } = await ctx.service.from("mae_materiales").select("id").eq("id", id).maybeSingle();
+  if (ex) return id;
+  const { data: base } = await ctx.service.from("materiales").select("*").eq("id", id).maybeSingle();
+  if (!base) lanzar(422, `El material ${id} no existe en el maestro: créalo en Materiales primero`);
+  const b = base as Record<string, any>;
+  const { data: ids } = await ctx.service.from("mae_materiales").select("id").limit(5000);
+  const nuevo = siguienteId("MAT-", ((ids ?? []) as { id?: string }[]).map((r) => r.id), 5);
+  const { error } = await ctx.service.from("mae_materiales").insert({
+    id: nuevo,
+    codigo_tmp: null,
+    nombre: String(b.nombre ?? nuevo),
+    descripcion: b.descripcion ?? null,
+    unidad: String(b.unidad ?? "UND"),
+    tipo_medida: "LONGITUD",
+    decimales: 2,
+    estado: "ACTIVO",
+  });
+  if (error) lanzar(422, `No se pudo migrar el material al maestro SGT: ${error.message}`);
+  return nuevo;
+}
+
 async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx: OperacionContext) {
   // Solo admin puede usar TEA distinta de 40.
   if (!esAdmin(ctx) && Number(args.tea) !== 40) lanzar(403, "Solo el rol admin puede registrar una TEA distinta de 40");
@@ -329,6 +412,12 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
     return { ...it, subtotal: red2(bruto - it.descuento_monto) };
   });
   const total = red2(items.reduce((a, it) => a + it.subtotal, 0));
+  // FKs: resuelven al maestro SGT (migran desde tablas base si hace falta).
+  const idClienteSGT = await resolverClienteSGT(ctx, args.id_cliente);
+  const idProveedorSGT = args.id_proveedor ? await resolverProveedorSGT(ctx, args.id_proveedor) : null;
+  for (const it of items) {
+    it.id_material = await resolverMaterialSGT(ctx, it.id_material);
+  }
   try {
     const { data: prev, error: ePrev } = await ctx.service.from(T_SOL).select("id").limit(5000);
     if (ePrev) throw new Error(ePrev.message);
@@ -337,8 +426,8 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
       .from(T_SOL)
       .insert({
         id,
-        id_cliente: args.id_cliente,
-        id_proveedor: args.id_proveedor || null,
+        id_cliente: idClienteSGT,
+        id_proveedor: idProveedorSGT,
         canal: args.canal,
         es_microaliado: args.es_microaliado ?? false,
         visita_estado: args.visita_estado,
@@ -353,7 +442,13 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
       })
       .select()
       .single();
-    if (eCab || !cab) throw new Error(eCab?.message ?? "No se pudo crear la solicitud de venta");
+    if (eCab || !cab) {
+      const m = eCab?.message ?? "No se pudo crear la solicitud de venta";
+      if (/foreign key|llave foránea|violates foreign/i.test(m)) {
+        lanzar(422, "El cliente, proveedor o material ya no existe en el maestro: recarga los catálogos e intenta de nuevo");
+      }
+      throw new Error(m);
+    }
     const { data: det, error: eDet } = await ctx.service
       .from(T_ITEM)
       .insert(
