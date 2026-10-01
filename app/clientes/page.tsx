@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
 
 type Cliente = {
@@ -409,18 +410,16 @@ export default function ClientesPage() {
 
   return (
     <AuthGate><Shell>
-      <div className="rounded-2xl bg-emerald-50/60 border border-emerald-100/70 p-5 md:p-6 flex flex-wrap items-start gap-4">
-        <div className="flex-1 min-w-[220px]">
-          <p className="text-[11px] font-extrabold tracking-widest text-emerald-600">GESTIÓN COMERCIAL</p>
-          <h1 className="text-2xl font-extrabold">Clientes</h1>
-          <p className="text-sm text-slate-500 mt-1">Registra, consulta y revisa personas naturales o jurídicas, incluyendo su vinculación posterior con el código de cliente SAP.</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
+      <ModHead
+        eyebrow="GESTIÓN COMERCIAL"
+        title="Clientes"
+        desc="Registra, consulta y revisa personas naturales o jurídicas, incluyendo su vinculación posterior con el código de cliente SAP."
+        actions={<>
           <button className="btn-white !text-[#0099D8]" onClick={() => cargar(page, pageSize)} disabled={loading}>{loading ? "Actualizando…" : "Actualizar"}</button>
           <button className="btn-white !text-[#0099D8]" onClick={() => setShowCarga(true)}>Carga masiva</button>
           <button className="btn-green" onClick={() => setShowNuevo(true)}>Nuevo cliente</button>
-        </div>
-      </div>
+        </>}
+      />
 
       <div className="card p-4 mt-4 flex flex-wrap gap-3 items-end">
         <div className="flex-1 min-w-[200px]">

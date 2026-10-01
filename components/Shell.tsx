@@ -43,15 +43,18 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           <Link href="/dashboard" className="flex items-center gap-2.5">
             <span className="inline-flex items-center gap-2">
               <LogoCalidda priority className="h-9 w-auto" />
-              <span className="leading-tight">
-                <span className="block text-[11px] font-semibold text-slate-500">
-                  Ambientes Cálidos
-                </span>
+            <span className="leading-tight">
+              <span className="block text-base font-extrabold text-slate-900 tracking-tight">
+                Ambientes Cálidos
               </span>
+              <span className="block text-[11px] font-medium text-slate-400">
+                Gestión comercial y financiamiento
+              </span>
+            </span>
             </span>
             <span className="hidden md:block h-8 w-px bg-slate-200 mx-2" />
             <span className="hidden md:block text-sm font-semibold text-slate-600">
-              Gestión comercial y financiamiento
+              Cálidda · Gas Natural del Perú
             </span>
           </Link>
           <div className="ml-auto flex items-center gap-3">
@@ -61,7 +64,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 {email ?? "usuario@calidda.com.pe"}
               </p>
             </div>
-            <div className="h-9 w-9 rounded-full bg-[#0099D8] text-white flex items-center justify-center text-xs font-bold">
+            <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[#0B5FA5] to-[#00A9CE] text-white flex items-center justify-center text-xs font-bold shadow-sm">
               {initials(email)}
             </div>
             <button
@@ -91,7 +94,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   href={it.href}
                   className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
                     active
-                      ? "bg-[#0099D8] text-white shadow-sm"
+                      ? "bg-gradient-to-r from-[#0B5FA5] to-[#0099D8] text-white shadow-md shadow-sky-900/20"
                       : "text-slate-600 hover:bg-slate-100"
                   }`}
                 >

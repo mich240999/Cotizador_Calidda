@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion } from "@/components/Tablas";
 
 const CARDS = [
@@ -67,8 +68,7 @@ export default function AdminPage() {
   return (
     <AuthGate>
       <Shell>
-        <p className="text-[11px] font-bold tracking-[0.18em] text-slate-400">CONSOLA ADMINISTRATIVA</p>
-        <h1 className="text-2xl font-extrabold mt-1">Administración</h1>
+        <ModHead eyebrow="CONSOLA ADMINISTRATIVA" title="Administración" />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
           {kpis.map((k) => (
             <div key={k.label} className="card p-5 text-center">

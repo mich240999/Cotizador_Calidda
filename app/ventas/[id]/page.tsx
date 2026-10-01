@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
 import {
   BadgeAbono,
@@ -196,10 +197,13 @@ export default function VentaDetallePage() {
   return (
     <AuthGate>
       <Shell>
-        <div className="flex flex-wrap items-center gap-3">
-          <Link href="/ventas" className="text-xs font-bold text-[#0099D8]">← Registro de ventas</Link>
-          <span className="ml-auto"><SelectorRol rol={rol} setRol={setRol} /></span>
-        </div>
+        <Link href="/ventas" className="text-xs font-bold text-[#0099D8]">← Registro de ventas</Link>
+        <div className="mt-1"><ModHead
+          eyebrow="REGISTRO DE VENTAS"
+          title={venta ? `Venta ${ventaNumero(venta)}` : "Detalle de venta"}
+          desc={venta ? `${ventaCliente(venta)}${ventaDoc(venta) ? ` · ${ventaDoc(venta)}` : ""} · ${ventaProveedor(venta)} · ${formatoMoneda(totalCalc > 0 ? totalCalc : ventaTotal(venta))}` : "Detalle, abonos, instalación y cierre."}
+          actions={<><SelectorRol rol={rol} setRol={setRol} />{venta && <BadgeEstadoVenta estado={ventaEstado(venta)} />}</>}
+        /></div>
 
         {loading ? (
           <div className="card p-6 mt-4 text-sm text-[#0099D8]">Cargando detalle…</div>
@@ -210,14 +214,6 @@ export default function VentaDetallePage() {
           </div>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-3 mt-1">
-              <div>
-                <h1 className="text-2xl font-extrabold">Venta {ventaNumero(venta)}</h1>
-                <p className="text-sm text-slate-500">{ventaCliente(venta)}{ventaDoc(venta) ? ` · ${ventaDoc(venta)}` : ""} · {ventaProveedor(venta)} · <b>{formatoMoneda(totalCalc > 0 ? totalCalc : ventaTotal(venta))}</b></p>
-              </div>
-              <span className="ml-auto"><BadgeEstadoVenta estado={ventaEstado(venta)} /></span>
-            </div>
-
             {error && <p className="card p-3 mt-4 text-sm text-red-700 bg-red-50 border-red-200">{error}</p>}
             {info && <p className="card p-3 mt-4 text-sm text-emerald-700 bg-emerald-50 border-emerald-200">{info}</p>}
 

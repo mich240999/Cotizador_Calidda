@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion } from "@/components/Tablas";
 
 type Asignacion = Record<string, unknown> & { id: string | number; estado?: string };
@@ -57,10 +58,11 @@ export default function AsignacionesPage() {
 
   return (<AuthGate><Shell>
     <Link href="/admin" className="text-xs font-bold text-[#0099D8]">← Consola administrativa</Link>
-    <div className="flex items-center justify-between mt-1">
-      <h1 className="text-2xl font-extrabold">Asignaciones asesores</h1>
-      <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
-    </div>
+    <div className="mt-1"><ModHead
+      eyebrow="CONSOLA ADMINISTRATIVA"
+      title="Asignaciones asesores"
+      actions={<button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>}
+    /></div>
     <div className="flex gap-2 mt-3 flex-wrap">{TABS.map((t, i) => (<button key={t} onClick={() => setTab(i)} className={`px-4 py-2 rounded-xl text-sm font-semibold ${i === tab ? "bg-[#0099D8] text-white" : "bg-white border text-slate-600"}`}>{t}</button>))}</div>
     {error && <p className="card p-4 mt-4 text-sm text-red-700 bg-red-50 border-red-200">{error}</p>}
     {loading ? (

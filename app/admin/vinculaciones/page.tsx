@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
 
 type Proveedor = { id: string | number; nombre: string; ruc?: string };
@@ -68,13 +69,14 @@ export default function VinculacionesPage() {
 
   return (<AuthGate><Shell>
     <Link href="/admin" className="text-xs font-bold text-[#0099D8]">← Consola administrativa</Link>
-    <div className="flex items-center justify-between mt-1">
-      <h1 className="text-2xl font-extrabold">Proveedores y oficinas</h1>
-      <div className="flex gap-2">
+    <div className="mt-1"><ModHead
+      eyebrow="CONSOLA ADMINISTRATIVA"
+      title="Proveedores y oficinas"
+      actions={<>
         <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
         <button className="btn-green" onClick={() => setOpen(true)}>+ Nueva vinculación</button>
-      </div>
-    </div>
+      </>}
+    /></div>
     {error && <p className="card p-4 mt-4 text-sm text-red-700 bg-red-50 border-red-200">{error}</p>}
     {ok && <p className="card p-4 mt-4 text-sm text-emerald-700 bg-emerald-50 border-emerald-200">{ok}</p>}
     {loading ? (

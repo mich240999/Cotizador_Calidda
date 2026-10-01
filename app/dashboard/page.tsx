@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion } from "@/components/Tablas";
 
 export default function DashboardPage() {
@@ -44,14 +45,12 @@ export default function DashboardPage() {
   return (
     <AuthGate>
       <Shell>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-bold tracking-[0.18em] text-slate-400">RESUMEN GENERAL</p>
-            <h1 className="text-2xl font-extrabold mt-1">Dashboard</h1>
-            <p className="text-sm text-slate-500 mt-1">Vista consolidada de la operación comercial.</p>
-          </div>
-          <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
-        </div>
+        <ModHead
+          eyebrow="RESUMEN GENERAL"
+          title="Dashboard"
+          desc="Vista consolidada de la operación comercial."
+          actions={<button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>}
+        />
         {error && <p className="card p-4 mt-4 text-sm text-red-700 bg-red-50 border-red-200">{error}</p>}
         <div className="grid gap-4 md:grid-cols-3 mt-6">
           {cards.map((c) => (

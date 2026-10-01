@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 
 export default function RecursosPage() {
   const [info, setInfo] = useState<string | null>(null);
@@ -24,10 +25,11 @@ export default function RecursosPage() {
 
   return (<AuthGate><Shell>
     <Link href="/admin" className="text-xs font-bold text-[#0099D8]">← Consola administrativa</Link>
-    <div className="flex items-center justify-between mt-1">
-      <h1 className="text-2xl font-extrabold">Recursos visuales</h1>
-      <button className="btn-white" onClick={actualizar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
-    </div>
+    <div className="mt-1"><ModHead
+      eyebrow="CONSOLA ADMINISTRATIVA"
+      title="Recursos visuales"
+      actions={<button className="btn-white" onClick={actualizar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>}
+    /></div>
     {info && <p className="card p-4 mt-4 text-sm text-slate-600 bg-slate-50">{info}</p>}
     {loading ? (
       <div className="card p-10 mt-4 text-center text-slate-500">Cargando…</div>

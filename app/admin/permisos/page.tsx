@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion } from "@/components/Tablas";
 
 export default function PermisosPage() {
@@ -47,13 +48,12 @@ export default function PermisosPage() {
 
   return (<AuthGate><Shell>
     <Link href="/admin" className="text-xs font-bold text-[#0099D8]">← Consola administrativa</Link>
-    <div className="flex items-center justify-between mt-1">
-      <h1 className="text-2xl font-extrabold">Permisos detallados</h1>
-      <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
-    </div>
-    <p className="text-xs text-slate-500 mt-1">
-      {loading ? "Cargando matriz…" : `Matriz por rol · ${roles.length} roles · ${concedidos} concedidos${fuente ? ` · fuente: ${fuente}` : ""}. Solo lectura (el backend no expone escritura de permisos).`}
-    </p>
+    <div className="mt-1"><ModHead
+      eyebrow="CONSOLA ADMINISTRATIVA"
+      title="Permisos detallados"
+      desc={loading ? "Cargando matriz…" : `Matriz por rol · ${roles.length} roles · ${concedidos} concedidos${fuente ? ` · fuente: ${fuente}` : ""}. Solo lectura (el backend no expone escritura de permisos).`}
+      actions={<button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>}
+    /></div>
     {error && <p className="card p-4 mt-4 text-sm text-red-700 bg-red-50 border-red-200">{error}</p>}
     {loading ? (
       <div className="card p-10 mt-4 text-center text-slate-500">Cargando permisos…</div>

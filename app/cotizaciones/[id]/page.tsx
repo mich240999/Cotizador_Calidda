@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import {
   apiOperacion,
   BadgeEstado,
@@ -192,18 +193,13 @@ export default function CotizacionDetallePage({
 
   return (
     <AuthGate><Shell>
-      <div className="rounded-2xl bg-emerald-50/60 border border-emerald-100/70 p-5 md:p-6 flex flex-wrap items-center gap-3">
-        <div className="flex-1 min-w-[220px]">
-          <Link href="/cotizaciones" className="text-xs font-bold text-[#0099D8] no-print">← Lista</Link>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-extrabold">
-              Cotización {cot?.codigo ?? cot?.numero ?? id.slice(0, 8)}
-            </h1>
-            {cot && <BadgeEstado estado={String(cot.estado).toUpperCase()} />}
-          </div>
-          <p className="text-sm text-slate-500 mt-1">Detalle, estados, PDF y envío por correo.</p>
-        </div>
-        <div className="flex gap-2 flex-wrap no-print">
+      <Link href="/cotizaciones" className="text-xs font-bold text-[#0099D8] no-print">← Lista</Link>
+      <div className="mt-1"><ModHead
+        eyebrow="GESTIÓN COMERCIAL"
+        title={`Cotización ${cot?.codigo ?? cot?.numero ?? id.slice(0, 8)}`}
+        desc="Detalle, estados, PDF y envío por correo."
+        actions={<>
+          {cot && <BadgeEstado estado={String(cot.estado).toUpperCase()} />}
           <button
             onClick={regenerarPDF}
             disabled={!cot || accionando !== null}
@@ -218,8 +214,8 @@ export default function CotizacionDetallePage({
           >
             Ver PDF
           </button>
-        </div>
-      </div>
+        </>}
+      /></div>
 
       <div className="space-y-4 mt-4">
 

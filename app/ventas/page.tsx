@@ -5,6 +5,7 @@ import Link from "next/link";
 import VentaModal from "@/components/VentaModal";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
 import {
   BadgeEstadoVenta,
@@ -243,18 +244,16 @@ export default function VentasPage() {
   return (
     <AuthGate>
       <Shell>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-extrabold tracking-widest text-emerald-600">REGISTRO DE VENTAS</p>
-            <h1 className="text-2xl font-extrabold">Solicitudes de venta</h1>
-            <p className="text-sm text-slate-500 mt-1">Solicitudes comerciales con aprobación, abonos e instalación.</p>
-          </div>
-          <div className="flex gap-2">
+        <ModHead
+          eyebrow="REGISTRO DE VENTAS"
+          title="Solicitudes de venta"
+          desc="Solicitudes comerciales con aprobación, abonos e instalación."
+          actions={<>
             <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Actualizando…" : "Actualizar"}</button>
             <button className="btn-white" onClick={exportar} disabled={exportando}>{exportando ? "Exportando…" : "Exportar XLSX"}</button>
             <button className="btn-green" onClick={() => setNueva(true)}>+ Nueva solicitud</button>
-          </div>
-        </div>
+          </>}
+        />
 
         <div className="card p-4 mt-4 flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-[220px]">

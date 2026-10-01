@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
 
 type Proveedor = {
@@ -102,13 +103,14 @@ export default function ProveedoresPage() {
   return (
     <AuthGate><Shell>
       <Link href="/admin" className="text-xs font-bold text-[#0099D8]">← Consola administrativa</Link>
-      <div className="flex items-center justify-between mt-1">
-        <h1 className="text-2xl font-extrabold">Proveedores</h1>
-        <div className="flex gap-2">
+      <div className="mt-1"><ModHead
+        eyebrow="CONSOLA ADMINISTRATIVA"
+        title="Proveedores"
+        actions={<>
           <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
           <button className="btn-green" onClick={() => setOpen(true)}>+ Nuevo proveedor</button>
-        </div>
-      </div>
+        </>}
+      /></div>
       <div className="card p-4 mt-4 flex flex-wrap gap-3 items-end">
         <input className="input !w-64" placeholder="Buscar por nombre o RUC…" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="btn-white !py-2" onClick={limpiar}>Limpiar filtros</button>

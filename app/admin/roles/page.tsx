@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
 
 type Rol = { id?: string | number; nombre: string; descripcion?: string; permisos?: unknown };
@@ -32,10 +33,11 @@ export default function RolesPage() {
 
   return (<AuthGate><Shell>
     <Link href="/admin" className="text-xs font-bold text-[#0099D8]">← Consola administrativa</Link>
-    <div className="flex items-center justify-between mt-1">
-      <h1 className="text-2xl font-extrabold">Roles</h1>
-      <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
-    </div>
+    <div className="mt-1"><ModHead
+      eyebrow="CONSOLA ADMINISTRATIVA"
+      title="Roles"
+      actions={<button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>}
+    /></div>
     {error && <p className="card p-4 mt-4 text-sm text-red-700 bg-red-50 border-red-200">{error}</p>}
     {loading ? (
       <div className="card p-10 mt-4 text-center text-slate-500">Cargando roles…</div>

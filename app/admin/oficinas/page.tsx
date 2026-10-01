@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
 
 type Oficina = {
@@ -119,17 +120,15 @@ export default function OficinasPage() {
 
   return (<AuthGate><Shell>
     <Link href="/admin" className="text-xs font-bold text-[#0099D8]">← Consola administrativa</Link>
-    <div className="flex flex-wrap items-center justify-between gap-3 mt-1">
-      <div>
-        <p className="text-[11px] font-extrabold tracking-widest text-emerald-600">CONFIGURACIÓN COMERCIAL</p>
-        <h1 className="text-2xl font-extrabold">Oficinas de ventas</h1>
-        <p className="text-sm text-slate-500 mt-1">Administra las oficinas de ventas utilizadas para organizar proveedores, grupos de vendedores y asignaciones comerciales.</p>
-      </div>
-      <div className="flex gap-2">
+    <div className="mt-1"><ModHead
+      eyebrow="CONFIGURACIÓN COMERCIAL"
+      title="Oficinas de ventas"
+      desc="Administra las oficinas de ventas utilizadas para organizar proveedores, grupos de vendedores y asignaciones comerciales."
+      actions={<>
         <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Actualizando…" : "Actualizar"}</button>
         <button className="btn-green" onClick={() => { setForm({ codigo_sap: "", nombre: "", descripcion: "" }); setFormError(null); setShowNuevo(true); }}>+ Nueva oficina</button>
-      </div>
-    </div>
+      </>}
+    /></div>
 
     <div className="card p-4 mt-4 flex flex-wrap gap-3 items-end">
       <div className="flex-1 min-w-[220px]">

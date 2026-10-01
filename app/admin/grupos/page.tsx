@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
 
 type Grupo = {
@@ -143,13 +144,11 @@ export default function GruposPage() {
 
   return (<AuthGate><Shell>
     <Link href="/admin" className="text-xs font-bold text-[#0099D8]">← Consola administrativa</Link>
-    <div className="flex flex-wrap items-center justify-between gap-3 mt-1">
-      <div>
-        <p className="text-[11px] font-extrabold tracking-widest text-emerald-600">CONFIGURACIÓN COMERCIAL</p>
-        <h1 className="text-2xl font-extrabold">Grupos de vendedores</h1>
-        <p className="text-sm text-slate-500 mt-1">Administra los grupos comerciales asociados a una vinculación activa entre proveedor y oficina de ventas.</p>
-      </div>
-      <div className="flex gap-2">
+    <div className="mt-1"><ModHead
+      eyebrow="CONFIGURACIÓN COMERCIAL"
+      title="Grupos de vendedores"
+      desc="Administra los grupos comerciales asociados a una vinculación activa entre proveedor y oficina de ventas."
+      actions={<>
         <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Actualizando…" : "Actualizar"}</button>
         <button
           className="btn-green disabled:opacity-40"
@@ -159,8 +158,8 @@ export default function GruposPage() {
         >
           + Nuevo grupo
         </button>
-      </div>
-    </div>
+      </>}
+    /></div>
 
     {!loading && vincActivas.length === 0 && (
       <p className="mt-4 rounded-xl border-l-4 border-l-red-500 bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3">

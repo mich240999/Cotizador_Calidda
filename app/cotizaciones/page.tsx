@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import CotizacionModal from "@/components/CotizacionModal";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
 
@@ -98,13 +99,11 @@ export default function CotizacionesPage() {
   return (
     <AuthGate>
       <Shell>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-bold tracking-[0.18em] text-slate-400">GESTIÓN COMERCIAL</p>
-            <h1 className="text-2xl font-extrabold mt-1">Cotizaciones</h1>
-          </div>
-          <button className="btn-green" onClick={() => setOpen(true)}>+ Nueva cotización</button>
-        </div>
+        <ModHead
+          eyebrow="GESTIÓN COMERCIAL"
+          title="Cotizaciones"
+          actions={<button className="btn-green" onClick={() => setOpen(true)}>+ Nueva cotización</button>}
+        />
 
         <div className="card p-4 mt-4 flex flex-wrap gap-3 items-end">
           <input className="input !w-64" placeholder="Buscar por número o cliente…" value={q} onChange={(e) => setQ(e.target.value)} />

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
+import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
 
 type Material = {
@@ -111,10 +112,11 @@ export default function MaterialesPage() {
   return (
     <AuthGate>
       <Shell>
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-extrabold">Materiales</h1>
-          <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
-        </div>
+        <ModHead
+          eyebrow="GESTIÓN COMERCIAL"
+          title="Materiales"
+          actions={<button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>}
+        />
 
         <div className="card p-4 mt-4 flex flex-wrap gap-3 items-end">
           <div><label className="label">Buscar</label><input className="input !w-56" placeholder="Código o nombre…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
