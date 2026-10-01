@@ -172,13 +172,28 @@ const EsquemaRegenerar = z.object({ cotizacion_id: z.string().uuid() });
 // ---------------------------------------------------------------- handlers
 
 async function hListarProveedoresSGT(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
+  // Maestro SGT primero (razón social real); fallback a tabla base.
+  try {
+    let q = ctx.service.from("mae_proveedores").select("*").order("razon_social").limit(args.limit);
+    if (args.q) q = q.or(`razon_social.ilike.%${args.q}%,nombre_comercial.ilike.%${args.q}%,ruc.ilike.%${args.q}%,interlocutor.ilike.%${args.q}%`);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as Record<string, unknown>[]).map((p) => ({
+      ...p,
+      nombre: p.razon_social ?? p.nombre_comercial ?? p.interlocutor ?? p.nombre ?? null,
+      interlocutor: p.interlocutor ?? null,
+    }));
+  } catch (e) {
+    if (!esTablaFaltante(e)) throw e;
+  }
   let q = ctx.service.from("proveedores").select("*").order("nombre").limit(args.limit);
   if (args.q) q = q.or(`nombre.ilike.%${args.q}%,ruc.ilike.%${args.q}%`);
   const { data, error } = await q;
   if (error) throw new Error(error.message);
-  return (data ?? []).map((p: Record<string, unknown>) => ({
+  return ((data ?? []) as Record<string, unknown>[]).map((p: Record<string, unknown>) => ({
     ...p,
-    interlocutor: p.interlocutor ?? p.contacto ?? null // alias SGT
+    razon_social: p.nombre ?? p.razon_social ?? null,
+    interlocutor: p.interlocutor ?? p.contacto ?? null, // alias SGT
   }));
 }
 
@@ -274,7 +289,7 @@ async function hListarVinculaciones(args: z.infer<typeof EsquemaQ>, ctx: Operaci
       created_at: v.created_at,
       id_proveedor: v.id_proveedor,
       id_oficina: v.id_oficina,
-      proveedor: v.mae_proveedores?.nombre_comercial || v.mae_proveedores?.razon_social || v.mae_proveedores?.interlocutor || v.id_proveedor,
+      proveedor: v.mae_proveedores?.razon_social || v.mae_proveedores?.nombre_comercial || v.mae_proveedores?.interlocutor || v.id_proveedor,
       proveedor_ruc: v.mae_proveedores?.ruc ?? null,
       oficina: v.mae_oficinas_ventas?.nombre || v.id_oficina,
       oficina_sap: v.mae_oficinas_ventas?.codigo_sap ?? null
@@ -363,7 +378,7 @@ async function hListarGruposVendedores(args: z.infer<typeof EsquemaQ>, ctx: Oper
       created_at: g.created_at,
       id_proveedor: g.id_proveedor,
       id_oficina: g.id_oficina,
-      proveedor: g.mae_proveedores?.nombre_comercial || g.mae_proveedores?.razon_social || g.mae_proveedores?.interlocutor || g.id_proveedor,
+      proveedor: g.mae_proveedores?.razon_social || g.mae_proveedores?.nombre_comercial || g.mae_proveedores?.interlocutor || g.id_proveedor,
       oficina: g.mae_oficinas_ventas?.nombre || g.id_oficina,
       oficina_sap: g.mae_oficinas_ventas?.codigo_sap ?? null
     }));

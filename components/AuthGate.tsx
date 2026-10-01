@@ -180,11 +180,15 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             </p>
 
             <div className="mt-8 space-y-7">
-              <div>
+              <div className="relative">
+                <svg className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path d="m3 7 9 6 9-6" />
+                </svg>
                 <input
                   type="email"
                   autoComplete="email"
-                  className="w-full border-0 border-b-2 border-slate-200 bg-transparent px-0 py-2.5 text-[15px] font-semibold text-black placeholder:font-normal placeholder:text-slate-400 focus:border-black focus:outline-none focus:ring-0"
+                  className="w-full border-0 border-b-2 border-slate-200 bg-transparent pl-8 pr-0 py-2.5 text-[15px] font-semibold text-black placeholder:font-normal placeholder:text-slate-400 focus:border-black focus:outline-none focus:ring-0"
                   placeholder="tucorreo@empresa.com"
                   value={correo}
                   onChange={(e) => setCorreo(e.target.value)}
@@ -193,10 +197,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               </div>
               {vista === "login" && (
                 <div className="relative">
+                  <svg className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <rect x="4" y="10" width="16" height="10" rx="2" />
+                    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+                  </svg>
                   <input
                     type={verClave ? "text" : "password"}
                     autoComplete="current-password"
-                    className="w-full border-0 border-b-2 border-slate-200 bg-transparent px-0 py-2.5 pr-10 text-[15px] text-black placeholder:text-slate-400 focus:border-black focus:outline-none focus:ring-0"
+                    className="w-full border-0 border-b-2 border-slate-200 bg-transparent pl-8 pr-10 py-2.5 text-[15px] text-black placeholder:text-slate-400 focus:border-black focus:outline-none focus:ring-0"
                     placeholder="Password"
                     value={clave}
                     onChange={(e) => setClave(e.target.value)}

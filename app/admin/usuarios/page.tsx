@@ -25,7 +25,10 @@ type Usuario = {
   activo?: boolean | null;
 };
 
-type Proveedor = { id: string; nombre_comercial?: string | null; razon_social?: string | null; interlocutor?: string | null };
+type Proveedor = { id: string; razon_social?: string | null; nombre?: string | null; nombre_comercial?: string | null; interlocutor?: string | null; ruc?: string | null };
+
+const nombreProv = (p: Proveedor) =>
+  String(p.razon_social ?? p.nombre ?? p.nombre_comercial ?? p.interlocutor ?? p.id);
 
 const ROLES = ["ADMIN", "PROVEEDOR", "SUPERVISOR", "ASESOR"];
 
@@ -136,7 +139,7 @@ function UsuarioModal({
               <option value="">— Ninguna —</option>
               {proveedores.map((p) => (
                 <option key={String(p.id)} value={String(p.id)}>
-                  {p.nombre_comercial || p.razon_social || p.interlocutor || p.id}
+                  {nombreProv(p)}{p.ruc ? ` · RUC ${p.ruc}` : ""}
                 </option>
               ))}
             </select>
