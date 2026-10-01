@@ -12,8 +12,7 @@ export interface ItemPdf {
   cantidad?: number; precio_unit?: number; descuento_pct?: number; total_linea?: number;
   materiales?: { codigo?: string; nombre?: string; unidad?: string } | null;
 }
-export interface DatosPdf {
-  codigo: string; estado?: string; fecha?: string; observaciones?: string;
+export interface DatosPdf {  codigo: string; estado?: string; fecha?: string; observaciones?: string;
   subtotal: number; descuento: number; total: number;
   clienteNombre?: string; clienteDoc?: string; clienteEmail?: string; clienteTel?: string;
   clienteContacto?: string;
@@ -212,6 +211,35 @@ export async function obtenerDatosPdf(service: SupabaseClient, id: string): Prom
   return obtenerDatosLegacy(service, clave);
 }
 
+/** Logo Cálidda para el header (SOLO SERVER: lee public/logo-calidda.png).
+ *  Retorna {dataUrl, wMm, hMm} con alto 11mm preservando proporción, o null.
+ */
+let _logoCache: { dataUrl: string; wMm: number; hMm: number } | null | undefined;
+function logoCalidda(): { dataUrl: string; wMm: number; hMm: number } | null {
+  if (_logoCache !== undefined) return _logoCache;
+  _logoCache = null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require("fs") as typeof import("fs");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require("path") as typeof import("path");
+    const p = path.join(process.cwd(), "public", "logo-calidda.png");
+    const buf: Buffer = fs.readFileSync(p);
+    if (buf.length < 33) return _logoCache;
+    // Dimensiones del IHDR del PNG (bytes 16-23, big-endian).
+    const w = buf.readUInt32BE(16);
+    const h = buf.readUInt32BE(20);
+    if (!w || !h) return _logoCache;
+    const hMm = 11;
+    _logoCache = {
+      dataUrl: `data:image/png;base64,${buf.toString("base64")}`,
+      wMm: Math.min(55, (hMm * w) / h),
+      hMm,
+    };
+  } catch { /* sin logo: se usa texto */ }
+  return _logoCache;
+}
+
 export function buildCotizacionPdf(d: DatosPdf): jsPDF {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const W = 210, ML = 14, MR = W - 14, ANCHO = W - 28;
@@ -236,11 +264,22 @@ export function buildCotizacionPdf(d: DatosPdf): jsPDF {
   };
 
   // ---- header blanco estilo modelo: logo izquierda, COTIZACIÓN derecha ----
-  doc.setTextColor(...TEAL);
-  doc.setFont("helvetica", "bold"); doc.setFontSize(14);
-  doc.text("Cálidda", ML, 12);
+  const logo = logoCalidda();
+  if (logo) {
+    try {
+      doc.addImage(logo.dataUrl, "PNG", ML, 6, logo.wMm, logo.hMm);
+    } catch {
+      doc.setTextColor(...TEAL);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(14);
+      doc.text("Cálidda", ML, 12);
+    }
+  } else {
+    doc.setTextColor(...TEAL);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(14);
+    doc.text("Cálidda", ML, 12);
+  }
   gris(120); doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
-  doc.text("Ambientes Cálidos", ML, 17);
+  doc.text("Ambientes Cálidos", ML, 20.5);
   doc.setTextColor(...TEAL);
   doc.setFont("helvetica", "bold"); doc.setFontSize(13);
   doc.text("COTIZACIÓN", MR, 11, { align: "right" });
