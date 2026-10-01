@@ -157,7 +157,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               Cotiza más rápido, simula financiamiento y cierra más ventas.
             </p>
           </div>
-          <p className="relative mt-10 text-sm text-white/60">© 2026 Ambientes Cálidos. Todos los derechos reservados.</p>
+          <p className="relative mt-10 text-sm text-white/60">© 2026 Cálidda. Todos los derechos reservados.</p>
         </div>
 
         {/* Derecha: acceso */}

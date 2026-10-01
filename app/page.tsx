@@ -9,8 +9,8 @@ import { getSupabaseBrowser } from "@/lib/supabaseClient";
 function CuentaValidada() {
   const [email, setEmail] = useState<string | null>(null);
   const [name, setName] = useState<string>("—");
-  // Sin endpoint getMiPerfil en /api/operacion: rol se muestra como "—".
-  const rol = "—";
+  const [rol, setRol] = useState<string>("—");
+  const [estado, setEstado] = useState<string>("—");
   useEffect(() => {
     const sb = getSupabaseBrowser();
     sb.auth.getSession().then(({ data }) => {
@@ -24,6 +24,15 @@ function CuentaValidada() {
         "";
       setName(raw ? String(raw).toUpperCase() : "—");
     });
+    fetch("/api/mi-perfil")
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.ok) {
+          if (j.rol) setRol(String(j.rol));
+          if (j.estado) setEstado(String(j.estado));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   return (
@@ -58,7 +67,7 @@ function CuentaValidada() {
             <div className="flex justify-between gap-4 py-1.5 border-b border-slate-100"><span className="text-slate-400">Nombre</span><span className="font-bold text-right">{name}</span></div>
             <div className="flex justify-between gap-4 py-1.5 border-b border-slate-100"><span className="text-slate-400">Email</span><span className="font-bold text-right truncate ml-4">{email ?? "—"}</span></div>
             <div className="flex justify-between gap-4 py-1.5 border-b border-slate-100"><span className="text-slate-400">Rol</span><span className="font-bold">{rol}</span></div>
-            <div className="flex justify-between gap-4 py-1.5"><span className="text-slate-400">Estado</span><span className="font-bold text-emerald-600">Activa</span></div>
+            <div className="flex justify-between gap-4 py-1.5"><span className="text-slate-400">Estado</span><span className={`font-bold ${estado === "Activa" ? "text-emerald-600" : ""}`}>{estado}</span></div>
           </div>
           <Link href="/dashboard" className="mt-6 block w-full rounded-xl bg-[#0077B6] py-3.5 text-center text-[15px] font-semibold text-white transition hover:bg-[#005B96] no-underline">
             Entrar a Ambientes Cálidos
