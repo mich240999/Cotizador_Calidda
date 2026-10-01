@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import VentaModal from "@/components/VentaModal";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
+import { AccAbrir, AccAprobar } from "@/components/Accion";
+import VentaModal from "@/components/VentaModal";
 import {
   BadgeEstadoVenta,
   ESTADOS_VENTA,
@@ -303,8 +303,10 @@ export default function VentasPage() {
                       <td className="whitespace-nowrap font-bold">{formatoMoneda(ventaTotal(v))}</td>
                       <td className="whitespace-nowrap text-xs text-slate-500">{ventaFecha(v) ? formatoFecha(ventaFecha(v)) : "—"}</td>
                       <td className="whitespace-nowrap">
-                        <Link href={`/ventas/${encodeURIComponent(ventaId(v) || "")}`} className="btn-white !py-1 !px-3 text-xs !no-underline mr-2">Abrir</Link>
-                        <button className="btn-green !py-1 !px-3 text-xs" title="Aprobar solicitud" onClick={() => setAprobar(v)}>✓</button>
+                        <div className="flex gap-1.5">
+                          <AccAbrir title="Abrir solicitud" href={`/ventas/${encodeURIComponent(ventaId(v) || "")}`} />
+                          <AccAprobar title="Aprobar solicitud" onClick={() => setAprobar(v)} />
+                        </div>
                       </td>
                     </tr>
                   ))}

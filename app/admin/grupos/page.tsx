@@ -5,6 +5,7 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
+import { AccActivar, AccDesactivar, AccEditar } from "@/components/Accion";
 
 type Grupo = {
   id: string;
@@ -225,10 +226,12 @@ export default function GruposPage() {
                     </span>
                   </td>
                   <td className="whitespace-nowrap">
-                    <button className="btn-white !py-1 !px-3 text-xs mr-2" onClick={() => { setShowEditar({ ...g }); setFormError(null); }}>Editar</button>
-                    <button className={`!py-1 !px-3 text-xs rounded-lg border font-semibold ${activo ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"}`} onClick={() => cambiarEstado(g)}>
-                      {activo ? "Desactivar" : "Activar"}
-                    </button>
+                    <div className="flex gap-1.5">
+                      <AccEditar title="Editar grupo" onClick={() => { setShowEditar({ ...g }); setFormError(null); }} />
+                      {activo
+                        ? <AccDesactivar title="Desactivar grupo" onClick={() => cambiarEstado(g)} />
+                        : <AccActivar title="Activar grupo" onClick={() => cambiarEstado(g)} />}
+                    </div>
                   </td>
                 </tr>
               );

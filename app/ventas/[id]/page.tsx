@@ -27,6 +27,7 @@ import {
   ventaProveedor,
   ventaTotal,
 } from "@/components/VentasComun";
+import { AccObservar, AccValidar } from "@/components/Accion";
 
 export default function VentaDetallePage() {
   const params = useParams();
@@ -284,10 +285,10 @@ export default function VentaDetallePage() {
                           <td className="max-w-[220px] truncate text-xs text-[#0099D8]">{String(a.comprobante_url ?? a.comprobante ?? "—")}</td>
                           <td><BadgeAbono estado={est} /></td>
                           <td className="whitespace-nowrap">{esAdmin && est.toLowerCase() !== "validado" && (
-                            <>
-                              <button className="btn-green !py-1 !px-3 text-xs mr-2" onClick={() => validarAbono(String(a.id ?? ""))} disabled={busy}>Validar</button>
-                              <button className="btn-white !py-1 !px-3 text-xs" onClick={() => { setAbonoObs(String(a.id ?? "")); setEtapaObs("abonos"); setShowObservar(true); }} disabled={busy}>Observar</button>
-                            </>
+                            <div className="flex gap-1.5">
+                              <AccValidar title="Validar abono" onClick={() => validarAbono(String(a.id ?? ""))} disabled={busy} />
+                              <AccObservar title="Observar abono" onClick={() => { setAbonoObs(String(a.id ?? "")); setEtapaObs("abonos"); setShowObservar(true); }} disabled={busy} />
+                            </div>
                           )}</td>
                         </tr>
                       );

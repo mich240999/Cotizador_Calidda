@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiOperacion } from "./Tablas";
+import { AccQuitar } from "./Accion";
 
 const CUOTAS = [3, 6, 9, 12, 18, 24, 36, 48, 60];
 const TEA = 0.4;
@@ -284,7 +285,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                       <td><input type="number" min={0} max={100} step="any" className="input !w-20 !py-1" value={f.dsctoPct} onChange={(e) => setFila(i, { dsctoPct: Number(e.target.value) })} /></td>
                       <td className="whitespace-nowrap">S/ {brutoFila(f).toFixed(2)}</td>
                       <td className="whitespace-nowrap font-bold text-emerald-700">S/ {netoFila(f).toFixed(2)}</td>
-                      <td><button className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-2 py-1" onClick={() => setMat((p) => p.filter((_, j) => j !== i))}>Quitar</button></td>
+                      <td><AccQuitar title="Quitar material" onClick={() => setMat((p) => p.filter((_, j) => j !== i))} /></td>
                     </tr>
                   ))}
                 </tbody>

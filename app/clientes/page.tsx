@@ -5,6 +5,7 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
+import { AccActivar, AccDesactivar, AccVer } from "@/components/Accion";
 
 type Cliente = {
   id: string;
@@ -506,10 +507,12 @@ export default function ClientesPage() {
                       </span>
                     </td>
                     <td className="whitespace-nowrap">
-                      <button className="btn-white !py-1 !px-3 text-xs mr-2" onClick={() => setVer(c)}>Visualizar</button>
-                      <button className={`!py-1 !px-3 text-xs rounded-lg border font-semibold ${activo ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"}`} onClick={() => cambiarEstado(c)}>
-                        {activo ? "Inactivar" : "Activar"}
-                      </button>
+                      <div className="flex gap-1.5">
+                        <AccVer title="Visualizar cliente" onClick={() => setVer(c)} />
+                        {activo
+                          ? <AccDesactivar title="Inactivar cliente" onClick={() => cambiarEstado(c)} />
+                          : <AccActivar title="Activar cliente" onClick={() => cambiarEstado(c)} />}
+                      </div>
                     </td>
                   </tr>
                 );

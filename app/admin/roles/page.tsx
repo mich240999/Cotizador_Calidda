@@ -5,6 +5,7 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
+import { AccActivar, AccDesactivar, AccEditar } from "@/components/Accion";
 
 type Rol = {
   codigo?: string;
@@ -164,14 +165,12 @@ export default function RolesPage() {
             </div>
             <p className="text-xs text-slate-500 mt-2">{r.descripcion || "Rol del sistema."}</p>
             <p className="text-xs text-slate-400 mt-1">{r.usuarios_activos ?? 0} usuarios activos</p>
-            <div className="flex gap-2 mt-3">
-              <button className="btn-white !py-1.5 !text-xs" disabled={accionando === cod} onClick={() => setModal({ mode: "editar", r })}>Editar</button>
-              <button
-                className={`!py-1.5 !text-xs rounded-xl border font-semibold px-4 ${activo ? "bg-red-50 text-red-700 border-red-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"}`}
-                disabled={accionando === cod}
-                onClick={() => cambiarEstado(r)}
-              >{accionando === cod ? "…" : activo ? "Desactivar" : "Activar"}</button>
-              <Link href="/admin/permisos" className="btn-white !py-1.5 !text-xs !no-underline ml-auto">Permisos →</Link>
+            <div className="flex gap-1.5 mt-3">
+              <AccEditar title="Editar rol" disabled={accionando === cod} onClick={() => setModal({ mode: "editar", r })} />
+              {activo
+                ? <AccDesactivar title="Desactivar rol" disabled={accionando === cod} onClick={() => cambiarEstado(r)} />
+                : <AccActivar title="Activar rol" disabled={accionando === cod} onClick={() => cambiarEstado(r)} />}
+              <Link href="/admin/permisos" title="Ver permisos del rol" className="inline-flex items-center justify-center h-8 w-8 rounded-lg border text-base font-bold transition bg-sky-50 text-[#0077B6] border-sky-200 hover:bg-sky-100 no-underline">🔑</Link>
             </div>
           </div>
         );

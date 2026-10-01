@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiOperacion } from "./Tablas";
+import { AccQuitar } from "./Accion";
 import { TEA_FIJA, cuotaMensual, subirArchivoStorage, useRolVista } from "./VentasComun";
 
 type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; documento?: string; email?: string; correo?: string; telefono?: string };
@@ -368,7 +369,7 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
                         <p className="text-sm">Neto: <b className="text-emerald-700">S/ {neto.toFixed(2)}</b>
                           {it.modo === "financiado" && <span className="text-slate-500"> · Cuota {it.cuotas}: S/ {cuotaMensual(cap, it.cuotas, teaDec).toFixed(2)}</span>}
                         </p>
-                        <button className="text-xs font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-2 py-1" onClick={() => setItems((p) => p.filter((_, j) => j !== i))}>Quitar</button>
+                        <AccQuitar title="Quitar material" onClick={() => setItems((p) => p.filter((_, j) => j !== i))} />
                       </div>
                     </div>
                   );

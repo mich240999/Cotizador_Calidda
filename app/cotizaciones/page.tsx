@@ -7,6 +7,7 @@ import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import CotizacionModal from "@/components/CotizacionModal";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
+import { AccAbrir } from "@/components/Accion";
 
 type Cot = {
   id: string;
@@ -151,7 +152,7 @@ export default function CotizacionesPage() {
                     <td>S/ {Number(r.total ?? 0).toFixed(2)}</td>
                     <td>{r.plazo ? `${r.plazo} cuotas S/ ${Number(r.cuota_mensual ?? 0).toFixed(2)}` : "—"}</td>
                     <td>{r.updated_at ?? r.created_at ?? "—"}</td>
-                    <td><Link className="btn-white !py-1 !px-3 !text-xs" href={`/cotizaciones/${r.id}`}>Abrir</Link></td>
+                    <td><AccAbrir title="Abrir cotización" href={`/cotizaciones/${r.id}`} /></td>
                   </tr>
                 ))}
               </tbody>
