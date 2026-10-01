@@ -436,7 +436,35 @@ async function hListarRolesSGT(_args: unknown, ctx: OperacionContext) {
 }
 
 async function hGetMatrizPermisos(_args: unknown, ctx: OperacionContext) {
-  // 1) tabla dedicada si existe; 2) roles.permisos (seed.sql) como matriz.
+  // SGT real: seg_permisos_matriz agrupada por módulo → grupo → recurso × rol.
+  try {
+    const { data: roles, error: eR } = await ctx.service.from("seg_roles").select("codigo").order("codigo");
+    if (eR) throw new Error(eR.message);
+    const { data: filas, error: eF } = await ctx.service.from("seg_permisos_matriz")
+      .select("rol_codigo,modulo,grupo,recurso,permitido").order("modulo").order("grupo").order("recurso").limit(5000);
+    if (eF) throw new Error(eF.message);
+    const lista = ((filas ?? []) as { rol_codigo: string; modulo: string; grupo: string; recurso: string; permitido: boolean }[]);
+    const rolCods = ((roles ?? []) as { codigo: string }[]).map((r) => r.codigo);
+    const modulosMap = new Map<string, Map<string, Map<string, Record<string, boolean>>>>();
+    for (const f of lista) {
+      if (!modulosMap.has(f.modulo)) modulosMap.set(f.modulo, new Map());
+      const g = modulosMap.get(f.modulo)!;
+      if (!g.has(f.grupo)) g.set(f.grupo, new Map());
+      g.get(f.grupo)!.set(f.recurso, { ...(g.get(f.grupo)!.get(f.recurso) ?? {}), [f.rol_codigo]: !!f.permitido });
+    }
+    const modulos = [...modulosMap.entries()].map(([modulo, grupos]) => ({
+      modulo,
+      grupos: [...grupos.entries()].map(([grupo, recursos]) => ({
+        grupo,
+        recursos: [...recursos.entries()].map(([recurso, permitido]) => ({ recurso, permitido })),
+      })),
+    }));
+    const concedidos = lista.filter((f) => f.permitido).length;
+    return { fuente: "seg_permisos_matriz", roles: rolCods, modulos, concedidos, total: lista.length };
+  } catch (e) {
+    if (!esTablaFaltante(e)) throw new Error((e as Error).message);
+  }
+  // Fallbacks legacy.
   try {
     const r = await leerPrimeraTabla(ctx, ["matriz_permisos"], "*");
     return { fuente: r.tabla, matriz: r.data };
@@ -448,6 +476,40 @@ async function hGetMatrizPermisos(_args: unknown, ctx: OperacionContext) {
   const matriz: Record<string, unknown> = {};
   for (const r of (data ?? []) as { nombre: string; permisos: unknown }[]) matriz[r.nombre] = r.permisos;
   return { fuente: "roles.permisos", matriz };
+}
+
+const EsquemaGuardarMatriz = z.object({
+  cambios: z.array(z.object({
+    rol_codigo: z.string().trim().min(1).max(30),
+    recurso: z.string().trim().min(1).max(120),
+    permitido: z.coerce.boolean(),
+  })).min(1).max(2000),
+});
+
+async function hGuardarMatrizPermisos(args: z.infer<typeof EsquemaGuardarMatriz>, ctx: OperacionContext) {
+  // Valida roles y recursos contra el catálogo antes de guardar.
+  const { data: roles } = await ctx.service.from("seg_roles").select("codigo");
+  const rolOk = new Set(((roles ?? []) as { codigo: string }[]).map((r) => r.codigo));
+  const { data: recs } = await ctx.service.from("seg_permisos_matriz").select("recurso").limit(5000);
+  const recOk = new Set(((recs ?? []) as { recurso: string }[]).map((r) => r.recurso));
+  let guardados = 0;
+  for (const c of args.cambios) {
+    if (!rolOk.has(c.rol_codigo)) {
+      const e = new Error(`Rol desconocido: ${c.rol_codigo}`) as Error & { status?: number };
+      e.status = 422; throw e;
+    }
+    if (!recOk.has(c.recurso)) {
+      const e = new Error(`Recurso desconocido: ${c.recurso}`) as Error & { status?: number };
+      e.status = 422; throw e;
+    }
+    const { error } = await ctx.service.from("seg_permisos_matriz")
+      .update({ permitido: c.permitido })
+      .eq("rol_codigo", c.rol_codigo)
+      .eq("recurso", c.recurso);
+    if (error) throw new Error(error.message);
+    guardados++;
+  }
+  return { guardados };
 }
 
 async function hListarMaterialesSGT(args: z.infer<typeof EsquemaMaterialesSGT>, ctx: OperacionContext) {
@@ -967,6 +1029,7 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarAsignaciones: { descripcion: "SGT: lista asignaciones", roles: TODOS, schema: EsquemaVacio, handler: hListarAsignaciones },
   listarRolesSGT: { descripcion: "SGT: lista roles", roles: TODOS, schema: EsquemaVacio, handler: hListarRolesSGT },
   getMatrizPermisos: { descripcion: "SGT: matriz de permisos por rol", roles: TODOS, schema: EsquemaVacio, handler: hGetMatrizPermisos },
+  guardarMatrizPermisos: { descripcion: "SGT: guarda cambios de la matriz (admin)", roles: SOLO_ADMIN, schema: EsquemaGuardarMatriz, handler: hGuardarMatrizPermisos },
   listarMaterialesSGT: { descripcion: "SGT: materiales con tarifa vigente por fecha", roles: TODOS, schema: EsquemaMaterialesSGT, handler: hListarMaterialesSGT },
   crearTarifa: { descripcion: "SGT: crea tarifa (cierra vigencia solapada)", roles: OPERATIVO, schema: EsquemaCrearTarifa, handler: hCrearTarifa },
   cargaMasivaTarifas: { descripcion: "SGT: carga masiva CSV (dd.mm.yyyy, máx 1000)", roles: OPERATIVO, schema: EsquemaCargaMasiva, handler: hCargaMasivaTarifas },
