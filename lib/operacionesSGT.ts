@@ -430,9 +430,202 @@ async function hListarAsignaciones(args: z.infer<typeof EsquemaVacio>, ctx: Oper
 }
 
 async function hListarRolesSGT(_args: unknown, ctx: OperacionContext) {
-  const { data, error } = await ctx.service.from("roles").select("*").order("nombre");
+  // SGT real: seg_roles + conteo de usuarios activos; fallback a tabla base.
+  try {
+    const { data, error } = await ctx.service.from("seg_roles").select("*").order("nivel");
+    if (error) throw new Error(error.message);
+    const rows = ((data ?? []) as Record<string, unknown>[]);
+    const { data: us } = await ctx.service.from("seg_usuarios").select("rol_codigo,estado").limit(5000);
+    const porRol = new Map<string, number>();
+    for (const u of ((us ?? []) as { rol_codigo?: string; estado?: string }[])) {
+      if (String(u.estado ?? "").toUpperCase() === "ACTIVO") {
+        porRol.set(String(u.rol_codigo), (porRol.get(String(u.rol_codigo)) ?? 0) + 1);
+      }
+    }
+    return rows.map((r) => ({
+      ...r,
+      nombre: r.codigo ?? r.nombre,
+      usuarios_activos: porRol.get(String(r.codigo)) ?? 0,
+    }));
+  } catch (e) {
+    if (!esTablaFaltante(e)) throw e;
+    const r = await leerPrimeraTabla(ctx, ["roles"], "*", { col: "nombre" }, 200);
+    return r.data;
+  }
+}
+
+const EsquemaCrearRolSGT = z.object({
+  codigo: z.string().trim().min(2).max(30).transform((s) => s.toUpperCase().replace(/\s+/g, "_")),
+  descripcion: z.string().trim().max(300).optional().default(""),
+  nivel: z.coerce.number().int().min(1).max(100).default(60),
+  alcance: z.string().trim().min(2).max(30).default("PROPIO"),
+});
+
+const EsquemaActualizarRolSGT = z.object({
+  codigo: z.string().trim().min(1).max(30),
+  descripcion: z.string().trim().max(300).optional(),
+  nivel: z.coerce.number().int().min(1).max(100).optional(),
+  alcance: z.string().trim().min(2).max(30).optional(),
+  estado: z.enum(["ACTIVO", "INACTIVO"]).optional(),
+});
+
+async function hCrearRolSGT(args: z.infer<typeof EsquemaCrearRolSGT>, ctx: OperacionContext) {
+  const { data, error } = await ctx.service.from("seg_roles").insert({
+    codigo: args.codigo,
+    descripcion: args.descripcion || null,
+    nivel: args.nivel,
+    alcance: args.alcance.toUpperCase(),
+    estado: "ACTIVO",
+  }).select().single();
+  if (error) {
+    if (/duplicate|unique|llave duplicada/i.test(error.message)) {
+      const e = new Error(`Rol ya registrado: ${args.codigo}`) as Error & { status?: number };
+      e.status = 409; throw e;
+    }
+    if (/check|constraint|CHECK/i.test(error.message)) {
+      const e = new Error("La BD aún no permite roles nuevos: ejecute supabase/migracion_roles_01.sql") as Error & { status?: number };
+      e.status = 422; throw e;
+    }
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+async function hActualizarRolSGT(args: z.infer<typeof EsquemaActualizarRolSGT>, ctx: OperacionContext) {
+  const patch: Record<string, unknown> = {};
+  if (args.descripcion !== undefined) patch.descripcion = args.descripcion || null;
+  if (args.nivel !== undefined) patch.nivel = args.nivel;
+  if (args.alcance !== undefined) patch.alcance = args.alcance.toUpperCase();
+  if (args.estado !== undefined) patch.estado = args.estado;
+  if (Object.keys(patch).length === 0) throw new Error("Nada que actualizar");
+  const { data, error } = await ctx.service.from("seg_roles").update(patch).eq("codigo", args.codigo.toUpperCase()).select().single();
   if (error) throw new Error(error.message);
-  return data ?? [];
+  return data;
+}
+
+const EsquemaCrearUsuarioSGT = z.object({
+  tipo_doc: z.string().trim().min(1).max(20).default("DNI"),
+  nro_doc: z.string().trim().min(1).max(20),
+  nombre: z.string().trim().min(2).max(200),
+  correo: z.string().trim().email().max(160),
+  telefono: z.string().trim().max(30).optional().default(""),
+  rol_codigo: z.string().trim().min(1).max(30),
+  id_proveedor: z.string().trim().max(20).optional().nullable(),
+  password: z.string().min(8).max(128).optional(),
+});
+
+const EsquemaActualizarUsuarioSGT = z.object({
+  id: z.string().trim().min(1).max(20),
+  nombre: z.string().trim().min(2).max(200).optional(),
+  telefono: z.string().trim().max(30).optional(),
+  rol_codigo: z.string().trim().min(1).max(30).optional(),
+  id_proveedor: z.string().trim().max(20).optional().nullable(),
+  estado: z.enum(["ACTIVO", "INACTIVO"]).optional(),
+});
+
+async function hListarUsuariosSGT(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
+  try {
+    let q = ctx.service.from("seg_usuarios")
+      .select("*, mae_proveedores(id,razon_social,nombre_comercial)")
+      .order("created_at", { ascending: false }).limit(args.limit);
+    if (args.q) q = q.or(`nombre.ilike.%${args.q}%,correo.ilike.%${args.q}%,nro_doc.ilike.%${args.q}%,rol_codigo.ilike.%${args.q}%`);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as Record<string, any>[]).map((u) => ({
+      ...u,
+      rol: u.rol_codigo,
+      proveedor: u.mae_proveedores?.nombre_comercial || u.mae_proveedores?.razon_social || null,
+      documento: `${u.tipo_doc ?? ""} ${u.nro_doc ?? ""}`.trim(),
+    }));
+  } catch (e) {
+    if (!esTablaFaltante(e)) throw e;
+    const r = await leerPrimeraTabla(ctx, ["profiles", "perfiles"], "*", { col: "created_at" }, args.limit);
+    return r.data;
+  }
+}
+
+async function hCrearUsuarioSGT(args: z.infer<typeof EsquemaCrearUsuarioSGT>, ctx: OperacionContext) {
+  // Valida rol y proveedor antes de crear el acceso.
+  const { data: rol } = await ctx.service.from("seg_roles").select("codigo").eq("codigo", args.rol_codigo.toUpperCase()).maybeSingle();
+  if (!rol) {
+    const e = new Error(`Rol desconocido: ${args.rol_codigo}`) as Error & { status?: number };
+    e.status = 422; throw e;
+  }
+  if (args.id_proveedor) {
+    const { data: prv } = await ctx.service.from("mae_proveedores").select("id").eq("id", args.id_proveedor).maybeSingle();
+    if (!prv) {
+      const e = new Error(`Proveedor no encontrado: ${args.id_proveedor}`) as Error & { status?: number };
+      e.status = 422; throw e;
+    }
+  }
+  // 1) Acceso Auth (email + password).
+  const password = args.password ?? Math.random().toString(36).slice(2, 12) + "A1!";
+  const { data: au, error: eAu } = await ctx.service.auth.admin.createUser({
+    email: args.correo.toLowerCase(),
+    password,
+    email_confirm: true,
+    user_metadata: { rol: args.rol_codigo.toUpperCase(), nombre: args.nombre },
+  });
+  if (eAu) throw new Error(eAu.message);
+  // 2) Ficha seg_usuarios con correlativo U00xxx.
+  const { data: ids } = await ctx.service.from("seg_usuarios").select("id").limit(5000);
+  let max = 0;
+  for (const r of ((ids ?? []) as { id?: string }[])) {
+    const m = /^U(\d{5})$/.exec(String(r.id ?? ""));
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  const id = `U${String(max + 1).padStart(5, "0")}`;
+  const { data, error } = await ctx.service.from("seg_usuarios").insert({
+    id,
+    nombre: args.nombre,
+    tipo_doc: args.tipo_doc.toUpperCase(),
+    nro_doc: args.nro_doc,
+    correo: args.correo.toLowerCase(),
+    telefono: args.telefono || null,
+    rol_codigo: args.rol_codigo.toUpperCase(),
+    id_proveedor: args.id_proveedor || null,
+    estado: "ACTIVO",
+  }).select().single();
+  if (error) {
+    await ctx.service.auth.admin.deleteUser(au.user?.id ?? "").catch(() => undefined);
+    if (/duplicate|unique|llave duplicada/i.test(error.message)) {
+      const e = new Error("Correo o documento ya registrado") as Error & { status?: number };
+      e.status = 409; throw e;
+    }
+    throw new Error(error.message);
+  }
+  return { ...data, auth_user_id: au.user?.id ?? null };
+}
+
+async function hActualizarUsuarioSGT(args: z.infer<typeof EsquemaActualizarUsuarioSGT>, ctx: OperacionContext) {
+  const patch: Record<string, unknown> = {};
+  if (args.nombre !== undefined) patch.nombre = args.nombre;
+  if (args.telefono !== undefined) patch.telefono = args.telefono || null;
+  if (args.rol_codigo !== undefined) {
+    const { data: rol } = await ctx.service.from("seg_roles").select("codigo").eq("codigo", args.rol_codigo.toUpperCase()).maybeSingle();
+    if (!rol) {
+      const e = new Error(`Rol desconocido: ${args.rol_codigo}`) as Error & { status?: number };
+      e.status = 422; throw e;
+    }
+    patch.rol_codigo = args.rol_codigo.toUpperCase();
+  }
+  if (args.id_proveedor !== undefined) {
+    if (args.id_proveedor) {
+      const { data: prv } = await ctx.service.from("mae_proveedores").select("id").eq("id", args.id_proveedor).maybeSingle();
+      if (!prv) {
+        const e = new Error(`Proveedor no encontrado: ${args.id_proveedor}`) as Error & { status?: number };
+        e.status = 422; throw e;
+      }
+      patch.id_proveedor = args.id_proveedor;
+    } else {
+      patch.id_proveedor = null;
+    }
+  }
+  if (args.estado !== undefined) patch.estado = args.estado;
+  if (Object.keys(patch).length === 0) throw new Error("Nada que actualizar");
+  const { data, error } = await ctx.service.from("seg_usuarios").update(patch).eq("id", args.id).select().single();
+  if (error) throw new Error(error.message);
+  return { ...(data as object), rol: (data as { rol_codigo?: string })?.rol_codigo ?? null };
 }
 
 async function hGetMatrizPermisos(_args: unknown, ctx: OperacionContext) {
@@ -1031,7 +1224,12 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   validarArchivoClientes: { descripcion: "SGT: valida CSV/XLSX de clientes sin guardar", roles: OPERATIVO, schema: EsquemaValidarClientes, handler: hValidarArchivoClientes },
   cargaMasivaClientes: { descripcion: "SGT: carga masiva clientes (máx 500)", roles: OPERATIVO, schema: EsquemaCargaClientes, handler: hCargaMasivaClientes },
   listarAsignaciones: { descripcion: "SGT: lista asignaciones", roles: TODOS, schema: EsquemaVacio, handler: hListarAsignaciones },
-  listarRolesSGT: { descripcion: "SGT: lista roles", roles: TODOS, schema: EsquemaVacio, handler: hListarRolesSGT },
+  listarRolesSGT: { descripcion: "SGT: lista roles con conteo", roles: TODOS, schema: EsquemaVacio, handler: hListarRolesSGT },
+  crearRolSGT: { descripcion: "SGT: crea rol (requiere migracion_roles_01)", roles: SOLO_ADMIN, schema: EsquemaCrearRolSGT, handler: hCrearRolSGT },
+  actualizarRolSGT: { descripcion: "SGT: actualiza rol", roles: SOLO_ADMIN, schema: EsquemaActualizarRolSGT, handler: hActualizarRolSGT },
+  listarUsuariosSGT: { descripcion: "SGT: lista usuarios reales (seg_usuarios)", roles: TODOS, schema: EsquemaQ, handler: hListarUsuariosSGT },
+  crearUsuarioSGT: { descripcion: "SGT: crea acceso Auth + ficha seg_usuarios", roles: SOLO_ADMIN, schema: EsquemaCrearUsuarioSGT, handler: hCrearUsuarioSGT },
+  actualizarUsuarioSGT: { descripcion: "SGT: actualiza ficha de usuario", roles: SOLO_ADMIN, schema: EsquemaActualizarUsuarioSGT, handler: hActualizarUsuarioSGT },
   getMatrizPermisos: { descripcion: "SGT: matriz de permisos por rol", roles: TODOS, schema: EsquemaVacio, handler: hGetMatrizPermisos },
   guardarMatrizPermisos: { descripcion: "SGT: guarda cambios de la matriz (admin)", roles: SOLO_ADMIN, schema: EsquemaGuardarMatriz, handler: hGuardarMatrizPermisos },
   listarMaterialesSGT: { descripcion: "SGT: materiales con tarifa vigente por fecha", roles: TODOS, schema: EsquemaMaterialesSGT, handler: hListarMaterialesSGT },
