@@ -11,12 +11,13 @@ type Material = { id: string; codigo?: string; codigo_tmp?: string; nombre: stri
 
 type Item = {
   material_id: string; nombre: string; cantidad: number; precio: number;
+  tarifaOK: boolean;
   dscto_monto: number; modo: "financiado" | "contado";
   medio: "financiado" | "efectivo" | "tarjeta";
   tea: number; cuotas: number;
 };
 
-const ITEM_VACIO: Item = { material_id: "", nombre: "", cantidad: 1, precio: 0, dscto_monto: 0, modo: "financiado", medio: "financiado", tea: 40, cuotas: 9 };
+const ITEM_VACIO: Item = { material_id: "", nombre: "", cantidad: 1, precio: 0, tarifaOK: false, dscto_monto: 0, modo: "financiado", medio: "financiado", tea: 40, cuotas: 9 };
 const CUOTAS = [3, 6, 9, 12, 18, 24, 36, 48, 60];
 
 const MEDIO_LABEL: Record<Item["medio"], string> = {
@@ -60,6 +61,7 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [materiales, setMateriales] = useState<Material[]>([]);
+  const [asesores, setAsesores] = useState<{ id: string; nombre?: string; telefono?: string }[]>([]);
   const [cargando, setCargando] = useState(true);
   const [avisos, setAvisos] = useState<string[]>([]);
 
@@ -69,11 +71,13 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
   const [canal, setCanal] = useState("proveedor");
   const [proveedorSel, setProveedorSel] = useState("");
   const [contratista, setContratista] = useState("");
-  const [proyectoCalidda, setProyectoCalidda] = useState(false);
+  const [asesorId, setAsesorId] = useState("");
+  const [asesorTel, setAsesorTel] = useState("");
   const [pago, setPago] = useState("financiado_total");
   const [items, setItems] = useState<Item[]>([]);
   const [cotUrl, setCotUrl] = useState("");
   const [dniUrl, setDniUrl] = useState("");
+  const [espacioUrl, setEspacioUrl] = useState("");
   const [obs, setObs] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -95,10 +99,11 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
         const b = await apiOperacion<unknown>("listarClientes", { limit: 500 });
         return Array.isArray(b) ? b : sgt;
       })();
-      const [rc, rp, rm] = await Promise.allSettled([
+      const [rc, rp, rm, ra] = await Promise.allSettled([
         qp,
         apiOperacion<unknown>("listarProveedoresSGT", { limit: 200 }),
         apiOperacion<unknown>("listarMaterialesSGT", { limit: 200 }),
+        apiOperacion<unknown>("listarUsuariosSGT", { limit: 500 }),
       ]);
       if (!vivo) return;
       const w: string[] = [];
@@ -108,6 +113,10 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
       else w.push("No se pudieron cargar los proveedores del backend.");
       if (rm.status === "fulfilled" && Array.isArray(rm.value)) setMateriales(rm.value as Material[]);
       else w.push("No se pudieron cargar los materiales del backend.");
+      if (ra.status === "fulfilled" && Array.isArray(ra.value)) {
+        setAsesores((ra.value as { id: string; nombre?: string; telefono?: string; rol?: string; rol_codigo?: string }[])
+          .filter((u) => ["ASESOR", "SUPERVISOR"].includes(String(u.rol ?? u.rol_codigo ?? "").toUpperCase())));
+      }
       setAvisos(w);
       setCargando(false);
     })();
@@ -129,10 +138,19 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
       material_id: materialId,
       nombre: m ? `${codMat(m)} ${m.nombre}`.trim() : f.nombre,
       precio: m ? precioMat(m) : f.precio,
+      tarifaOK: m ? precioMat(m) > 0 : false,
     } : f));
   };
   const setItem = (i: number, patch: Partial<Item>) =>
-    setItems((prev) => prev.map((f, j) => (j === i ? { ...f, ...patch } : f)));
+    setItems((prev) => prev.map((f, j) => {
+      if (j !== i) return f;
+      const n = { ...f, ...patch };
+      // Coherencia modo/medio: financiado siempre es pedido financiado;
+      // contado solo admite efectivo o tarjeta.
+      if (patch.modo === "contado" && n.medio === "financiado") n.medio = "efectivo";
+      if (patch.modo === "financiado") n.medio = "financiado";
+      return n;
+    }));
 
   const subtotal = items.reduce((a, f) => a + f.cantidad * f.precio, 0);
   const descuento = items.reduce((a, f) => a + Math.min(f.dscto_monto, f.cantidad * f.precio), 0);
@@ -156,6 +174,7 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
     setError(null);
     setOk(null);
     if (!clienteId) { setError("Busca y selecciona un cliente activo."); return; }
+    if (!asesorId) { setError("Selecciona el asesor de la venta."); return; }
     if (canal !== "contratista" && !proveedorSel) { setError(`Selecciona el ${canal}.`); return; }
     if (canal === "contratista" && !contratista.trim()) { setError("Indica el contratista."); return; }
     if (items.length === 0) { setError("Agrega al menos un material."); return; }
@@ -178,11 +197,14 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
         es_microaliado: canal === "microaliado",
         visita_estado: estadoVisita,
         pago_modo: pago,
-        proyecto_financiado: proyectoCalidda,
+        proyecto_financiado: true,
+        id_asesor: asesorId,
+        asesor_telefono: asesorTel.trim(),
         tea: esAdmin ? Number(items[0]?.tea ?? 40) : 40,
         observaciones: obsFinal,
         adjunto_cotizacion_url: cotUrl.trim(),
         adjunto_dni_url: dniUrl.trim(),
+        foto_espacio_url: espacioUrl.trim(),
         items: items.map((it) => ({
           id_material: it.material_id,
           cantidad: it.cantidad,
@@ -282,19 +304,38 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
                   </select>
                 </div>
               )}
+            </div>
+            <div className="grid md:grid-cols-3 gap-3 mt-3">
               <div>
-                <label className="label">Pago</label>
-                <select className="input" value={pago} onChange={(e) => setPago(e.target.value)}>
-                  <option value="financiado_total">Financiado total</option>
-                  <option value="mixto">Mixto (financiado + contado)</option>
-                  <option value="contado_total">Contado</option>
+                <label className="label">Asesor *</label>
+                <select
+                  className="input"
+                  value={asesorId}
+                  onChange={(e) => {
+                    setAsesorId(e.target.value);
+                    const a = asesores.find((x) => String(x.id) === e.target.value);
+                    if (a?.telefono) setAsesorTel(String(a.telefono));
+                  }}
+                >
+                  <option value="">— Seleccionar —</option>
+                  {asesores.map((a) => (
+                    <option key={String(a.id)} value={String(a.id)}>{a.nombre ?? a.id}</option>
+                  ))}
                 </select>
               </div>
+              <div>
+                <label className="label">Teléfono del asesor</label>
+                <input className="input" placeholder="999 999 999" value={asesorTel} onChange={(e) => setAsesorTel(e.target.value)} />
+              </div>
+            <div>
+              <label className="label">Pago</label>
+              <select className="input" value={pago} onChange={(e) => setPago(e.target.value)}>
+                <option value="financiado_total">Financiado total</option>
+                <option value="mixto">Mixto (financiado + contado)</option>
+                <option value="contado_total">Contado</option>
+              </select>
             </div>
-            <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <input type="checkbox" checked={proyectoCalidda} onChange={(e) => setProyectoCalidda(e.target.checked)} className="h-4 w-4" />
-              Proyecto financiado por Cálidda
-            </label>
+            </div>
           </section>
 
           <section className="card !shadow-none p-5">
@@ -303,7 +344,7 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
                 <h3 className="font-bold">Ítems por material</h3>
                 <p className="text-xs text-slate-400">Precio editable. Financiamiento por material con TEA {esAdmin ? "editable (admin)" : "fija 40%"}. Contado: efectivo o tarjeta.</p>
               </div>
-              <button className="btn-white !py-1.5 !text-xs whitespace-nowrap" onClick={() => setItems((p) => [...p, { material_id: "", nombre: "", cantidad: 1, precio: 0, dscto_monto: 0, modo: "financiado", medio: "financiado", tea: 40, cuotas: 9 }])}>Agregar material</button>
+              <button className="btn-white !py-1.5 !text-xs whitespace-nowrap" onClick={() => setItems((p) => [...p, { material_id: "", nombre: "", cantidad: 1, precio: 0, tarifaOK: false, dscto_monto: 0, modo: "financiado", medio: "financiado", tea: 40, cuotas: 9 }])}>Agregar material</button>
             </div>
             {items.length === 0 ? (
               <p className="text-center text-slate-400 py-8 text-sm">Agrega al menos un material.</p>
@@ -324,6 +365,7 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
                               material_id: e.target.value,
                               nombre: m ? `${codMat(m)} ${m.nombre}`.trim() : it.nombre,
                               precio: m ? precioMat(m) : it.precio,
+                              tarifaOK: m ? precioMat(m) > 0 : false,
                             });
                           }}>
                             <option value="">— Seleccionar —</option>
@@ -333,7 +375,8 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
                           </select>
                         </div>
                         <div><label className="label">Cantidad *</label><input type="number" min={0.01} step="any" className="input" value={it.cantidad} onChange={(e) => setItem(i, { cantidad: Number(e.target.value) })} /></div>
-                        <div><label className="label">Precio editable (S/) *</label><input type="number" min={0} step="any" className="input font-semibold text-emerald-700" value={it.precio} onChange={(e) => setItem(i, { precio: Number(e.target.value) })} /></div>
+                        <div><label className="label">Precio (S/) *</label><input type="number" min={0} step="any" className="input font-semibold text-emerald-700" value={it.precio} onChange={(e) => setItem(i, { precio: Number(e.target.value) })} />
+                        {!it.tarifaOK && it.material_id !== "" && <p className="text-[11px] text-amber-600 mt-1">Sin tarifa vigente: precio manual.</p>}</div>
                         <div><label className="label">Dscto. monto (S/)</label><input type="number" min={0} step="any" className="input" value={it.dscto_monto} onChange={(e) => setItem(i, { dscto_monto: Number(e.target.value) })} /></div>
                         <div>
                           <label className="label">Modo</label>
@@ -342,14 +385,20 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
                             <option value="contado">Contado</option>
                           </select>
                         </div>
-                        <div>
-                          <label className="label">Medio</label>
-                          <select className="input" value={it.medio} onChange={(e) => setItem(i, { medio: e.target.value as Item["medio"] })}>
-                            <option value="financiado">Pedido financiado</option>
-                            <option value="efectivo">Efectivo</option>
-                            <option value="tarjeta">Tarjeta</option>
-                          </select>
-                        </div>
+                        {it.modo === "financiado" ? (
+                          <div>
+                            <label className="label">Medio</label>
+                            <div className="input bg-emerald-50/60 border-emerald-200 font-semibold text-emerald-700">Pedido financiado</div>
+                          </div>
+                        ) : (
+                          <div>
+                            <label className="label">Medio</label>
+                            <select className="input" value={it.medio} onChange={(e) => setItem(i, { medio: e.target.value as Item["medio"] })}>
+                              <option value="efectivo">Efectivo</option>
+                              <option value="tarjeta">Tarjeta de crédito</option>
+                            </select>
+                          </div>
+                        )}
                         <div>
                           <label className="label">TEA % {esAdmin ? "(editable: admin)" : "(fija 40%)"}</label>
                           <input type="number" min={0} step="any" className="input" value={esAdmin ? it.tea : 40} readOnly={!esAdmin} onChange={(e) => setItem(i, { tea: Number(e.target.value) })} />
@@ -392,6 +441,9 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
             <div className="grid md:grid-cols-2 gap-3">
             <Adjunto titulo="Cotización del cliente (PDF/foto)" url={cotUrl} setUrl={setCotUrl} onFile={(f) => subirArchivo(f, setCotUrl, "cot")} obligatorio />
             <Adjunto titulo="Foto DNI" url={dniUrl} setUrl={setDniUrl} onFile={(f) => subirArchivo(f, setDniUrl, "dni")} obligatorio />
+            </div>
+            <div className="mt-3">
+            <Adjunto titulo="Foto del espacio" url={espacioUrl} setUrl={setEspacioUrl} onFile={(f) => subirArchivo(f, setEspacioUrl, "espacio")} />
             </div>
           </section>
 

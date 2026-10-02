@@ -232,6 +232,9 @@ const EsquemaCrearSolicitud = z.object({
   visita_estado: z.enum(["visitado", "agendado"]),
   pago_modo: z.string().trim().min(1).max(60),
   proyecto_financiado: z.coerce.boolean().optional().default(true),
+  id_asesor: z.string().trim().max(20).optional().nullable(),
+  asesor_telefono: z.string().trim().max(30).optional().default(""),
+  foto_espacio_url: z.string().trim().max(2000).optional().default(""),
   tea: z.coerce.number().min(0).max(100).optional().default(40),
   observaciones: z.string().trim().max(2000).optional().default(""),
   adjunto_cotizacion_url: zUrlDoc,
@@ -415,6 +418,10 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
   // FKs: resuelven al maestro SGT (migran desde tablas base si hace falta).
   const idClienteSGT = await resolverClienteSGT(ctx, args.id_cliente);
   const idProveedorSGT = args.id_proveedor ? await resolverProveedorSGT(ctx, args.id_proveedor) : null;
+  if (args.id_asesor) {
+    const { data: ase } = await ctx.service.from("seg_usuarios").select("id").eq("id", args.id_asesor).maybeSingle();
+    if (!ase) lanzar(422, `Asesor no encontrado: ${args.id_asesor}`);
+  }
   for (const it of items) {
     it.id_material = await resolverMaterialSGT(ctx, it.id_material);
   }
@@ -433,6 +440,9 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
         visita_estado: args.visita_estado,
         pago_modo: args.pago_modo,
         proyecto_financiado: args.proyecto_financiado ?? true,
+        id_asesor: args.id_asesor || null,
+        asesor_telefono: args.asesor_telefono || null,
+        foto_espacio_url: args.foto_espacio_url || null,
         tea: args.tea ?? 40,
         observaciones: args.observaciones || "",
         adjunto_cotizacion_url: args.adjunto_cotizacion_url,

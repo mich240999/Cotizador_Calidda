@@ -33,6 +33,15 @@ export default function VentaDetallePage() {
   const params = useParams();
   const id = String((params as { id?: string })?.id ?? "");
   const { rol, setRol, esAdmin } = useRolVista();
+  const [miRol, setMiRol] = useState("");
+  useEffect(() => {
+    fetch("/api/mi-perfil")
+      .then((r) => r.json())
+      .then((j) => { if (j?.ok && j.rol) setMiRol(String(j.rol).toUpperCase()); })
+      .catch(() => {});
+  }, []);
+  // Instalación = vista del proveedor (y admin). El vendedor no la ve.
+  const veInstalacion = esAdmin || miRol === "PROVEEDOR" || rol === "admin" || rol === "stephany";
 
   const [venta, setVenta] = useState<Venta | null>(null);
   const [loading, setLoading] = useState(true);
@@ -221,6 +230,14 @@ export default function VentaDetallePage() {
             <section className="card p-5 mt-4">
               <h3 className="font-bold mb-3">Línea de tiempo</h3>
               <TimelineVenta estado={ventaEstado(venta)} />
+              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-slate-600">
+                {(String((venta as Record<string, unknown>).id_asesor ?? "") || String((venta as Record<string, unknown>).asesor_telefono ?? "")) && (
+                  <span>Asesor: <b>{String((venta as Record<string, unknown>).id_asesor ?? "")}</b>{(venta as Record<string, unknown>).asesor_telefono ? ` · ${String((venta as Record<string, unknown>).asesor_telefono)}` : ""}</span>
+                )}
+                {String((venta as Record<string, unknown>).foto_espacio_url ?? "") && (
+                  <a className="font-semibold text-[#0099D8] hover:underline" href={String((venta as Record<string, unknown>).foto_espacio_url)} target="_blank" rel="noreferrer">Foto del espacio ↗</a>
+                )}
+              </div>
             </section>
 
             <section className="card mt-4">
@@ -298,6 +315,7 @@ export default function VentaDetallePage() {
               )}
             </section>
 
+            {veInstalacion && (
             <section className="card p-5 mt-4">
               <div className="flex items-center gap-2">
                 <h3 className="font-bold">Instalación (4 sustentos)</h3>
@@ -327,6 +345,7 @@ export default function VentaDetallePage() {
                 </ul>
               )}
             </section>
+            )}
 
             <section className="card mt-4">
               <div className="px-5 py-3 border-b font-semibold">Observaciones por etapa · {obss.length}</div>
@@ -349,7 +368,7 @@ export default function VentaDetallePage() {
               {!esAdmin ? (
                 <div className="flex flex-wrap gap-2">
                   <button className="btn-white" onClick={() => setShowAbono((s) => !s)}>Registrar abono</button>
-                  <button className="btn-white" onClick={() => setShowInst((s) => !s)}>Registrar instalación</button>
+                  {veInstalacion && <button className="btn-white" onClick={() => setShowInst((s) => !s)}>Registrar instalación</button>}
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
