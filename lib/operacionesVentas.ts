@@ -859,7 +859,7 @@ const EsquemaQInstalaciones = z.object({
 });
 
 async function hListarInstalacionesPendientes(args: z.infer<typeof EsquemaQInstalaciones>, ctx: OperacionContext) {
-  // Vista del proveedor: aprobadas/en_instalacion/instaladas/observadas de SU proveedor.
+  // Vista del proveedor: TODAS sus ventas con info de instalación (no solo pendientes).
   // Admin ve todo. Otros roles: vacío.
   let idProveedor: string | null = null;
   if (!esAdmin(ctx)) {
@@ -869,7 +869,6 @@ async function hListarInstalacionesPendientes(args: z.infer<typeof EsquemaQInsta
   }
   let q = ctx.service.from(T_SOL)
     .select("id,id_cliente,id_proveedor,canal,estado,created_at,updated_at", { count: "exact" })
-    .in("estado", ["aprobada", "en_instalacion", "instalada", "observada"])
     .order("updated_at", { ascending: false }).limit(args.limit);
   if (idProveedor) q = q.eq("id_proveedor", idProveedor);
   if (args.estado) q = q.eq("estado", args.estado.toLowerCase());
@@ -959,7 +958,7 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   observarInstalacion: { descripcion: "Ventas: observa instalación → observada", roles: OPERATIVO, schema: EsquemaObservarInstalacion, handler: hObservarInstalacion },
   exportarVentas: { descripcion: "Ventas: {columnas, filas} planos listos para XLSX", roles: TODOS, schema: EsquemaExportar, handler: hExportarVentas },
   getVenta: { descripcion: "Ventas: cabecera + items + abonos + instalación", roles: TODOS, schema: EsquemaGetVenta, handler: hGetVenta },
-  listarInstalacionesPendientes: { descripcion: "Ventas: pendientes de instalación del proveedor", roles: TODOS, schema: EsquemaQInstalaciones, handler: hListarInstalacionesPendientes },
+  listarInstalacionesPendientes: { descripcion: "Ventas: historial de instalaciones del proveedor", roles: TODOS, schema: EsquemaQInstalaciones, handler: hListarInstalacionesPendientes },
   actualizarTeaVenta: { descripcion: "Ventas: actualiza TEA de la solicitud", roles: SOLO_ADMIN, schema: EsquemaTea, handler: hActualizarTea },
 };
 
