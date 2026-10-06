@@ -125,7 +125,7 @@ export default function DashboardPage() {
   }, [cots, fDesde, fHasta]);
 
   const montoTotal = ventasF.reduce((a, v) => a + v.total, 0);
-  const cerradas = ventasF.filter((v) => v.estado === "cerrada").length;
+  const cerradas = ventasF.filter((v) => v.estado === "cerrada" || v.estado === "liquidada").length;
   const montoCots = cotsF.reduce((a, c) => a + Number(c.total ?? 0), 0);
 
   const porMes = useMemo(() => {
@@ -164,7 +164,7 @@ export default function DashboardPage() {
   const kpis = [
     { label: "Ventas (filtro)", valor: String(ventasF.length), sub: `${fmtSoles(montoTotal)} acumulado`, color: "text-[#0B5FA5]" },
     { label: "Ticket promedio", valor: ventasF.length ? fmtSoles(montoTotal / ventasF.length) : "S/ 0.00", sub: "por solicitud", color: "text-[#0099D8]" },
-    { label: "Tasa de cierre", valor: ventasF.length ? `${Math.round((cerradas / ventasF.length) * 100)}%` : "—", sub: `${cerradas} cerradas`, color: "text-emerald-600" },
+    { label: "Tasa de cierre", valor: ventasF.length ? `${Math.round((cerradas / ventasF.length) * 100)}%` : "—", sub: `${cerradas} liquidadas`, color: "text-emerald-600" },
     { label: "Cotizaciones", valor: String(cotsF.length), sub: `${fmtSoles(montoCots)} cotizado`, color: "text-amber-600" },
     { label: "Clientes", valor: nCli === null ? "…" : String(nCli), sub: "registrados", color: "text-violet-600" },
     { label: "Materiales", valor: nMat === null ? "…" : String(nMat), sub: "en catálogo", color: "text-slate-600" },
@@ -202,7 +202,7 @@ export default function DashboardPage() {
             <label className="label">Estado venta</label>
             <select className="input !w-auto" value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
               <option value="">Todos</option>
-              {["borrador", "pendiente_aprobacion", "observado", "aprobada", "en_instalacion", "instalada", "validada_proveedor", "cerrada"].map((e) => (
+              {["borrador", "pendiente_aprobacion", "observado", "aprobada", "en_instalacion", "instalada", "validada_proveedor", "cerrada", "liquidada"].map((e) => (
                 <option key={e} value={e}>{e.replace(/_/g, " ")}</option>
               ))}
             </select>

@@ -194,7 +194,10 @@ export default function VentaDetallePage() {
       setMotivo("");
     }, "Observación registrada.");
 
-  const cerrar = () => correr(() => apiOperacion("validacionFinal", { solicitud_id: id }), "Validación final: venta cerrada.");
+  const cerrar = () => correr(() => apiOperacion("validacionFinal", { solicitud_id: id }), "Stephany validó y liquidó la venta.");
+
+  const validarInstalacion = () =>
+    correr(() => apiOperacion("validarInstalacionProveedor", { solicitud_id: id }), "Instalación validada. Ya se puede liquidar.");
 
   const items = venta ? ventaItems(venta) : [];
   const abonos = venta ? ventaAbonos(venta) : [];
@@ -434,7 +437,8 @@ export default function VentaDetallePage() {
                 <div className="flex flex-wrap gap-2">
                   <button className="btn-green" onClick={() => setShowAprobar((s) => !s)}>✓ Aprobar</button>
                   <button className="btn-white" onClick={() => setShowObservar((s) => !s)}>Observar</button>
-                  <button className="btn-white" onClick={cerrar} disabled={busy}>Validación final · Cerrar</button>
+                  <button className="btn-white" onClick={validarInstalacion} disabled={busy}>Validar instalación</button>
+                  <button className="btn-white" onClick={cerrar} disabled={busy}>Validar y liquidar</button>
                 </div>
               )}
 

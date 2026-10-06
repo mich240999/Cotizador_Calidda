@@ -42,7 +42,7 @@ const T_ITEM = "vta_venta_items";
 const T_ABO = "vta_abonos";
 const T_INS = "vta_instalaciones";
 
-/** Estados de solicitud (8, igual que SQL): borrador → pendiente_aprobacion → aprobada/observado → en_instalacion → validada_proveedor → cerrada. */
+/** Estados de solicitud (9, igual que SQL): borrador → pendiente_aprobacion → aprobada/observado → instalada → validada_proveedor → liquidada. */
 export const ESTADOS_SOLICITUD = [
   "borrador",
   "pendiente_aprobacion",
@@ -52,6 +52,7 @@ export const ESTADOS_SOLICITUD = [
   "instalada",
   "validada_proveedor",
   "cerrada",
+  "liquidada",
 ] as const;
 
 /** Estados de abono (3, igual que SQL). */
@@ -279,6 +280,8 @@ const EsquemaInstalacion = z.object({
   foto_despues_url: zUrlDoc,
   boleta_url: zUrlDoc,
   acta_url: zUrlDoc,
+  observacion: z.string().trim().max(2000).optional().default(""),
+  foto_extra_url: z.string().trim().max(2000).optional().default(""),
 });
 
 const EsquemaSoloSolicitud = z.object({
@@ -610,46 +613,57 @@ async function hRegistrarInstalacion(args: z.infer<typeof EsquemaInstalacion>, c
       .maybeSingle();
     if (ePrev) throw new Error(ePrev.message);
     let instalacion: unknown;
+    const extra = {
+      foto_antes_url: args.foto_antes_url,
+      foto_despues_url: args.foto_despues_url,
+      boleta_url: args.boleta_url,
+      acta_url: args.acta_url,
+      foto_extra_url: args.foto_extra_url || null,
+      estado: "registrada",
+      observacion: args.observacion || null,
+    };
     if (previa) {
       const { data, error } = await ctx.service
         .from(T_INS)
-        .update({
-          foto_antes_url: args.foto_antes_url,
-          foto_despues_url: args.foto_despues_url,
-          boleta_url: args.boleta_url,
-          acta_url: args.acta_url,
-          estado: "registrada",
-          observacion: null,
-        })
+        .update(extra)
         .eq("solicitud_id", args.solicitud_id)
         .select()
         .single();
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (/column|foto_extra_url/i.test(error.message)) {
+          const e = new Error("Falta la columna foto_extra_url: ejecute supabase/migracion_ventas_03.sql") as Error & { status?: number };
+          e.status = 422; throw e;
+        }
+        throw new Error(error.message);
+      }
       instalacion = data;
     } else {
       const { data, error } = await ctx.service
         .from(T_INS)
         .insert({
           solicitud_id: args.solicitud_id,
-          foto_antes_url: args.foto_antes_url,
-          foto_despues_url: args.foto_despues_url,
-          boleta_url: args.boleta_url,
-          acta_url: args.acta_url,
-          estado: "registrada",
+          ...extra,
         })
         .select()
         .single();
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (/column|foto_extra_url/i.test(error.message)) {
+          const e = new Error("Falta la columna foto_extra_url: ejecute supabase/migracion_ventas_03.sql") as Error & { status?: number };
+          e.status = 422; throw e;
+        }
+        throw new Error(error.message);
+      }
       instalacion = data;
     }
+    // Con las 4 fotos el proveedor deja la venta INSTALADA (ya no en_instalacion).
     const { data: cab, error: eCab } = await ctx.service
       .from(T_SOL)
-      .update({ estado: "en_instalacion" })
+      .update({ estado: "instalada" })
       .eq("id", args.solicitud_id)
       .select()
       .single();
     if (eCab) throw new Error(eCab.message);
-    return { solicitud: cab, instalacion, estado: "en_instalacion" };
+    return { solicitud: cab, instalacion, estado: "instalada" };
   } catch (e) {
     exigirTabla(e);
   }
@@ -703,14 +717,21 @@ async function hValidacionFinal(args: z.infer<typeof EsquemaSoloSolicitud>, ctx:
       .select()
       .single();
     if (eUpd) throw new Error(eUpd.message);
+    // Stephany valida y cierra la venta como LIQUIDADA.
     const { data: cab, error: eCab } = await ctx.service
       .from(T_SOL)
-      .update({ estado: "cerrada" })
+      .update({ estado: "liquidada" })
       .eq("id", args.solicitud_id)
       .select()
       .single();
-    if (eCab) throw new Error(eCab.message);
-    return { solicitud: cab, instalacion: instOk, estado: "cerrada" };
+    if (eCab) {
+      if (/check|constraint|CHECK|estado/i.test(eCab.message)) {
+        const e = new Error("Falta el estado liquidada: ejecute supabase/migracion_ventas_03.sql") as Error & { status?: number };
+        e.status = 422; throw e;
+      }
+      throw new Error(eCab.message);
+    }
+    return { solicitud: cab, instalacion: instOk, estado: "liquidada" };
   } catch (e) {
     exigirTabla(e);
   }
@@ -897,7 +918,7 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   observarSolicitud: { descripcion: "Ventas: observa solicitud", roles: SOLO_ADMIN, schema: EsquemaObservarSolicitud, handler: hObservarSolicitud },
   registrarInstalacion: { descripcion: "Ventas: registra instalación (4 evidencias) → en_instalacion", roles: OPERATIVO, schema: EsquemaInstalacion, handler: hRegistrarInstalacion },
   validarInstalacionProveedor: { descripcion: "Ventas: validación operativa de instalación → validada_proveedor", roles: OPERATIVO, schema: EsquemaSoloSolicitud, handler: hValidarInstalacionProveedor },
-  validacionFinal: { descripcion: "Ventas: cierre final → cerrada (exige validada_proveedor)", roles: SOLO_ADMIN, schema: EsquemaSoloSolicitud, handler: hValidacionFinal },
+  validacionFinal: { descripcion: "Ventas: Stephany valida y cierra → liquidada (exige validada_proveedor)", roles: SOLO_ADMIN, schema: EsquemaSoloSolicitud, handler: hValidacionFinal },
   observarInstalacion: { descripcion: "Ventas: observa instalación → observada", roles: OPERATIVO, schema: EsquemaObservarInstalacion, handler: hObservarInstalacion },
   exportarVentas: { descripcion: "Ventas: {columnas, filas} planos listos para XLSX", roles: TODOS, schema: EsquemaExportar, handler: hExportarVentas },
   getVenta: { descripcion: "Ventas: cabecera + items + abonos + instalación", roles: TODOS, schema: EsquemaGetVenta, handler: hGetVenta },
@@ -916,7 +937,7 @@ export const REGLAS_VENTAS = {
   correlativo: "id VTA-xxxxxx (6 dígitos)",
   abonos: "registrarAbono deja estado 'pendiente' y avisa a admin por SMTP best-effort (aviso_email: enviado|omitido); validarAbono: validar → 'validado', observar → 'pendiente' + observacion (observacion obligatoria al observar)",
   aprobacion: "aprobarSolicitud exige al menos un número (venta o abono) por CADA ítem, sino 422; observarSolicitud → 'observado'",
-  instalacion: "registrarInstalacion exige las 4 evidencias → solicitud 'en_instalacion' + instalación 'registrada'; validarInstalacionProveedor → 'validada_proveedor'; validacionFinal solo desde 'validada_proveedor' sino 422 → 'cerrada'; observarInstalacion → 'observada'",
+  instalacion: "registrarInstalacion exige las 4 evidencias (+observación y foto extra opcionales) → solicitud 'instalada' + instalación 'registrada'; validarInstalacionProveedor → 'validada_proveedor'; validacionFinal (Stephany) solo desde 'validada_proveedor' sino 422 → 'liquidada'; observarInstalacion → 'observada'",
   exportar: "columnas fijas: numero, cliente, documento, proveedor, canal, estado, total, cuotas (n.º ítems financiados), fecha",
 } as const;
 

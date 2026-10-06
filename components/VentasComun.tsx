@@ -129,6 +129,7 @@ export const ESTADOS_VENTA = [
   "instalada",
   "validada_proveedor",
   "cerrada",
+  "liquidada",
 ] as const;
 export const CANALES_VENTA = ["proveedor", "microaliado", "contratista"] as const;
 
@@ -141,6 +142,7 @@ const ETIQUETA_ESTADO: Record<string, string> = {
   instalada: "INSTALADA",
   validada_proveedor: "VALIDADA PROVEEDOR",
   cerrada: "CERRADA",
+  liquidada: "LIQUIDADA",
 };
 
 export const etiquetaEstado = (e: string) => {
@@ -159,6 +161,7 @@ export function BadgeEstadoVenta({ estado }: { estado: string }) {
     instalada: "bg-blue-50 text-blue-700 border-blue-200",
     validada_proveedor: "bg-teal-50 text-teal-700 border-teal-200",
     cerrada: "bg-emerald-50 text-emerald-800 border-emerald-300",
+    liquidada: "bg-emerald-100 text-emerald-900 border-emerald-400",
   };
   const cls = map[norm] ?? "bg-slate-100 text-slate-700 border-slate-200";
   return (
@@ -168,11 +171,11 @@ export function BadgeEstadoVenta({ estado }: { estado: string }) {
   );
 }
 
-const ETAPAS = ["BORRADOR", "PENDIENTE APROBACIÓN", "APROBADA", "EN INSTALACIÓN", "CERRADA"] as const;
+const ETAPAS = ["BORRADOR", "PENDIENTE APROBACIÓN", "APROBADA", "EN INSTALACIÓN", "LIQUIDADA"] as const;
 
 function etapaIndex(estado: string): number {
   const n = String(estado ?? "").toLowerCase();
-  if (n === "cerrada") return 4;
+  if (n === "cerrada" || n === "liquidada") return 4;
   if (["en_instalacion", "instalada", "validada_proveedor"].includes(n)) return 3;
   if (n === "aprobada") return 2;
   if (["pendiente_aprobacion", "observado"].includes(n)) return 1;

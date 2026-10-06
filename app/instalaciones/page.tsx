@@ -28,6 +28,7 @@ export default function InstalacionesPage() {
   const [info, setInfo] = useState<string | null>(null);
   const [reg, setReg] = useState<string | null>(null);
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const [obsProv, setObsProv] = useState<Record<string, string>>({});
   const [subiendo, setSubiendo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -75,10 +76,20 @@ export default function InstalacionesPage() {
     }
     setBusy(true);
     try {
-      await apiOperacion("registrarInstalacion", { solicitud_id: id, ...body });
-      setInfo(`Instalación registrada en ${id}. Queda pendiente la validación.`);
+      await apiOperacion("registrarInstalacion", {
+        solicitud_id: id,
+        ...body,
+        observacion: (obsProv[id] ?? "").trim(),
+        foto_extra_url: (urls[`${id}:foto_extra_url`] ?? "").trim(),
+      });
+      setInfo(`Instalación registrada en ${id}: pasa a INSTALADA. Stephany la valida y liquida.`);
       setReg(null);
       setUrls({});
+      setObsProv((p) => {
+        const n = { ...p };
+        delete n[id];
+        return n;
+      });
       await cargar();
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo registrar");
@@ -133,6 +144,24 @@ export default function InstalacionesPage() {
                       </div>
                     );
                   })}
+                  <div className="md:col-span-2">
+                    <label className="label">Observación del proveedor (opcional)</label>
+                    <textarea
+                      className="input min-h-[70px]"
+                      placeholder="Ej. Se instaló con retraso por acceso al predio…"
+                      value={obsProv[String(v.id)] ?? ""}
+                      onChange={(e) => setObsProv((p) => ({ ...p, [String(v.id)]: e.target.value }))}
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="label">Foto adicional (opcional)</label>
+                    <input className="input" placeholder="https://…" value={urls[`${v.id}:foto_extra_url`] ?? ""} onChange={(e) => setUrls((p) => ({ ...p, [`${v.id}:foto_extra_url`]: e.target.value }))} />
+                    <input
+                      type="file" accept=".pdf,image/*" className="input mt-2"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) subir(f, `${v.id}:foto_extra_url`); e.target.value = ""; }}
+                    />
+                    {subiendo === `${v.id}:foto_extra_url` && <p className="text-[11px] text-slate-500 mt-1">Subiendo archivo…</p>}
+                  </div>
                   <div className="md:col-span-2 flex justify-end gap-2">
                     <button className="btn-white" onClick={() => setReg(null)}>Cancelar</button>
                     <button className="btn-green" onClick={() => guardar(String(v.id))} disabled={busy}>{busy ? "Guardando…" : "Guardar instalación"}</button>
