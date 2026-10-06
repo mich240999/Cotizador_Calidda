@@ -30,10 +30,14 @@ function Asterisco({ className }: { className?: string }) {
   );
 }
 
+/** Caché de sesión entre navegaciones: evita el flash "Verificando sesión"
+ *  al remontar el AuthGate en cada página (muy visible en celular). */
+let _emailCache: string | null | undefined;
+
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const supabase = getSupabaseBrowser();
-  const [loading, setLoading] = useState(true);
-  const [email, setEmail] = useState<string | null>(null);
+  const [loading, setLoading] = useState(_emailCache === undefined);
+  const [email, setEmail] = useState<string | null>(_emailCache ?? null);
   const [correo, setCorreo] = useState("");
   const [clave, setClave] = useState("");
   const [verClave, setVerClave] = useState(false);
@@ -50,7 +54,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       .getUser()
       .then(({ data }) => {
         if (!mounted) return;
-        setEmail(data.user?.email ?? null);
+        _emailCache = data.user?.email ?? null;
+        setEmail(_emailCache);
         setLoading(false);
       })
       .catch(() => {
@@ -58,9 +63,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       });
     const { data: sub } = supabase.auth.onAuthStateChange((evt, sess) => {
       if (evt === "SIGNED_OUT") {
+        _emailCache = null;
         setEmail(null);
         return;
       }
+      if (sess?.user?.email !== undefined) _emailCache = sess.user.email;
       setEmail(sess?.user?.email ?? null);
     });
     return () => {
