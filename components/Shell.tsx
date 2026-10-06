@@ -6,14 +6,71 @@ import { useEffect, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import LogoCalidda from "@/components/LogoCalidda";
 
+const STROKE = {
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.8,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+} as const;
+
+const ICONOS: Record<string, JSX.Element> = {
+  dashboard: (
+    <svg viewBox="0 0 24 24" {...STROKE} className="h-5 w-5">
+      <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
+      <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
+      <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />
+      <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
+    </svg>
+  ),
+  clientes: (
+    <svg viewBox="0 0 24 24" {...STROKE} className="h-5 w-5">
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
+      <path d="M16 8.5a3 3 0 0 1 0 5.8M18.5 14.7c1.6.8 2.5 2.3 2.5 4.3" />
+    </svg>
+  ),
+  cotizaciones: (
+    <svg viewBox="0 0 24 24" {...STROKE} className="h-5 w-5">
+      <path d="M6 2.5h9L19.5 7v14.5h-13.5z" />
+      <path d="M14.5 2.5V8H20" />
+      <path d="M9 12h6M9 15.5h6" />
+    </svg>
+  ),
+  ventas: (
+    <svg viewBox="0 0 24 24" {...STROKE} className="h-5 w-5">
+      <path d="M3 12V6.5A1.5 1.5 0 0 1 4.5 5h15A1.5 1.5 0 0 1 21 6.5V18a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z" />
+      <path d="M3 9.5h18" />
+      <path d="m7 15 2 2 4-4.5" />
+    </svg>
+  ),
+  instalaciones: (
+    <svg viewBox="0 0 24 24" {...STROKE} className="h-5 w-5">
+      <path d="M14.5 6.5a4 4 0 0 0-5.6 5L4 16.4V20h3.6l4.9-4.9a4 4 0 0 0 5-5.6l-3 3-2.5-.5-.5-2.5z" />
+    </svg>
+  ),
+  materiales: (
+    <svg viewBox="0 0 24 24" {...STROKE} className="h-5 w-5">
+      <path d="m12 2.5 8.5 4.7v9.6L12 21.5l-8.5-4.7V7.2z" />
+      <path d="M12 12 3.6 7.3M12 12l8.4-4.7M12 12v9.3" />
+    </svg>
+  ),
+  admin: (
+    <svg viewBox="0 0 24 24" {...STROKE} className="h-5 w-5">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19 12a7 7 0 0 0-.14-1.4l2-1.55-2-3.46-2.36.95a7 7 0 0 0-2.42-1.4L13.7 2.6h-3.4l-.38 2.54a7 7 0 0 0-2.42 1.4l-2.36-.95-2 3.46 2 1.55a7 7 0 0 0 0 2.8l-2 1.55 2 3.46 2.36-.95a7 7 0 0 0 2.42 1.4l.38 2.54h3.4l.38-2.54a7 7 0 0 0 2.42-1.4l2.36.95 2-3.46-2-1.55c.1-.46.14-.93.14-1.4z" />
+    </svg>
+  ),
+};
+
 const ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: "▦" },
-  { href: "/clientes", label: "Clientes", icon: "◉" },
-  { href: "/cotizaciones", label: "Cotizaciones", icon: "▤" },
-  { href: "/ventas", label: "Ventas", icon: "◈" },
-  { href: "/instalaciones", label: "Instalaciones", icon: "🔧", roles: ["ADMIN", "PROVEEDOR"] },
-  { href: "/materiales", label: "Materiales", icon: "▣" },
-  { href: "/admin", label: "Administración", icon: "⚙", roles: ["ADMIN"] },
+  { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
+  { href: "/clientes", label: "Clientes", icon: "clientes" },
+  { href: "/cotizaciones", label: "Cotizaciones", icon: "cotizaciones" },
+  { href: "/ventas", label: "Ventas", icon: "ventas" },
+  { href: "/instalaciones", label: "Instalaciones", icon: "instalaciones", roles: ["ADMIN", "PROVEEDOR"] },
+  { href: "/materiales", label: "Materiales", icon: "materiales" },
+  { href: "/admin", label: "Administración", icon: "admin", roles: ["ADMIN"] },
 ];
 
 function initials(email: string | null) {
@@ -158,7 +215,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                       : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                   }`}
                 >
-                  <span className="text-base w-5 text-center shrink-0">{it.icon}</span>
+                  <span className="flex h-5 w-5 items-center justify-center shrink-0">{ICONOS[it.icon] ?? it.icon}</span>
                   {!plegado && it.label}
                 </Link>
               );
@@ -183,7 +240,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   active ? "text-[#0099D8] dark:text-sky-300" : "text-slate-400"
                 }`}
               >
-                <span className="text-lg">{it.icon}</span>
+                <span className="flex h-6 w-6 items-center justify-center">{ICONOS[it.icon] ?? it.icon}</span>
                 {it.label}
               </Link>
             );
