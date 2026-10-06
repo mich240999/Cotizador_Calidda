@@ -48,6 +48,19 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    // Si el callback trajo ?error= (ej. enlace expirado), se muestra una vez.
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const e = q.get("error");
+      if (e) {
+        const amable = /expir|otp_expired|invalid/i.test(e)
+          ? "El enlace expiró o ya se usó. Pide un correo de recuperación nuevo."
+          : decodeURIComponent(e).replace(/\+/g, " ");
+        setError(amable);
+        setVista("recuperar");
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    } catch { /* sin URL */ }
     // getUser valida la sesión contra el servidor (getSession solo lee local).
     // Si el token expiró/revocaron, se limpia y se muestra el login.
     supabase.auth

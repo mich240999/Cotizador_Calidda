@@ -13,9 +13,14 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const next = url.searchParams.get("next") || "/dashboard";
+  // Supabase puede devolver el error aquí (ej. otp_expired): se reenvía al login.
+  const errParam =
+    url.searchParams.get("error_description") || url.searchParams.get("error") || "";
 
   if (!code) {
-    return NextResponse.redirect(new URL("/", url.origin));
+    const dest = new URL("/", url.origin);
+    if (errParam) dest.searchParams.set("error", errParam);
+    return NextResponse.redirect(dest);
   }
 
   const cookieStore = cookies();
@@ -40,7 +45,9 @@ export async function GET(req: Request) {
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    return NextResponse.redirect(new URL("/?error=recovery", url.origin));
+    const dest = new URL("/", url.origin);
+    dest.searchParams.set("error", error.message || "recovery");
+    return NextResponse.redirect(dest);
   }
   return res;
 }
