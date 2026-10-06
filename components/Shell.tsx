@@ -228,15 +228,16 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           )}
         </aside>
 
-        {/* Mobile nav */}
-        <div className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-900 border-t border-slate-200 flex justify-around py-2">
+        {/* Mobile nav con scroll horizontal */}
+        <div className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-900 border-t border-slate-200 flex gap-1 overflow-x-auto px-2 py-2 [scrollbar-width:thin]">
           {visibles.map((it) => {
             const active = pathname === it.href || pathname?.startsWith(it.href + "/");
             return (
               <Link
                 key={it.href}
                 href={it.href}
-                className={`flex flex-col items-center text-[10px] font-semibold px-2 py-1 rounded-lg ${
+                title={it.label}
+                className={`flex flex-col items-center shrink-0 text-[10px] font-semibold px-3 py-1 rounded-lg ${
                   active ? "text-[#0099D8] dark:text-sky-300" : "text-slate-400"
                 }`}
               >

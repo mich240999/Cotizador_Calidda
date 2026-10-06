@@ -586,6 +586,42 @@ async function hAprobarSolicitud(args: z.infer<typeof EsquemaAprobar>, ctx: Oper
   }
 }
 
+async function hActualizarNumerosPedido(args: z.infer<typeof EsquemaAprobar>, ctx: OperacionContext) {
+  // Misma validación que aprobar, pero NO toca el estado (edición posterior).
+  try {
+    const { data: items, error: eItems } = await ctx.service.from(T_ITEM).select("id").eq("solicitud_id", args.solicitud_id);
+    if (eItems) throw new Error(eItems.message);
+    const lista = ((items ?? []) as { id: string }[]);
+    if (lista.length === 0) lanzar(422, "La solicitud no tiene ítems");
+    const porItem = new Map(args.pedidos.map((p) => [String(p.item_id), p]));
+    const sinNumero: string[] = [];
+    for (const it of lista) {
+      const p = porItem.get(String(it.id));
+      const v = String(p?.numero_pedido_venta ?? "").trim();
+      const a = String(p?.numero_pedido_abono ?? "").trim();
+      if (!p || (!v && !a)) sinNumero.push(String(it.id));
+    }
+    if (sinNumero.length > 0) {
+      lanzar(422, `Cada ítem exige al menos un número (venta/abono). Faltan: ${sinNumero.join(", ")}`);
+    }
+    for (const [itemId, p] of porItem) {
+      if (!lista.some((it) => String(it.id) === String(itemId))) {
+        lanzar(422, `item_id no pertenece a la solicitud: ${itemId}`);
+      }
+      const patch: Fila = {};
+      if (String(p.numero_pedido_venta ?? "").trim()) patch.numero_pedido_venta = p.numero_pedido_venta!.trim();
+      if (String(p.numero_pedido_abono ?? "").trim()) patch.numero_pedido_abono = p.numero_pedido_abono!.trim();
+      if (Object.keys(patch).length > 0) {
+        const { error } = await ctx.service.from(T_ITEM).update(patch).eq("id", itemId);
+        if (error) throw new Error(error.message);
+      }
+    }
+    return { ok: true, actualizados: porItem.size };
+  } catch (e) {
+    exigirTabla(e);
+  }
+}
+
 async function hObservarSolicitud(args: z.infer<typeof EsquemaObservarSolicitud>, ctx: OperacionContext) {
   try {
     const { data, error } = await ctx.service
@@ -915,6 +951,7 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   registrarAbono: { descripcion: "Ventas: registra abono pendiente + aviso email a admin (best-effort)", roles: OPERATIVO, schema: EsquemaRegistrarAbono, handler: hRegistrarAbono },
   validarAbono: { descripcion: "Ventas: valida u observa un abono", roles: SOLO_ADMIN, schema: EsquemaValidarAbono, handler: hValidarAbono },
   aprobarSolicitud: { descripcion: "Ventas: aprueba solicitud exigiendo n.º de pedido por cada ítem", roles: SOLO_ADMIN, schema: EsquemaAprobar, handler: hAprobarSolicitud },
+  actualizarNumerosPedido: { descripcion: "Ventas: edita n.º de pedido por ítem sin cambiar estado", roles: SOLO_ADMIN, schema: EsquemaAprobar, handler: hActualizarNumerosPedido },
   observarSolicitud: { descripcion: "Ventas: observa solicitud", roles: SOLO_ADMIN, schema: EsquemaObservarSolicitud, handler: hObservarSolicitud },
   registrarInstalacion: { descripcion: "Ventas: registra instalación (4 evidencias) → en_instalacion", roles: OPERATIVO, schema: EsquemaInstalacion, handler: hRegistrarInstalacion },
   validarInstalacionProveedor: { descripcion: "Ventas: validación operativa de instalación → validada_proveedor", roles: OPERATIVO, schema: EsquemaSoloSolicitud, handler: hValidarInstalacionProveedor },

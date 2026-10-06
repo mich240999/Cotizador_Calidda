@@ -5,7 +5,7 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
-import { AccAbrir, AccAprobar } from "@/components/Accion";
+import { AccAbrir, AccValidar } from "@/components/Accion";
 import VentaModal from "@/components/VentaModal";
 import {
   BadgeEstadoVenta,
@@ -24,128 +24,6 @@ import {
   ventaTotal,
 } from "@/components/VentasComun";
 
-function ModalAprobar({ venta, onClose, onOk }: { venta: Venta; onClose: () => void; onOk: () => void }) {
-  const [pedV, setPedV] = useState<Record<string, string>>({});
-  const [pedA, setPedA] = useState<Record<string, string>>({});
-  const [items, setItems] = useState<Venta[]>(() => ventaItems(venta));
-  const [cargandoItems, setCargandoItems] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [guardando, setGuardando] = useState(false);
-
-  useEffect(() => {
-    if (items.length > 0) return;
-    let vivo = true;
-    (async () => {
-      setCargandoItems(true);
-      try {
-        const d = await apiOperacion<unknown>("getVenta", { id: ventaId(venta) });
-        const det = (d && typeof d === "object" ? (d as { items?: Venta[] }).items : null) as Venta[] | null;
-        if (vivo) setItems(Array.isArray(det) ? det : []);
-      } catch {
-        /* sin detalle: se usa número de pedido único */
-      } finally {
-        if (vivo) setCargandoItems(false);
-      }
-    })();
-    return () => {
-      vivo = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const aprobar = async () => {
-    setMsg(null);
-    setGuardando(true);
-    try {
-      if (items.length > 0) {
-        const faltan = items.filter((it, i) => {
-          const k = String((it as Record<string, unknown>).id ?? i);
-          return !(pedV[k] ?? "").trim() && !(pedA[k] ?? "").trim();
-        });
-        if (faltan.length > 0) throw new Error("Cada ítem exige al menos un número (pedido de venta o de abono).");
-        await apiOperacion("aprobarSolicitud", {
-          solicitud_id: ventaId(venta),
-          pedidos: items.map((it, i) => {
-            const k = String((it as Record<string, unknown>).id ?? i);
-            return {
-              item_id: k,
-              numero_pedido_venta: (pedV[k] ?? "").trim(),
-              numero_pedido_abono: (pedA[k] ?? "").trim(),
-            };
-          }),
-        });
-      } else {
-        if (!pedV.__unico?.trim() && !pedA.__unico?.trim()) throw new Error("Indica al menos un número de pedido para aprobar.");
-        await apiOperacion("aprobarSolicitud", {
-          solicitud_id: ventaId(venta),
-          pedidos: [{ item_id: "0", numero_pedido_venta: (pedV.__unico ?? "").trim(), numero_pedido_abono: (pedA.__unico ?? "").trim() }],
-        });
-      }
-      onOk();
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "No se pudo aprobar");
-    } finally {
-      setGuardando(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-xl p-6">
-        <h2 className="text-lg font-extrabold">Aprobar solicitud · {ventaNumero(venta)}</h2>
-        <p className="text-xs text-slate-500 mt-1">Cliente: {ventaCliente(venta)} · Total: {formatoMoneda(ventaTotal(venta))}</p>
-        <div className="mt-4 space-y-3">
-          {cargandoItems && <p className="text-xs text-slate-500">Cargando ítems del backend…</p>}
-          {items.length > 0 ? (
-            items.map((it, i) => {
-              const k = String((it as Record<string, unknown>).id ?? i);
-              return (
-                <div key={k + i} className="grid md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="label">N.º pedido venta · {String((it as Record<string, unknown>).nombre ?? (it as Record<string, unknown>).material ?? k)} *</label>
-                    <input
-                      className="input"
-                      placeholder="Ej. PED-000123"
-                      value={pedV[k] ?? ""}
-                      onChange={(e) => setPedV((p) => ({ ...p, [k]: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="label">N.º pedido abono · {(it as Record<string, unknown>).nombre ? String((it as Record<string, unknown>).nombre) : k}</label>
-                    <input
-                      className="input"
-                      placeholder="Ej. ABO-000123 (opcional si hay venta)"
-                      value={pedA[k] ?? ""}
-                      onChange={(e) => setPedA((p) => ({ ...p, [k]: e.target.value }))}
-                    />
-                  </div>
-                </div>
-              );
-            })
-          ) : (
-            <div className="grid md:grid-cols-2 gap-3">
-              <div>
-                <label className="label">Número de pedido venta *</label>
-                <input className="input" placeholder="Ej. PED-000123" value={pedV.__unico ?? ""} onChange={(e) => setPedV((p) => ({ ...p, __unico: e.target.value }))} />
-              </div>
-              <div>
-                <label className="label">Número de pedido abono</label>
-                <input className="input" placeholder="Ej. ABO-000123" value={pedA.__unico ?? ""} onChange={(e) => setPedA((p) => ({ ...p, __unico: e.target.value }))} />
-              </div>
-            </div>
-          )}
-        </div>
-        {msg && <p className="mt-3 text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
-        <div className="flex gap-2 mt-4">
-          <button className="btn-white flex-1" onClick={onClose}>Cancelar</button>
-          <button className="btn-green flex-1" onClick={() => { setGuardando(true); aprobar(); }} disabled={guardando}>
-            {guardando ? "Aprobando…" : "✓ Aprobar"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function VentasPage() {
   const [rows, setRows] = useState<Venta[]>([]);
@@ -155,9 +33,34 @@ export default function VentasPage() {
   const [q, setQ] = useState("");
   const [fEst, setFEst] = useState("TODOS");
   const [fCanal, setFCanal] = useState("TODOS");
-  const [aprobar, setAprobar] = useState<Venta | null>(null);
   const [nueva, setNueva] = useState(false);
   const [exportando, setExportando] = useState(false);
+  const [validando, setValidando] = useState<string | null>(null);
+
+  const aprobarAbonos = async (v: Venta) => {
+    const idv = ventaId(v);
+    setError(null);
+    setInfo(null);
+    setValidando(idv);
+    try {
+      const d = await apiOperacion<{ abonos?: { id?: string | number; estado?: string }[] }>("getVenta", { id: idv });
+      const lista = Array.isArray(d?.abonos) ? d.abonos : [];
+      const pendientes = lista.filter((a) => String(a.estado ?? "").toLowerCase() === "pendiente");
+      if (pendientes.length === 0) {
+        setInfo(`Sin abonos pendientes en ${ventaNumero(v)}. La aprobación de la venta se hace dentro del detalle.`);
+        return;
+      }
+      for (const a of pendientes) {
+        await apiOperacion("validarAbono", { abono_id: String(a.id ?? ""), accion: "validar" });
+      }
+      setInfo(`Abonos aprobados en ${ventaNumero(v)}: ${pendientes.length}.`);
+      await cargar();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudieron aprobar los abonos");
+    } finally {
+      setValidando(null);
+    }
+  };
 
   const cargar = async () => {
     setLoading(true);
@@ -304,8 +207,8 @@ export default function VentasPage() {
                       <td className="whitespace-nowrap text-xs text-slate-500">{ventaFecha(v) ? formatoFecha(ventaFecha(v)) : "—"}</td>
                       <td className="whitespace-nowrap">
                         <div className="flex gap-1.5">
-                          <AccAbrir title="Abrir solicitud" href={`/ventas/${encodeURIComponent(ventaId(v) || "")}`} />
-                          <AccAprobar title="Aprobar solicitud" onClick={() => setAprobar(v)} />
+                          <AccAbrir title="Abrir solicitud (aprobar dentro del detalle)" href={`/ventas/${encodeURIComponent(ventaId(v) || "")}`} />
+                          <AccValidar title="Aprobar abonos pendientes" disabled={validando === ventaId(v)} onClick={() => aprobarAbonos(v)} />
                         </div>
                       </td>
                     </tr>
@@ -314,14 +217,6 @@ export default function VentasPage() {
               </table>
             </div>
           </div>
-        )}
-
-        {aprobar && (
-          <ModalAprobar
-            venta={aprobar}
-            onClose={() => setAprobar(null)}
-            onOk={() => { setAprobar(null); setInfo("Solicitud aprobada."); cargar(); }}
-          />
         )}
 
         {nueva && (

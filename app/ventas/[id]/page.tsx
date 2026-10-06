@@ -149,34 +149,35 @@ export default function VentaDetallePage() {
   const aprobar = () =>
     correr(async () => {
       const items = venta ? ventaItems(venta) : [];
-      if (items.length > 0) {
-        const faltan = items.filter((it, i) => {
-          const k = String((it as Record<string, unknown>).id ?? i);
-          return !(pedidos[k + "_v"] ?? "").trim() && !(pedidos[k + "_a"] ?? "").trim();
-        });
-        if (faltan.length > 0) throw new Error("Cada ítem exige al menos un número (pedido de venta o de abono).");
-        await apiOperacion("aprobarSolicitud", {
-          solicitud_id: id,
-          pedidos: items.map((it, i) => {
+      const payload = (() => {
+        if (items.length > 0) {
+          const faltan = items.filter((it, i) => {
+            const k = String((it as Record<string, unknown>).id ?? i);
+            return !(pedidos[k + "_v"] ?? "").trim() && !(pedidos[k + "_a"] ?? "").trim();
+          });
+          if (faltan.length > 0) throw new Error("Cada ítem exige al menos un número (pedido de venta o de abono).");
+          return items.map((it, i) => {
             const k = String((it as Record<string, unknown>).id ?? i);
             return {
               item_id: k,
               numero_pedido_venta: (pedidos[k + "_v"] ?? "").trim(),
               numero_pedido_abono: (pedidos[k + "_a"] ?? "").trim(),
             };
-          }),
-        });
-      } else {
+          });
+        }
         const v = (pedidos.__v ?? "").trim();
         const a = (pedidos.__a ?? "").trim();
         if (!v && !a) throw new Error("Indica al menos un número de pedido para aprobar.");
-        await apiOperacion("aprobarSolicitud", {
-          solicitud_id: id,
-          pedidos: [{ item_id: "0", numero_pedido_venta: v, numero_pedido_abono: a }],
-        });
+        return [{ item_id: "0", numero_pedido_venta: v, numero_pedido_abono: a }];
+      })();
+      // Si ya está aprobada, solo se editan los números (sin regresar el estado).
+      if (puedeAprobar) {
+        await apiOperacion("aprobarSolicitud", { solicitud_id: id, pedidos: payload });
+      } else {
+        await apiOperacion("actualizarNumerosPedido", { solicitud_id: id, pedidos: payload });
       }
       setShowAprobar(false);
-    }, "Venta aprobada.");
+    }, puedeAprobar ? "Venta aprobada." : "Números de pedido actualizados.");
 
   const observar = () =>
     correr(async () => {
@@ -202,6 +203,27 @@ export default function VentaDetallePage() {
   const items = venta ? ventaItems(venta) : [];
   const abonos = venta ? ventaAbonos(venta) : [];
   const obss = venta ? ventaObservaciones(venta) : [];
+  const est = String(venta ? ventaEstado(venta) : "borrador").toLowerCase();
+  // Puertas por estado: nada se puede aprobar/liquidar dos veces.
+  const puedeAprobar = ["borrador", "observado"].includes(est);
+  const puedeObservarSol = ["borrador", "observado", "aprobada"].includes(est);
+  const puedeAbono = !["liquidada", "cerrada"].includes(est);
+  const puedeInstalar = ["aprobada", "en_instalacion", "instalada", "observada"].includes(est);
+  const puedeValidarInst = ["instalada", "en_instalacion"].includes(est);
+  const puedeLiquidar = est === "validada_proveedor";
+
+  const abrirAprobar = () => {
+    // Prellena los números actuales para poder modificarlos.
+    const p: Record<string, string> = {};
+    for (const it of items) {
+      const r = it as Record<string, unknown>;
+      const k = String(r.id ?? "");
+      if (r.numero_pedido_venta) p[k + "_v"] = String(r.numero_pedido_venta);
+      if (r.numero_pedido_abono) p[k + "_a"] = String(r.numero_pedido_abono);
+    }
+    setPedidos(p);
+    setShowAprobar(true);
+  };
   const totalCalc = items.reduce((a, it) => {
     const r = it as Record<string, unknown>;
     return a + Number(r.subtotal ?? (Number(r.cantidad ?? 0) * Number(r.precio_unit ?? 0) - Number(r.descuento_monto ?? 0)));
@@ -293,7 +315,7 @@ export default function VentaDetallePage() {
                 Abonos · {abonos.length}
                 {!esAdmin && <button className="btn-white !py-1 !px-3 text-xs ml-auto" onClick={() => setShowAbono((s) => !s)}>Registrar abono</button>}
               </div>
-              {showAbono && !esAdmin && (
+              {showAbono && !esAdmin && puedeAbono && (
                 <div className="p-5 grid md:grid-cols-4 gap-3 border-b bg-slate-50">
                   <div><label className="label">Monto (S/) *</label><input type="number" min={0} step="any" className="input" value={abMonto} onChange={(e) => setAbMonto(e.target.value)} /></div>
                   <div><label className="label">Medio</label><select className="input" value={abMedio} onChange={(e) => setAbMedio(e.target.value)}>{MEDIOS_ABONO.map((m) => <option key={m} value={m}>{m}</option>)}</select></div>
@@ -333,7 +355,7 @@ export default function VentaDetallePage() {
                             })()}
                           </td>
                           <td><BadgeAbono estado={est} /></td>
-                          <td className="whitespace-nowrap">{esAdmin && est.toLowerCase() !== "validado" && (
+                          <td className="whitespace-nowrap">{esAdmin && puedeAbono && est.toLowerCase() !== "validado" && (
                             <div className="flex gap-1.5">
                               <AccValidar title="Validar abono" onClick={() => validarAbono(String(a.id ?? ""))} disabled={busy} />
                               <AccObservar title="Observar abono" onClick={() => { setAbonoObs(String(a.id ?? "")); setEtapaObs("abonos"); setShowObservar(true); }} disabled={busy} />
@@ -351,7 +373,7 @@ export default function VentaDetallePage() {
             <section className="card p-5 mt-4">
               <div className="flex items-center gap-2">
                 <h3 className="font-bold">Instalación (4 sustentos)</h3>
-                {!esAdmin && <button className="btn-white !py-1 !px-3 text-xs ml-auto" onClick={() => setShowInst((s) => !s)}>Registrar instalación</button>}
+                {!esAdmin && puedeInstalar && <button className="btn-white !py-1 !px-3 text-xs ml-auto" onClick={() => setShowInst((s) => !s)}>Registrar instalación</button>}
               </div>
               {showInst && !esAdmin ? (
                 <div className="grid md:grid-cols-2 gap-3 mt-3">
@@ -430,21 +452,23 @@ export default function VentaDetallePage() {
               <h3 className="font-bold mb-3">Acciones</h3>
               {!esAdmin ? (
                 <div className="flex flex-wrap gap-2">
-                  <button className="btn-white" onClick={() => setShowAbono((s) => !s)}>Registrar abono</button>
-                  {veInstalacion && <button className="btn-white" onClick={() => setShowInst((s) => !s)}>Registrar instalación</button>}
+                  {puedeAbono && <button className="btn-white" onClick={() => setShowAbono((s) => !s)}>Registrar abono</button>}
+                  {veInstalacion && puedeInstalar && <button className="btn-white" onClick={() => setShowInst((s) => !s)}>Registrar instalación</button>}
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
-                  <button className="btn-green" onClick={() => setShowAprobar((s) => !s)}>✓ Aprobar</button>
-                  <button className="btn-white" onClick={() => setShowObservar((s) => !s)}>Observar</button>
-                  <button className="btn-white" onClick={validarInstalacion} disabled={busy}>Validar instalación</button>
-                  <button className="btn-white" onClick={cerrar} disabled={busy}>Validar y liquidar</button>
+                  {puedeAprobar
+                    ? <button className="btn-green" onClick={abrirAprobar}>✓ Aprobar</button>
+                    : <button className="btn-white" onClick={abrirAprobar}>N.º de pedido</button>}
+                  {puedeObservarSol && <button className="btn-white" onClick={() => setShowObservar((s) => !s)}>Observar</button>}
+                  {puedeValidarInst && <button className="btn-white" onClick={validarInstalacion} disabled={busy}>Validar instalación</button>}
+                  {puedeLiquidar && <button className="btn-white" onClick={cerrar} disabled={busy}>Validar y liquidar</button>}
                 </div>
               )}
 
               {showAprobar && esAdmin && (
                 <div className="mt-4 rounded-xl border border-slate-200 p-4 space-y-3">
-                  <p className="text-sm font-bold">Aprobar con números de pedido por ítem (obligatorios)</p>
+                  <p className="text-sm font-bold">{puedeAprobar ? "Aprobar con números de pedido por ítem (obligatorios)" : "Números de pedido por ítem (modificables)"}</p>
                   {items.length === 0 ? (
                     <div className="grid md:grid-cols-2 gap-3">
                       <div>
@@ -473,7 +497,7 @@ export default function VentaDetallePage() {
                   })}
                   <div className="flex justify-end gap-2">
                     <button className="btn-white" onClick={() => setShowAprobar(false)}>Cancelar</button>
-                    <button className="btn-green" onClick={aprobar} disabled={busy}>{busy ? "Aprobando…" : "✓ Confirmar aprobación"}</button>
+                    <button className="btn-green" onClick={aprobar} disabled={busy}>{busy ? "Guardando…" : puedeAprobar ? "✓ Confirmar aprobación" : "Guardar números"}</button>
                   </div>
                 </div>
               )}
