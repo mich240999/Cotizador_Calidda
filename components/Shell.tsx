@@ -11,8 +11,9 @@ const ITEMS = [
   { href: "/clientes", label: "Clientes", icon: "◉" },
   { href: "/cotizaciones", label: "Cotizaciones", icon: "▤" },
   { href: "/ventas", label: "Ventas", icon: "◈" },
+  { href: "/instalaciones", label: "Instalaciones", icon: "🔧", roles: ["ADMIN", "PROVEEDOR"] },
   { href: "/materiales", label: "Materiales", icon: "▣" },
-  { href: "/admin", label: "Administración", icon: "⚙" },
+  { href: "/admin", label: "Administración", icon: "⚙", roles: ["ADMIN"] },
 ];
 
 function initials(email: string | null) {
@@ -29,13 +30,25 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const [email, setEmail] = useState<string | null>(null);
   const [oscuro, setOscuro] = useState(false);
   const [plegado, setPlegado] = useState(false);
+  const [miRol, setMiRol] = useState("");
 
   useEffect(() => {
     const sb = getSupabaseBrowser();
     sb.auth.getSession().then(({ data }) => setEmail(data.session?.user?.email ?? null));
     const { data: sub } = sb.auth.onAuthStateChange((_e, s) => setEmail(s?.user?.email ?? null));
+    fetch("/api/mi-perfil")
+      .then((r) => r.json())
+      .then((j) => { if (j?.ok && j.rol) setMiRol(String(j.rol).toUpperCase()); })
+      .catch(() => {});
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  const visibles = ITEMS.filter((it) => {
+    const r = (it as { roles?: string[] }).roles;
+    if (!r) return true;
+    if (!miRol) return true; // mientras carga, muestra todo
+    return r.includes(miRol);
+  });
 
   useEffect(() => {
     try {
@@ -130,7 +143,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         {/* Sidebar */}
         <aside className={`hidden md:flex shrink-0 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 sticky top-16 min-h-[calc(100vh-4rem)] transition-all duration-200 ${plegado ? "w-[68px]" : "w-60"}`}>
           <nav className="p-3 space-y-1">
-            {ITEMS.map((it) => {
+            {visibles.map((it) => {
               const active = pathname === it.href || pathname?.startsWith(it.href + "/");
               return (
                 <Link
@@ -160,7 +173,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
         {/* Mobile nav */}
         <div className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-900 border-t border-slate-200 flex justify-around py-2">
-          {ITEMS.map((it) => {
+          {visibles.map((it) => {
             const active = pathname === it.href || pathname?.startsWith(it.href + "/");
             return (
               <Link

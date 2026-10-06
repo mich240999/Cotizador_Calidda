@@ -796,6 +796,51 @@ async function hExportarVentas(args: z.infer<typeof EsquemaExportar>, ctx: Opera
   }
 }
 
+const EsquemaQInstalaciones = z.object({
+  estado: z.string().trim().max(40).optional().default(""),
+  limit: zLimit,
+});
+
+async function hListarInstalacionesPendientes(args: z.infer<typeof EsquemaQInstalaciones>, ctx: OperacionContext) {
+  // Vista del proveedor: aprobadas/en_instalacion/instaladas/observadas de SU proveedor.
+  // Admin ve todo. Otros roles: vacío.
+  let idProveedor: string | null = null;
+  if (!esAdmin(ctx)) {
+    const { data: ficha } = await ctx.service.from("seg_usuarios").select("id_proveedor").eq("correo", (ctx.sesion.email ?? "").toLowerCase()).maybeSingle();
+    idProveedor = (ficha as { id_proveedor?: string } | null)?.id_proveedor ?? null;
+    if (!idProveedor) return { rows: [], total: 0, proveedor: null };
+  }
+  let q = ctx.service.from(T_SOL)
+    .select("id,id_cliente,id_proveedor,canal,estado,created_at,updated_at", { count: "exact" })
+    .in("estado", ["aprobada", "en_instalacion", "instalada", "observada"])
+    .order("updated_at", { ascending: false }).limit(args.limit);
+  if (idProveedor) q = q.eq("id_proveedor", idProveedor);
+  if (args.estado) q = q.eq("estado", args.estado.toLowerCase());
+  const { data, error, count } = await q;
+  if (error) throw new Error(error.message);
+  const rows = ((data ?? []) as Record<string, any>[]);
+  const ids = rows.map((r) => String(r.id));
+  const [cli, prv, ins] = await Promise.all([
+    ctx.service.from("mae_clientes").select("id,nombre_razon_social,nro_doc").in("id", ids.length ? rows.map((r) => String(r.id_cliente)) : ["—"]),
+    ctx.service.from("mae_proveedores").select("id,razon_social").in("id", ids.length ? rows.map((r) => String(r.id_proveedor)) : ["—"]),
+    ctx.service.from(T_INS).select("solicitud_id,estado").in("solicitud_id", ids.length ? ids : ["—"]),
+  ]);
+  const mCli = new Map(((cli.data ?? []) as any[]).map((c) => [String(c.id), c]));
+  const mPrv = new Map(((prv.data ?? []) as any[]).map((p) => [String(p.id), p]));
+  const mIns = new Map(((ins.data ?? []) as any[]).map((x) => [String(x.solicitud_id), x]));
+  return {
+    rows: rows.map((r) => ({
+      ...r,
+      cliente: (mCli.get(String(r.id_cliente)) as any)?.nombre_razon_social ?? r.id_cliente,
+      cliente_doc: (mCli.get(String(r.id_cliente)) as any)?.nro_doc ?? null,
+      proveedor: (mPrv.get(String(r.id_proveedor)) as any)?.razon_social ?? r.id_proveedor,
+      instalacion_estado: (mIns.get(String(r.id)) as any)?.estado ?? "pendiente",
+    })),
+    total: count ?? rows.length,
+    proveedor: idProveedor,
+  };
+}
+
 async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionContext) {
   try {
     const { data: cab, error: eCab } = await ctx.service.from(T_SOL).select("*").eq("id", args.id).single();
@@ -856,6 +901,7 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   observarInstalacion: { descripcion: "Ventas: observa instalación → observada", roles: OPERATIVO, schema: EsquemaObservarInstalacion, handler: hObservarInstalacion },
   exportarVentas: { descripcion: "Ventas: {columnas, filas} planos listos para XLSX", roles: TODOS, schema: EsquemaExportar, handler: hExportarVentas },
   getVenta: { descripcion: "Ventas: cabecera + items + abonos + instalación", roles: TODOS, schema: EsquemaGetVenta, handler: hGetVenta },
+  listarInstalacionesPendientes: { descripcion: "Ventas: pendientes de instalación del proveedor", roles: TODOS, schema: EsquemaQInstalaciones, handler: hListarInstalacionesPendientes },
   actualizarTeaVenta: { descripcion: "Ventas: actualiza TEA de la solicitud", roles: SOLO_ADMIN, schema: EsquemaTea, handler: hActualizarTea },
 };
 
