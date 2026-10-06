@@ -44,17 +44,23 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    // getUser valida la sesión contra el servidor (getSession solo lee local).
+    // Si el token expiró/revocaron, se limpia y se muestra el login.
     supabase.auth
-      .getSession()
+      .getUser()
       .then(({ data }) => {
         if (!mounted) return;
-        setEmail(data.session?.user?.email ?? null);
+        setEmail(data.user?.email ?? null);
         setLoading(false);
       })
       .catch(() => {
         if (mounted) setLoading(false);
       });
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, sess) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((evt, sess) => {
+      if (evt === "SIGNED_OUT") {
+        setEmail(null);
+        return;
+      }
       setEmail(sess?.user?.email ?? null);
     });
     return () => {

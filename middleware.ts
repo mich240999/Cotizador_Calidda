@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const RUTAS_PROTEGIDAS = ["/dashboard", "/cotizaciones", "/clientes", "/materiales", "/admin"];
+const RUTAS_PROTEGIDAS = ["/dashboard", "/cotizaciones", "/clientes", "/materiales", "/admin", "/ventas", "/instalaciones"];
 
 /**
  * Protege /dashboard, /cotizaciones, /clientes, /materiales, /admin.
@@ -44,5 +44,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/cotizaciones/:path*", "/clientes/:path*", "/materiales/:path*", "/admin/:path*"]
+  matcher: ["/dashboard/:path*", "/cotizaciones/:path*", "/clientes/:path*", "/materiales/:path*", "/admin/:path*", "/ventas/:path*", "/instalaciones/:path*"]
 };
