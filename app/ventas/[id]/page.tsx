@@ -228,6 +228,28 @@ export default function VentaDetallePage() {
             {info && <p className="card p-3 mt-4 text-sm text-emerald-700 bg-emerald-50 border-emerald-200">{info}</p>}
 
             <section className="card p-5 mt-4">
+              <h3 className="font-bold mb-1">Adjuntos de la solicitud</h3>
+              <p className="text-xs text-slate-400 mb-3">Stephany debe revisarlos antes de aprobar.</p>
+              <div className="flex flex-wrap gap-2">
+                {([
+                  ["Cotización del cliente", (venta as Record<string, unknown>).adjunto_cotizacion_url],
+                  ["Foto DNI", (venta as Record<string, unknown>).adjunto_dni_url],
+                  ["Foto del espacio", (venta as Record<string, unknown>).foto_espacio_url],
+                ] as [string, unknown][]).map(([label, url]) => (
+                  String(url ?? "") ? (
+                    <a key={label as string} className="btn-white !py-1.5 !text-xs !no-underline" href={String(url)} target="_blank" rel="noreferrer" title={String(url)}>
+                      {label} ↗
+                    </a>
+                  ) : (
+                    <span key={label as string} className="inline-flex items-center rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-400">
+                      {label}: pendiente
+                    </span>
+                  )
+                ))}
+              </div>
+            </section>
+
+            <section className="card p-5 mt-4">
               <h3 className="font-bold mb-3">Línea de tiempo</h3>
               <TimelineVenta estado={ventaEstado(venta)} />
               <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-slate-600">
@@ -299,7 +321,14 @@ export default function VentaDetallePage() {
                         <tr key={String(a.id ?? i)}>
                           <td className="font-bold">S/ {Number(a.monto ?? 0).toFixed(2)}</td>
                           <td className="capitalize">{String(a.medio ?? "—")}</td>
-                          <td className="max-w-[220px] truncate text-xs text-[#0099D8]">{String(a.comprobante_url ?? a.comprobante ?? "—")}</td>
+                          <td className="max-w-[220px] truncate">
+                            {(() => {
+                              const url = String(a.comprobante_url ?? a.comprobante ?? "");
+                              return url && url !== "—"
+                                ? <a className="text-xs font-bold text-[#0099D8] hover:underline" href={url} target="_blank" rel="noreferrer" title={url}>Ver comprobante ↗</a>
+                                : <span className="text-xs text-slate-400">Sin comprobante</span>;
+                            })()}
+                          </td>
                           <td><BadgeAbono estado={est} /></td>
                           <td className="whitespace-nowrap">{esAdmin && est.toLowerCase() !== "validado" && (
                             <div className="flex gap-1.5">
@@ -340,9 +369,40 @@ export default function VentaDetallePage() {
                   </div>
                 </div>
               ) : (
-                <ul className="mt-2 text-sm text-slate-600 list-disc pl-5">
-                  {SUSTENTOS_INSTALACION.map((s) => <li key={s.key}>{s.label}</li>)}
-                </ul>
+                <>
+                  {(() => {
+                    const ins = ((venta as Record<string, unknown>).instalacion ?? {}) as Record<string, unknown>;
+                    const hay = SUSTENTOS_INSTALACION.some((s) => String(ins[s.key] ?? ""));
+                    if (!hay) {
+                      return (
+                        <ul className="mt-2 text-sm text-slate-600 list-disc pl-5">
+                          {SUSTENTOS_INSTALACION.map((s) => <li key={s.key}>{s.label} <span className="text-slate-400">· pendiente</span></li>)}
+                        </ul>
+                      );
+                    }
+                    return (
+                      <div className="grid sm:grid-cols-2 gap-3 mt-3">
+                        {SUSTENTOS_INSTALACION.map((s) => {
+                          const url = String(ins[s.key] ?? "");
+                          const esImg = /^data:image|\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+                          return (
+                            <div key={s.key} className="rounded-xl border border-slate-200 overflow-hidden">
+                              <p className="text-xs font-bold px-3 pt-2">{s.label}</p>
+                              {url ? (
+                                <>
+                                  {esImg && <img src={url} alt={s.label} className="mt-2 h-32 w-full object-cover" loading="lazy" />}
+                                  <a className="block px-3 py-2 text-xs font-bold text-[#0099D8] hover:underline" href={url} target="_blank" rel="noreferrer">Ver archivo ↗</a>
+                                </>
+                              ) : (
+                                <p className="px-3 py-2 text-xs text-slate-400">Pendiente</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </>
               )}
             </section>
             )}
