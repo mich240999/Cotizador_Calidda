@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { createSupabaseServer } from "./supabaseServer";
+import { createSupabaseServer, createSupabaseServiceRole } from "./supabaseServer";
 
 export type RolUsuario = "admin" | "asesor" | "oficina";
 
@@ -63,11 +63,29 @@ export async function getSession(): Promise<SesionInfo | null> {
 
   const rolRaw = (perfil as unknown as { roles?: { nombre?: unknown } | { nombre?: unknown }[] })?.roles;
   const rolNombre = Array.isArray(rolRaw) ? rolRaw[0]?.nombre : rolRaw?.nombre;
+  let rol = normalizarRol(rolNombre);
+
+  // SGT360: si no es admin por profiles, revisa seg_usuarios por correo
+  // (Stephany y el equipo viven ahí). ADMIN SGT ⇒ admin de la app.
+  // Usa service_role (solo lectura) para no depender del RLS.
+  if (rol !== "admin") {
+    try {
+      const svc = createSupabaseServiceRole();
+      const { data: ficha } = await svc
+        .from("seg_usuarios")
+        .select("rol_codigo,estado")
+        .eq("correo", email)
+        .maybeSingle();
+      const f = ficha as { rol_codigo?: string; estado?: string } | null;
+      if (f && String(f.estado ?? "").toUpperCase() !== "ACTIVO") return null; // inactivo SGT
+      if (f && String(f.rol_codigo ?? "").toUpperCase() === "ADMIN") rol = "admin";
+    } catch { /* sin tabla SGT: se mantiene el rol base */ }
+  }
 
   return {
     userId: data.user.id,
     email,
-    rol: normalizarRol(rolNombre)
+    rol
   };
 }
 

@@ -278,8 +278,8 @@ export default function VentaDetallePage() {
               <h3 className="font-bold mb-3">Línea de tiempo</h3>
               <TimelineVenta estado={ventaEstado(venta)} />
               <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-slate-600">
-                {(String((venta as Record<string, unknown>).id_asesor ?? "") || String((venta as Record<string, unknown>).asesor_telefono ?? "")) && (
-                  <span>Asesor: <b>{String((venta as Record<string, unknown>).id_asesor ?? "")}</b>{(venta as Record<string, unknown>).asesor_telefono ? ` · ${String((venta as Record<string, unknown>).asesor_telefono)}` : ""}</span>
+                {(String((venta as Record<string, unknown>).asesor_nombre ?? (venta as Record<string, unknown>).id_asesor ?? "") || String((venta as Record<string, unknown>).asesor_telefono ?? "")) && (
+                  <span>Asesor: <b>{String((venta as Record<string, unknown>).asesor_nombre ?? (venta as Record<string, unknown>).id_asesor ?? "")}</b>{(venta as Record<string, unknown>).asesor_telefono ? ` · ${String((venta as Record<string, unknown>).asesor_telefono)}` : ""}</span>
                 )}
                 {String((venta as Record<string, unknown>).foto_espacio_url ?? "") && (
                   <a className="font-semibold text-[#0099D8] hover:underline" href={String((venta as Record<string, unknown>).foto_espacio_url)} target="_blank" rel="noreferrer">Foto del espacio ↗</a>

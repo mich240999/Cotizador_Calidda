@@ -125,14 +125,16 @@ function esAdmin(ctx: OperacionContext): boolean {
 
 type Fila = Record<string, any>;
 
-/** Resuelve nombres de cliente/proveedor best-effort (mae_* primero, base después). */
+/** Resuelve nombres de cliente/proveedor/asesor/creador best-effort (mae_* primero, base después). */
 async function resolverNombres(
   ctx: OperacionContext,
   filas: Fila[]
-): Promise<Map<string, { cliente: string | null; documento: string | null; proveedor: string | null }>> {
+): Promise<Map<string, { cliente: string | null; documento: string | null; proveedor: string | null; asesor: string | null; creado_por: string | null }>> {
   const idsCli = [...new Set(filas.map((r) => String(r.id_cliente ?? "")).filter(Boolean))];
   const idsProv = [...new Set(filas.map((r) => String(r.id_proveedor ?? "")).filter(Boolean))];
-  const out = new Map<string, { cliente: string | null; documento: string | null; proveedor: string | null }>();
+  const idsAse = [...new Set(filas.map((r) => String(r.id_asesor ?? "")).filter(Boolean))];
+  const idsCreador = [...new Set(filas.map((r) => String(r.created_by ?? "")).filter(Boolean))];
+  const out = new Map<string, { cliente: string | null; documento: string | null; proveedor: string | null; asesor: string | null; creado_por: string | null }>();
   const svc = ctx.service as unknown as { from(t: string): any };
 
   async function buscarEn(tablas: string[], ids: string[], cols: string): Promise<Fila[]> {
@@ -162,14 +164,28 @@ async function resolverNombres(
     : [[], []];
   const mCli = new Map<string, Fila>([...cliMae, ...cliBase].map((c) => [String(c.id), c]));
   const mProv = new Map<string, Fila>([...provMae, ...provBase].map((p) => [String(p.id), p]));
+  const mAse = new Map<string, Fila>();
+  if (idsAse.length) {
+    const { data } = await svc.from("seg_usuarios").select("id,nombre").in("id", idsAse).catch(() => ({ data: [] as Fila[] }));
+    for (const u of ((data ?? []) as Fila[])) mAse.set(String(u.id), u);
+  }
+  const mCreador = new Map<string, Fila>();
+  if (idsCreador.length) {
+    const { data } = await svc.from("profiles").select("id,nombre").in("id", idsCreador).catch(() => ({ data: [] as Fila[] }));
+    for (const u of ((data ?? []) as Fila[])) mCreador.set(String(u.id), u);
+  }
 
   for (const r of filas) {
     const c = mCli.get(String(r.id_cliente ?? ""));
     const p = mProv.get(String(r.id_proveedor ?? ""));
+    const a = mAse.get(String(r.id_asesor ?? ""));
+    const cr = mCreador.get(String(r.created_by ?? ""));
     out.set(String(r.id), {
       cliente: (c?.nombre_razon_social ?? c?.nombres ?? null) as string | null,
       documento: (c?.nro_doc ?? c?.dni ?? null) as string | null,
       proveedor: (p?.nombre_comercial ?? p?.razon_social ?? p?.interlocutor ?? p?.nombre ?? null) as string | null,
+      asesor: (a?.nombre ?? null) as string | null,
+      creado_por: (cr?.nombre ?? null) as string | null,
     });
   }
   return out;
@@ -325,8 +341,8 @@ async function hListarVentas(args: z.infer<typeof EsquemaListarVentas>, ctx: Ope
     const rows = ((data ?? []) as Fila[]);
     const nombres = await resolverNombres(ctx, rows);
     const enriquecidas = rows.map((r) => {
-      const n = nombres.get(String(r.id)) ?? { cliente: null, documento: null, proveedor: null };
-      return { ...r, cliente_nombre: n.cliente, cliente_documento: n.documento, proveedor_nombre: n.proveedor };
+      const n = nombres.get(String(r.id)) ?? { cliente: null, documento: null, proveedor: null, asesor: null, creado_por: null };
+      return { ...r, cliente_nombre: n.cliente, cliente_documento: n.documento, proveedor_nombre: n.proveedor, asesor_nombre: n.asesor, creado_por_nombre: n.creado_por };
     });
     return { rows: enriquecidas, total: count ?? rows.length, page: args.page, pageSize: args.pageSize };
   } catch (e) {
@@ -916,8 +932,10 @@ async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionCo
     if (rItems.error) throw new Error(rItems.error.message);
     if (rAbonos.error) throw new Error(rAbonos.error.message);
     if (rIns.error) throw new Error(rIns.error.message);
+    const nombres = await resolverNombres(ctx, [sol]);
+    const n = nombres.get(String(sol.id)) ?? { asesor: null, creado_por: null } as { asesor: string | null; creado_por: string | null };
     return {
-      solicitud: sol,
+      solicitud: { ...sol, asesor_nombre: n.asesor, creado_por_nombre: n.creado_por },
       items: rItems.data ?? [],
       abonos: rAbonos.data ?? [],
       instalacion: rIns.data ?? null,

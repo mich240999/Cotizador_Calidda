@@ -194,13 +194,14 @@ export default function VentasPage() {
             <div className="px-5 py-3 border-b font-semibold">Solicitudes · {filtradas.length}</div>
             <div className="overflow-x-auto">
               <table className="tabla">
-                <thead><tr><th>NÚMERO</th><th>CLIENTE</th><th>PROVEEDOR</th><th>CANAL</th><th>ESTADO</th><th>TOTAL</th><th>ACTUALIZACIÓN</th><th>ACCIONES</th></tr></thead>
+                <thead><tr><th>NÚMERO</th><th>CLIENTE</th><th>PROVEEDOR</th><th>ASESOR</th><th>CANAL</th><th>ESTADO</th><th>TOTAL</th><th>ACTUALIZACIÓN</th><th>ACCIONES</th></tr></thead>
                 <tbody>
                   {filtradas.map((v, i) => (
                     <tr key={ventaId(v) || i}>
                       <td className="font-mono text-xs font-bold">{ventaNumero(v)}</td>
                       <td className="font-medium">{ventaCliente(v)}{ventaDoc(v) ? <span className="block text-[11px] text-slate-400">{ventaDoc(v)}</span> : null}</td>
                       <td>{ventaProveedor(v)}</td>
+                      <td>{String((v as Record<string, unknown>).asesor_nombre ?? "—")}</td>
                       <td className="capitalize">{ventaCanal(v)}</td>
                       <td><BadgeEstadoVenta estado={ventaEstado(v)} /></td>
                       <td className="whitespace-nowrap font-bold">{formatoMoneda(ventaTotal(v))}</td>
