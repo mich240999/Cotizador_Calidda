@@ -123,6 +123,20 @@ function esAdmin(ctx: OperacionContext): boolean {
   return ctx.sesion.rol === "admin";
 }
 
+/**
+ * Alcance de lectura de ventas según seg_roles:
+ * - GLOBAL (admin): todo.
+ * - EMPRESA (proveedor): ventas de su proveedor, o propias si no tiene.
+ * - EQUIPO/PROPIO: solo propias (EQUIPO completo requiere matriz de equipos).
+ */
+function alcanceVentas(ctx: OperacionContext): { todo: boolean; proveedor: string | null } {
+  if (esAdmin(ctx) || ctx.sesion.alcance === "GLOBAL") return { todo: true, proveedor: null };
+  if (ctx.sesion.alcance === "EMPRESA" && ctx.sesion.idProveedor) {
+    return { todo: false, proveedor: ctx.sesion.idProveedor };
+  }
+  return { todo: false, proveedor: null };
+}
+
 type Fila = Record<string, any>;
 
 /** Resuelve nombres de cliente/proveedor/asesor/creador best-effort (mae_* primero, base después). */
@@ -166,13 +180,17 @@ async function resolverNombres(
   const mProv = new Map<string, Fila>([...provMae, ...provBase].map((p) => [String(p.id), p]));
   const mAse = new Map<string, Fila>();
   if (idsAse.length) {
-    const { data } = await svc.from("seg_usuarios").select("id,nombre").in("id", idsAse).catch(() => ({ data: [] as Fila[] }));
-    for (const u of ((data ?? []) as Fila[])) mAse.set(String(u.id), u);
+    try {
+      const { data } = await svc.from("seg_usuarios").select("id,nombre").in("id", idsAse);
+      for (const u of ((data ?? []) as Fila[])) mAse.set(String(u.id), u);
+    } catch { /* sin tabla: IDs crudos */ }
   }
   const mCreador = new Map<string, Fila>();
   if (idsCreador.length) {
-    const { data } = await svc.from("profiles").select("id,nombre").in("id", idsCreador).catch(() => ({ data: [] as Fila[] }));
-    for (const u of ((data ?? []) as Fila[])) mCreador.set(String(u.id), u);
+    try {
+      const { data } = await svc.from("profiles").select("id,nombre").in("id", idsCreador);
+      for (const u of ((data ?? []) as Fila[])) mCreador.set(String(u.id), u);
+    } catch { /* sin tabla: IDs crudos */ }
   }
 
   for (const r of filas) {
@@ -329,7 +347,11 @@ async function hListarVentas(args: z.infer<typeof EsquemaListarVentas>, ctx: Ope
   try {
     const desde = (args.page - 1) * args.pageSize;
     let q = ctx.service.from(T_SOL).select("*", { count: "exact" }).order("created_at", { ascending: false });
-    if (!esAdmin(ctx)) q = q.eq("created_by", ctx.sesion.userId); // scope por rol
+    const sc = alcanceVentas(ctx);
+    if (!sc.todo) {
+      if (sc.proveedor) q = q.or(`id_proveedor.eq.${sc.proveedor},created_by.eq.${ctx.sesion.userId}`);
+      else q = q.eq("created_by", ctx.sesion.userId); // PROPIO (y EQUIPO por ahora)
+    }
     if (args.estado) q = q.eq("estado", args.estado.toLowerCase());
     if (args.canal) q = q.eq("canal", args.canal.toLowerCase());
     if (args.q) {
@@ -822,7 +844,11 @@ async function hExportarVentas(args: z.infer<typeof EsquemaExportar>, ctx: Opera
   const columnas = ["numero", "cliente", "documento", "proveedor", "canal", "estado", "total", "cuotas", "fecha"];
   try {
     let q = ctx.service.from(T_SOL).select("id,id_cliente,id_proveedor,canal,estado,created_at").order("created_at", { ascending: false }).limit(5000);
-    if (!esAdmin(ctx)) q = q.eq("created_by", ctx.sesion.userId); // scope por rol
+    const scExp = alcanceVentas(ctx);
+    if (!scExp.todo) {
+      if (scExp.proveedor) q = q.or(`id_proveedor.eq.${scExp.proveedor},created_by.eq.${ctx.sesion.userId}`);
+      else q = q.eq("created_by", ctx.sesion.userId);
+    }
     if (args.estado) q = q.eq("estado", args.estado.toLowerCase());
     if (args.canal) q = q.eq("canal", args.canal.toLowerCase());
     const { data, error } = await q;
@@ -921,8 +947,10 @@ async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionCo
       lanzar(404, `Venta no encontrada: ${args.id}`);
     }
     const sol = cab as Fila;
-    if (!esAdmin(ctx) && String(sol.created_by ?? "") !== ctx.sesion.userId) {
-      lanzar(403, "Sin permiso: la venta pertenece a otro usuario");
+    const scOne = alcanceVentas(ctx);
+    const mismaEmpresa = !!scOne.proveedor && String(sol.id_proveedor ?? "") === scOne.proveedor;
+    if (!scOne.todo && !mismaEmpresa && String(sol.created_by ?? "") !== ctx.sesion.userId) {
+      lanzar(403, "Sin permiso: la venta pertenece a otro usuario o empresa");
     }
     const [rItems, rAbonos, rIns] = await Promise.all([
       ctx.service.from(T_ITEM).select("*").eq("solicitud_id", args.id),
@@ -984,7 +1012,7 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
 export const REGLAS_VENTAS = {
   tablas: [T_SOL, T_ITEM, T_ABO, T_INS],
   schema_sql: "supabase/schema_ventas.sql",
-  scope_por_rol: "asesor/oficina solo ven sus propias ventas (created_by = sesion.userId) en listarVentas, exportarVentas y getVenta; admin ve todo",
+  scope_por_rol: "GLOBAL (admin): todo. EMPRESA (proveedor): ventas de su empresa + propias. EQUIPO/PROPIO: solo propias (EQUIPO completo requiere matriz de equipos). Instalaciones: admin todo, proveedor las suyas",
   tea: "default 40; solo admin puede crear con TEA ≠ 40 (403) y solo admin puede actualizarla",
   adjuntos: "adjunto_cotizacion_url y adjunto_dni_url obligatorios al crear (400 sin ellos)",
   subtotal_item: "cantidad * precio_unit − descuento_monto (422 si el descuento supera el bruto)",

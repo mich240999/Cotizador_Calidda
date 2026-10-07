@@ -7,6 +7,12 @@ export interface SesionInfo {
   userId: string;
   email: string;
   rol: RolUsuario;
+  /** Alcance SGT (GLOBAL/EMPRESA/EQUIPO/PROPIO). Sin ficha SGT: admin→GLOBAL, resto→PROPIO. */
+  alcance: string;
+  /** Id en seg_usuarios (U00xxx) si existe. */
+  segId?: string | null;
+  /** Proveedor de su ficha (para alcance EMPRESA). */
+  idProveedor?: string | null;
 }
 
 /**
@@ -64,28 +70,40 @@ export async function getSession(): Promise<SesionInfo | null> {
   const rolRaw = (perfil as unknown as { roles?: { nombre?: unknown } | { nombre?: unknown }[] })?.roles;
   const rolNombre = Array.isArray(rolRaw) ? rolRaw[0]?.nombre : rolRaw?.nombre;
   let rol = normalizarRol(rolNombre);
+  let alcance = rol === "admin" ? "GLOBAL" : "PROPIO";
+  let segId: string | null = null;
+  let idProveedor: string | null = null;
 
-  // SGT360: si no es admin por profiles, revisa seg_usuarios por correo
-  // (Stephany y el equipo viven ahí). ADMIN SGT ⇒ admin de la app.
+  // SGT360: ficha por correo (Stephany y el equipo viven ahí).
+  // ADMIN SGT ⇒ admin de la app con alcance de su rol (normalmente GLOBAL).
   // Usa service_role (solo lectura) para no depender del RLS.
-  if (rol !== "admin") {
-    try {
-      const svc = createSupabaseServiceRole();
-      const { data: ficha } = await svc
-        .from("seg_usuarios")
-        .select("rol_codigo,estado")
-        .eq("correo", email)
-        .maybeSingle();
-      const f = ficha as { rol_codigo?: string; estado?: string } | null;
-      if (f && String(f.estado ?? "").toUpperCase() !== "ACTIVO") return null; // inactivo SGT
-      if (f && String(f.rol_codigo ?? "").toUpperCase() === "ADMIN") rol = "admin";
-    } catch { /* sin tabla SGT: se mantiene el rol base */ }
-  }
+  try {
+    const svc = createSupabaseServiceRole();
+    const { data: ficha } = await svc
+      .from("seg_usuarios")
+      .select("id,rol_codigo,estado,id_proveedor")
+      .eq("correo", email)
+      .maybeSingle();
+    const f = ficha as { id?: string; rol_codigo?: string; estado?: string; id_proveedor?: string | null } | null;
+    if (f) {
+      if (String(f.estado ?? "").toUpperCase() !== "ACTIVO") return null; // inactivo SGT
+      segId = f.id ?? null;
+      idProveedor = f.id_proveedor ?? null;
+      const rc = String(f.rol_codigo ?? "").toUpperCase();
+      if (rc === "ADMIN") rol = "admin";
+      const { data: r } = await svc.from("seg_roles").select("alcance").eq("codigo", rc).maybeSingle();
+      const al = String((r as { alcance?: string } | null)?.alcance ?? "").toUpperCase();
+      if (al) alcance = al;
+    }
+  } catch { /* sin tablas SGT: se mantiene el rol/alcance base */ }
 
   return {
     userId: data.user.id,
     email,
-    rol
+    rol,
+    alcance,
+    segId,
+    idProveedor
   };
 }
 
