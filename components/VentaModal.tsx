@@ -102,7 +102,7 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
       const [rc, rp, rm, ra] = await Promise.allSettled([
         qp,
         apiOperacion<unknown>("listarProveedoresSGT", { limit: 200 }),
-        apiOperacion<unknown>("listarMaterialesSGT", { limit: 200 }),
+        apiOperacion<unknown>("listarMaterialesSGT", { limit: 200, espacio: "VENTAS" }),
         apiOperacion<unknown>("listarUsuariosSGT", { limit: 500 }),
       ]);
       if (!vivo) return;

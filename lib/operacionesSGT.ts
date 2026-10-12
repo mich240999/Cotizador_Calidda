@@ -170,6 +170,7 @@ const EsquemaVacio = z.object({}).passthrough();
 const EsquemaMaterialesSGT = z.object({
   q: z.string().trim().max(120).optional().default(""),
   fecha: zFechaFlexible.optional(),
+  espacio: z.string().trim().max(20).optional().default(""),
   limit: zLimit
 });
 const EsquemaCrearTarifa = z.object({
@@ -923,6 +924,38 @@ async function hGuardarMatrizPermisos(args: z.infer<typeof EsquemaGuardarMatriz>
 
 async function hListarMaterialesSGT(args: z.infer<typeof EsquemaMaterialesSGT>, ctx: OperacionContext) {
   const fecha = args.fecha ? normalizarFecha(args.fecha) : new Date().toISOString().slice(0, 10);
+  const esp = (args.espacio || "").toUpperCase();
+  // Maestro mae_materiales primero (con ESPACIO COTIZACION/VENTAS).
+  try {
+    let qm = ctx.service.from("mae_materiales").select("*, mae_proveedores(razon_social,nombre_comercial)").order("nombre").limit(args.limit);
+    if (esp === "COTIZACION" || esp === "VENTAS") qm = qm.eq("espacio", esp);
+    if (args.q) qm = qm.or(`nombre.ilike.%${args.q}%,codigo_sap.ilike.%${args.q}%,id.ilike.%${args.q}%,espacio_remodelar.ilike.%${args.q}%`);
+    const { data: matsM, error: eM } = await qm;
+    if (eM) throw new Error(eM.message);
+    const ids = ((matsM ?? []) as Record<string, unknown>[]).map((m) => String(m.id));
+    const { data: tars } = await ctx.service.from("pre_tarifario").select("id_material,precio,fecha_inicio,fecha_fin")
+      .in("id_material", ids.length ? ids : ["__ninguno__"]).lte("fecha_inicio", fecha).limit(5000);
+    const porMae = new Map<string, number>();
+    for (const t of ((tars ?? []) as Record<string, any>[])) {
+      if (t.fecha_fin && String(t.fecha_fin) < fecha) continue;
+      if (!porMae.has(String(t.id_material))) porMae.set(String(t.id_material), Number(t.precio ?? 0));
+    }
+    return ((matsM ?? []) as Record<string, unknown>[]).map((m) => {
+      const vigente = porMae.get(String(m.id));
+      const prov = m.mae_proveedores as { razon_social?: string; nombre_comercial?: string } | null;
+      return {
+        ...m,
+        codigo: m.codigo_sap ?? m.id,
+        proveedor_nombre: prov?.razon_social ?? prov?.nombre_comercial ?? null,
+        fecha_tarifa: fecha,
+        precio_vigente: vigente ?? null,
+        precio_unit: vigente ?? null,
+        tarifa_vigente: vigente != null,
+      };
+    });
+  } catch (e) {
+    if (!esTablaFaltante(e)) throw e;
+  }
   let q = ctx.service.from("materiales").select("*, proveedores(id,nombre)").order("nombre").limit(args.limit);
   if (args.q) q = q.or(`nombre.ilike.%${args.q}%,codigo.ilike.%${args.q}%`);
   const { data: mats, error } = await q;
@@ -1423,12 +1456,21 @@ const EsquemaCargaMateriales = z.object({ csv: z.string().min(1).max(2_000_000) 
 
 interface FilaMaterialCSV {
   fila: number;
-  codigo_tmp: string;
+  espacio: string;
+  espacio_remodelar: string;
+  codigo_sap: string;
   nombre: string;
   descripcion: string;
   unidad: string;
   precio: number | null;
+  responsable: string;
+  proveedor: string;
+  asesor: string;
+  oficina: string;
+  grupo: string;
 }
+
+const normEspacio = (v: string) => (String(v ?? "").toUpperCase().includes("COTIZ") ? "COTIZACION" : "VENTAS");
 
 function parseCSVMateriales(csv: string): { filas: FilaMaterialCSV[]; errores: string[] } {
   const lineas = csv.replace(/^\uFEFF/, "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -1443,13 +1485,20 @@ function parseCSVMateriales(csv: string): { filas: FilaMaterialCSV[]; errores: s
     }
     return -1;
   };
-  const iCod = idx(["codigo_tmp", "codigotmp", "codigo", "tmp"]);
-  const iNom = idx(["nombre", "material", "descripcion_corta"]);
+  const iEsp = idx(["espacio", "modulo", "canal"]);
+  const iRem = idx(["espacio_a_remodelar", "espacio_remodelar", "remodelar", "ambiente"]);
+  const iSap = idx(["material", "codigo_sap", "codigosap", "sap", "codigo", "codigo_tmp", "tmp"]);
+  const iNom = idx(["productos/servicios", "productos", "nombre", "material", "descripcion_corta"]);
   const iDes = idx(["descripcion", "detalle", "observacion"]);
   const iUni = idx(["unidad", "medida", "um"]);
   const iPre = idx(["precio", "precio_unit", "tarifa", "precio_unitario"]);
+  const iRes = idx(["responsable_de_venta", "responsable", "responsable_venta"]);
+  const iPrv = idx(["proveedor"]);
+  const iAse = idx(["asesor"]);
+  const iOfi = idx(["oficina_de_venta", "oficina", "oficina_venta"]);
+  const iGru = idx(["grupo_de_vendedores", "grupo", "grupo_vendedores"]);
   if (iNom < 0) {
-    return { filas: [], errores: ["Cabecera inválida: se requiere al menos la columna nombre (usa la plantilla oficial)"] };
+    return { filas: [], errores: ["Cabecera inválida: se requiere al menos PRODUCTOS/SERVICIOS (usa la plantilla oficial)"] };
   }
   if (lineas.length - 1 > 500) {
     return { filas: [], errores: ["Máximo 500 filas por archivo"] };
@@ -1460,8 +1509,7 @@ function parseCSVMateriales(csv: string): { filas: FilaMaterialCSV[]; errores: s
     const nom = c[iNom] ?? "";
     if (!nom) return; // línea vacía
     if (nom.length < 2) { errores.push(`Fila ${k + 2}: nombre muy corto`); return; }
-    const cod = iCod >= 0 ? (c[iCod] ?? "") : "";
-    if (cod && !/^TMP-[0-9]+$/i.test(cod)) { errores.push(`Fila ${k + 2}: codigo_tmp debe ser TMP-xxx o vacío`); return; }
+    const sap = iSap >= 0 ? (c[iSap] ?? "") : "";
     let precio: number | null = null;
     if (iPre >= 0 && (c[iPre] ?? "") !== "") {
       const p = Number(String(c[iPre]).replace(",", "."));
@@ -1470,11 +1518,18 @@ function parseCSVMateriales(csv: string): { filas: FilaMaterialCSV[]; errores: s
     }
     filas.push({
       fila: k + 2,
-      codigo_tmp: cod.toUpperCase(),
+      espacio: iEsp >= 0 && (c[iEsp] ?? "") !== "" ? normEspacio(c[iEsp]) : "VENTAS",
+      espacio_remodelar: iRem >= 0 ? (c[iRem] ?? "") : "",
+      codigo_sap: sap,
       nombre: nom,
       descripcion: iDes >= 0 ? (c[iDes] ?? "") : "",
       unidad: (iUni >= 0 ? (c[iUni] ?? "") : "").toUpperCase() || "UND",
       precio,
+      responsable: iRes >= 0 ? (c[iRes] ?? "") : "",
+      proveedor: iPrv >= 0 ? (c[iPrv] ?? "") : "",
+      asesor: iAse >= 0 ? (c[iAse] ?? "").replace(/\r\n|\r|\n/g, " / ") : "",
+      oficina: iOfi >= 0 ? (c[iOfi] ?? "") : "",
+      grupo: iGru >= 0 ? (c[iGru] ?? "") : "",
     });
   });
   return { filas, errores };
@@ -1491,18 +1546,50 @@ async function hCargaMasivaMateriales(args: z.infer<typeof EsquemaCargaMateriale
   const fallos: string[] = [...errores];
   const { data: ex } = await ctx.service.from("mae_materiales").select("id").limit(5000);
   let corr = ((ex ?? []) as { id?: string }[]).map((r) => r.id);
+  const resProv = async (v: string) => {
+    if (!v || v.toLowerCase().startsWith("todos")) return null;
+    const { data } = await ctx.service.from("mae_proveedores")
+      .select("id").or(`razon_social.eq.${v},nombre_comercial.eq.${v},interlocutor.eq.${v}`).limit(1).maybeSingle();
+    return (data as { id?: string } | null)?.id ?? null;
+  };
+  const resOfi = async (v: string) => {
+    if (!v) return null;
+    const { data } = await ctx.service.from("mae_oficinas_ventas").select("id")
+      .or(`codigo_sap.eq.${v},nombre.eq.${v}`).limit(1).maybeSingle();
+    return (data as { id?: string } | null)?.id ?? null;
+  };
+  const resGru = async (v: string) => {
+    if (!v) return null;
+    const { data } = await ctx.service.from("mae_grupos_vendedores").select("id").eq("codigo_sap", v).limit(1).maybeSingle();
+    return (data as { id?: string } | null)?.id ?? null;
+  };
   for (const f of filas) {
     try {
       const id = siguienteId("MAT-", corr, 5);
+      // Idempotencia: por codigo_sap, o por nombre si no tiene código.
+      const { data: dup } = f.codigo_sap
+        ? await ctx.service.from("mae_materiales").select("id").eq("codigo_sap", f.codigo_sap).limit(1).maybeSingle()
+        : await ctx.service.from("mae_materiales").select("id").eq("nombre", f.nombre).limit(1).maybeSingle();
+      if (dup) {
+        fallos.push(`Fila ${f.fila}: ya existe (${f.codigo_sap || f.nombre})`);
+        continue;
+      }
       const { error } = await ctx.service.from("mae_materiales").insert({
         id,
-        codigo_tmp: f.codigo_tmp || null,
+        codigo_tmp: null,
         nombre: f.nombre,
-        descripcion: f.descripcion || null,
+        descripcion: f.descripcion || (f.responsable ? `Responsable: ${f.responsable}` : null),
         unidad: f.unidad,
         tipo_medida: "LONGITUD",
         decimales: 2,
         estado: "ACTIVO",
+        espacio: f.espacio,
+        espacio_remodelar: f.espacio_remodelar || null,
+        codigo_sap: f.codigo_sap || null,
+        id_proveedor: await resProv(f.proveedor),
+        asesor_nombre: f.asesor || null,
+        id_oficina: await resOfi(f.oficina),
+        id_grupo: await resGru(f.grupo),
       });
       if (error) throw new Error(error.message);
       corr = [...corr, id];
@@ -1527,6 +1614,227 @@ async function hCargaMasivaMateriales(args: z.infer<typeof EsquemaCargaMateriale
   return { total: filas.length, insertadas, errores: fallos };
 }
 
+const EsquemaCrearMaterialSGT = z.object({
+  nombre: z.string().trim().min(2).max(300),
+  descripcion: z.string().trim().max(1000).optional().default(""),
+  unidad: z.string().trim().min(1).max(20).default("UND"),
+  espacio: z.enum(["COTIZACION", "VENTAS"]).default("VENTAS"),
+  espacio_remodelar: z.string().trim().max(120).optional().default(""),
+  codigo_sap: z.string().trim().max(60).optional().default(""),
+  precio: z.coerce.number().min(0).max(10_000_000).optional(),
+  id_proveedor: z.string().trim().max(20).optional().nullable(),
+  asesor_nombre: z.string().trim().max(300).optional().default(""),
+  id_oficina: z.string().trim().max(20).optional().nullable(),
+  id_grupo: z.string().trim().max(20).optional().nullable(),
+});
+
+async function hCrearMaterialSGT(args: z.infer<typeof EsquemaCrearMaterialSGT>, ctx: OperacionContext) {
+  const { data: ex } = await ctx.service.from("mae_materiales").select("id").limit(5000);
+  const id = siguienteId("MAT-", ((ex ?? []) as { id?: string }[]).map((r) => r.id), 5);
+  const { data, error } = await ctx.service.from("mae_materiales").insert({
+    id,
+    codigo_tmp: null,
+    nombre: args.nombre,
+    descripcion: args.descripcion || null,
+    unidad: args.unidad.toUpperCase(),
+    tipo_medida: "LONGITUD",
+    decimales: 2,
+    estado: "ACTIVO",
+    espacio: args.espacio,
+    espacio_remodelar: args.espacio_remodelar || null,
+    codigo_sap: args.codigo_sap || null,
+    id_proveedor: args.id_proveedor || null,
+    asesor_nombre: args.asesor_nombre || null,
+    id_oficina: args.id_oficina || null,
+    id_grupo: args.id_grupo || null,
+  }).select().single();
+  if (error) {
+    if (/duplicate|unique|llave duplicada/i.test(error.message)) {
+      const e = new Error("Material duplicado (código SAP o nombre)") as Error & { status?: number };
+      e.status = 409; throw e;
+    }
+    throw new Error(error.message);
+  }
+  if (args.precio != null) {
+    const hoy = new Date().toISOString().slice(0, 10);
+    const { error: eT } = await ctx.service.from("pre_tarifario").insert({
+      id_material: id, precio: args.precio, moneda: "PEN", incluye_igv: true,
+      fecha_inicio: hoy, fecha_fin: null, estado: "VIGENTE",
+    });
+    if (eT) throw new Error(`tarifa: ${eT.message}`);
+  }
+  return { ...(data as object), codigo: (data as { codigo_sap?: string })?.codigo_sap ?? id, precio_vigente: args.precio ?? null };
+}
+
+// ---------------------------------------------------------------- bulk proveedores (formato hoja: PROVEEDOR,BP,OFICINA,GRUPO)
+
+const EsquemaCargaProveedores = z.object({ csv: z.string().min(1).max(2_000_000) });
+
+function parseCSVProveedores(csv: string) {
+  const lineas = csv.replace(/^\uFEFF/, "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const errores: string[] = [];
+  if (lineas.length < 2) return { filas: [] as any[], errores: ["Archivo vacío"] };
+  const sep = (lineas[0].match(/;/g) ?? []).length >= (lineas[0].match(/,/g) ?? []).length ? ";" : ",";
+  const head = lineas[0].split(sep).map((h) => h.trim().toLowerCase());
+  const idx = (ns: string[]) => {
+    for (const n of ns) {
+      const i = head.indexOf(n);
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const iNom = idx(["proveedor", "nombre", "razon_social", "razón social"]);
+  const iBp = idx(["bp_proveedor", "bp", "interlocutor"]);
+  const iOfi = idx(["oficina_de_venta", "oficina", "oficina_venta"]);
+  const iGru = idx(["grupo_de_vendedores", "grupo", "grupo_vendedores"]);
+  if (iNom < 0 || iBp < 0) return { filas: [] as any[], errores: ["Cabecera inválida: PROVEEDOR y BP requeridos (usa la plantilla)"] };
+  if (lineas.length - 1 > 500) return { filas: [] as any[], errores: ["Máximo 500 filas"] };
+  const filas: { fila: number; nombre: string; bp: string; oficina: string; grupo: string }[] = [];
+  lineas.slice(1).forEach((ln, k) => {
+    const c = ln.split(sep).map((x) => x.trim());
+    if (!(c[iNom] ?? "") && !(c[iBp] ?? "")) return;
+    if (!(c[iNom] ?? "") || !(c[iBp] ?? "")) { errores.push(`Fila ${k + 2}: proveedor y BP obligatorios`); return; }
+    filas.push({ fila: k + 2, nombre: c[iNom], bp: c[iBp], oficina: iOfi >= 0 ? (c[iOfi] ?? "") : "", grupo: iGru >= 0 ? (c[iGru] ?? "") : "" });
+  });
+  return { filas, errores };
+}
+
+async function hCargaMasivaProveedores(args: z.infer<typeof EsquemaCargaProveedores>, ctx: OperacionContext) {
+  const { filas, errores } = parseCSVProveedores(args.csv);
+  let insertadas = 0, vinculadas = 0;
+  const fallos = [...errores];
+  const { data: ex } = await ctx.service.from("mae_proveedores").select("id").limit(5000);
+  let corr = ((ex ?? []) as { id?: string }[]).map((r) => r.id);
+  const { data: exG } = await ctx.service.from("mae_grupos_vendedores").select("id").limit(5000);
+  let corrG = ((exG ?? []) as { id?: string }[]).map((r) => r.id);
+  const { data: exP } = await ctx.service.from("rel_proveedor_oficinas").select("id").limit(5000);
+  let corrP = ((exP ?? []) as { id?: string }[]).map((r) => r.id);
+  for (const f of filas) {
+    try {
+      const { data: ya } = await ctx.service.from("mae_proveedores").select("id").eq("interlocutor", f.bp).limit(1).maybeSingle();
+      let pid = (ya as { id?: string } | null)?.id;
+      if (!pid) {
+        pid = siguienteId("PRV", corr, 4);
+        const { error } = await ctx.service.from("mae_proveedores").insert({
+          id: pid, interlocutor: f.bp, ruc: null, razon_social: f.nombre,
+          nombre_comercial: f.nombre, estado: "ACTIVO",
+        });
+        if (error) throw new Error(error.message);
+        corr = [...corr, pid];
+        insertadas++;
+      }
+      const ofi = f.oficina || "AMCA";
+      const { data: o } = await ctx.service.from("mae_oficinas_ventas").select("id")
+        .or(`codigo_sap.eq.${ofi},nombre.eq.${ofi}`).limit(1).maybeSingle();
+      const oid = (o as { id?: string } | null)?.id;
+      if (oid) {
+        const { data: v } = await ctx.service.from("rel_proveedor_oficinas").select("id")
+          .eq("id_proveedor", pid).eq("id_oficina", oid).limit(1).maybeSingle();
+        if (!v) {
+          const nid = siguienteId("POF", corrP, 4);
+          const { error } = await ctx.service.from("rel_proveedor_oficinas")
+            .insert({ id: nid, id_proveedor: pid, id_oficina: oid, estado: "ACTIVO" });
+          if (error) throw new Error(error.message);
+          corrP = [...corrP, nid];
+          vinculadas++;
+        }
+      }
+      if (f.grupo) {
+        const { data: g } = await ctx.service.from("mae_grupos_vendedores").select("id").eq("codigo_sap", f.grupo).limit(1).maybeSingle();
+        if (!g) {
+          const nid = siguienteId("GVE", corrG, 4);
+          const { error } = await ctx.service.from("mae_grupos_vendedores").insert({
+            id: nid, codigo_sap: f.grupo, nombre: `Grupo ${f.grupo}`, id_proveedor: pid, id_oficina: oid, estado: "ACTIVO",
+          });
+          if (error) throw new Error(error.message);
+          corrG = [...corrG, nid];
+        }
+      }
+    } catch (e) {
+      fallos.push(`Fila ${f.fila}: ${(e as Error).message}`);
+    }
+  }
+  return { total: filas.length, insertadas, vinculadas, errores: fallos };
+}
+
+// ---------------------------------------------------------------- bulk asesores (formato hoja: PROVEEDOR,BP,ASESOR,TELÉFONO)
+
+const EsquemaCargaAsesores = z.object({ csv: z.string().min(1).max(2_000_000) });
+
+function parseCSVAsesores(csv: string) {
+  const lineas = csv.replace(/^\uFEFF/, "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const errores: string[] = [];
+  if (lineas.length < 2) return { filas: [] as any[], errores: ["Archivo vacío"] };
+  const sep = (lineas[0].match(/;/g) ?? []).length >= (lineas[0].match(/,/g) ?? []).length ? ";" : ",";
+  const head = lineas[0].split(sep).map((h) => h.trim().toLowerCase());
+  const idx = (ns: string[]) => {
+    for (const n of ns) {
+      const i = head.indexOf(n);
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const iAse = idx(["asesores", "asesor", "nombre"]);
+  const iTel = idx(["telefono_asesor", "telefono", "teléfono", "tel"]);
+  const iBp = idx(["bp_proveedor", "bp", "interlocutor"]);
+  const iPrv = idx(["proveedor", "nombre"]);
+  if (iAse < 0) return { filas: [] as any[], errores: ["Cabecera inválida: ASESOR requerido (usa la plantilla)"] };
+  if (lineas.length - 1 > 500) return { filas: [] as any[], errores: ["Máximo 500 filas"] };
+  const filas: { fila: number; nombre: string; telefono: string; bp: string; proveedor: string }[] = [];
+  lineas.slice(1).forEach((ln, k) => {
+    const c = ln.split(sep).map((x) => x.trim());
+    const nom = c[iAse] ?? "";
+    if (!nom) return;
+    if (nom.length < 2) { errores.push(`Fila ${k + 2}: nombre muy corto`); return; }
+    filas.push({ fila: k + 2, nombre: nom, telefono: iTel >= 0 ? (c[iTel] ?? "") : "", bp: iBp >= 0 ? (c[iBp] ?? "") : "", proveedor: iPrv >= 0 ? (c[iPrv] ?? "") : "" });
+  });
+  return { filas, errores };
+}
+
+const slugCorreo = (s: string, n: number) =>
+  `${s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "").slice(0, 40)}.${n}@carga.amca.local`;
+
+async function hCargaMasivaAsesores(args: z.infer<typeof EsquemaCargaAsesores>, ctx: OperacionContext) {
+  const { filas, errores } = parseCSVAsesores(args.csv);
+  let insertadas = 0;
+  const fallos = [...errores];
+  const { data: ex } = await ctx.service.from("seg_usuarios").select("id").limit(5000);
+  let max = 0;
+  for (const r of ((ex ?? []) as { id?: string }[])) {
+    const m = /^U(\d{5})$/.exec(String(r.id ?? ""));
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  for (const [i, f] of filas.entries()) {
+    try {
+      const mail = slugCorreo(f.nombre, i + 1);
+      const { data: ya } = await ctx.service.from("seg_usuarios").select("id").eq("correo", mail).limit(1).maybeSingle();
+      if (ya) { fallos.push(`Fila ${f.fila}: ya existe (${mail})`); continue; }
+      let pid: string | null = null;
+      if (f.bp) {
+        const { data: p } = await ctx.service.from("mae_proveedores").select("id").eq("interlocutor", f.bp).limit(1).maybeSingle();
+        pid = (p as { id?: string } | null)?.id ?? null;
+      }
+      max++;
+      const { error } = await ctx.service.from("seg_usuarios").insert({
+        id: `U${String(max).padStart(5, "0")}`,
+        nombre: f.nombre,
+        tipo_doc: "DNI",
+        nro_doc: `CARGA-${f.bp || "SBP"}-${i + 1}`,
+        correo: mail,
+        telefono: f.telefono || null,
+        rol_codigo: "ASESOR",
+        id_proveedor: pid,
+        estado: "ACTIVO",
+      });
+      if (error) throw new Error(error.message);
+      insertadas++;
+    } catch (e) {
+      fallos.push(`Fila ${f.fila}: ${(e as Error).message}`);
+    }
+  }
+  return { total: filas.length, insertadas, errores: fallos, nota: "Correos/DNI provisorios: actualizar en Usuarios." };
+}
+
 // ---------------------------------------------------------------- mapa
 export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarProveedoresSGT: { descripcion: "SGT: lista proveedores (+interlocutor)", roles: TODOS, schema: EsquemaQ, handler: hListarProveedoresSGT },
@@ -1548,6 +1856,9 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   cargaMasivaClientes: { descripcion: "SGT: carga masiva clientes (máx 500)", roles: OPERATIVO, schema: EsquemaCargaClientes, handler: hCargaMasivaClientes },
   validarArchivoMateriales: { descripcion: "SGT: valida CSV/XLSX de materiales sin guardar", roles: OPERATIVO, schema: EsquemaCargaMateriales, handler: hValidarArchivoMateriales },
   cargaMasivaMateriales: { descripcion: "SGT: carga masiva materiales + tarifa inicial (máx 500)", roles: OPERATIVO, schema: EsquemaCargaMateriales, handler: hCargaMasivaMateriales },
+  crearMaterialSGT: { descripcion: "SGT: crea material en maestro + tarifa opcional", roles: OPERATIVO, schema: EsquemaCrearMaterialSGT, handler: hCrearMaterialSGT },
+  cargaMasivaProveedores: { descripcion: "SGT: carga masiva formato hoja (PROVEEDOR,BP,OFICINA,GRUPO)", roles: SOLO_ADMIN, schema: EsquemaCargaProveedores, handler: hCargaMasivaProveedores },
+  cargaMasivaAsesores: { descripcion: "SGT: carga masiva formato hoja (PROVEEDOR,BP,ASESOR,TELÉFONO)", roles: SOLO_ADMIN, schema: EsquemaCargaAsesores, handler: hCargaMasivaAsesores },
   listarAsignaciones: { descripcion: "SGT: lista asignaciones de asesores", roles: TODOS, schema: EsquemaQ, handler: hListarAsignaciones },
   crearAsignacion: { descripcion: "SGT: crea asignación de asesor", roles: SOLO_ADMIN, schema: EsquemaCrearAsignacion, handler: hCrearAsignacion },
   actualizarAsignacion: { descripcion: "SGT: actualiza asignación (estado/fechas/estructura)", roles: SOLO_ADMIN, schema: EsquemaActualizarAsignacion, handler: hActualizarAsignacion },

@@ -64,7 +64,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       const [rc, rp, rm] = await Promise.allSettled([
         qp,
         apiOperacion<unknown>("listarProveedoresSGT", { limit: 200 }),
-        apiOperacion<unknown>("listarMaterialesSGT", { limit: 200 }),
+        apiOperacion<unknown>("listarMaterialesSGT", { limit: 200, espacio: "COTIZACION" }),
       ]);
       if (!vivo) return;
       const warns: string[] = [];

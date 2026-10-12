@@ -43,6 +43,129 @@ const provDe = (u: Usuario) => {
 const activoDe = (u: Usuario) =>
   u.estado ? String(u.estado).toUpperCase() === "ACTIVO" : u.activo !== false;
 
+function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onProcesado: () => void }) {
+  const [texto, setTexto] = useState("");
+  const [archivo, setArchivo] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [resultado, setResultado] = useState<string | null>(null);
+  const [trabajando, setTrabajando] = useState(false);
+
+  const CAB = ["PROVEEDOR", "BP PROVEEDOR", "ASESORES", "TELÉFONO ASESOR"];
+  const EJEMPLO = ["EJEMPLO S.A.C.", "1000001", "NOMBRE APELLIDO", "999999999"];
+
+  const descargarCSV = () => {
+    const csv = `${CAB.join(";")}\n${EJEMPLO.join(";")}\n`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "plantilla_asesores.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const descargarXLSX = async () => {
+    const XLSX = await import("xlsx");
+    const ws = XLSX.utils.aoa_to_sheet([CAB, EJEMPLO]);
+    ws["!cols"] = [{ wch: 28 }, { wch: 16 }, { wch: 24 }, { wch: 18 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Asesores");
+    XLSX.writeFile(wb, "plantilla_asesores.xlsx");
+  };
+
+  const leerArchivo = async (f: File) => {
+    setMsg(null); setResultado(null);
+    setArchivo(f.name);
+    try {
+      if (/\.(xlsx|xls)$/i.test(f.name) || f.type.includes("spreadsheet") || f.type.includes("excel")) {
+        const XLSX = await import("xlsx");
+        const buf = await f.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        const csv = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS: ";" });
+        setTexto(csv.trim());
+      } else {
+        setTexto((await f.text()).trim());
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? `No se pudo leer: ${e.message}` : "No se pudo leer el archivo");
+    }
+  };
+
+  const validar = () => {
+    setMsg(null); setResultado(null);
+    if (!texto.trim()) { setMsg("Selecciona o arrastra un archivo CSV/XLSX primero."); return; }
+    const lineas = texto.replace(/^\uFEFF/, "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lineas.length < 2) { setMsg("Archivo vacío."); return; }
+    const sep = (lineas[0].match(/;/g) ?? []).length >= (lineas[0].match(/,/g) ?? []).length ? ";" : ",";
+    const cols = lineas[0].split(sep).length;
+    const filas = lineas.length - 1;
+    if (filas > 500) { setMsg(`Máximo 500 filas (archivo trae ${filas}).`); return; }
+    if (cols < CAB.length) { setMsg(`Columnas insuficientes: se esperan ${CAB.length} (${CAB.join(";")}).`); return; }
+    setResultado(`Archivo válido: ${filas} filas · ${cols} columnas.`);
+  };
+
+  const procesar = async () => {
+    setMsg(null); setResultado(null);
+    if (!texto.trim()) { setMsg("Selecciona o arrastra un archivo CSV/XLSX primero."); return; }
+    setTrabajando(true);
+    try {
+      const r = await apiOperacion<{ total?: number; insertadas?: number; errores?: string[]; nota?: string }>("cargaMasivaAsesores", { csv: texto });
+      const errs = r?.errores ?? [];
+      setResultado(`Total ${r?.total ?? 0} · insertadas ${r?.insertadas ?? 0}.${errs.length > 0 ? `\nErrores:\n${errs.slice(0, 10).join("\n")}${errs.length > 10 ? `\n…y ${errs.length - 10} más` : ""}` : ""}${r?.nota ? `\n${r.nota}` : ""}`);
+      onProcesado();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "No se pudo procesar");
+    } finally {
+      setTrabajando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl my-6 overflow-hidden">
+        <div className="flex items-start justify-between px-6 py-4 border-b bg-slate-50">
+          <div>
+            <h2 className="font-bold text-lg">Carga masiva de asesores</h2>
+            <p className="text-sm text-slate-500">CSV o XLSX con cabeceras {CAB.join(";")}. Máximo 500 filas.</p>
+          </div>
+          <button className="btn-white !px-3" onClick={onClose}>✕</button>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">Correos/DNI provisorios: actualizar en Usuarios.</p>
+          <div className="rounded-xl border border-slate-200 p-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <p className="font-bold text-sm">1. Preparar archivo</p>
+                <p className="text-xs text-slate-500">Conserva las cabeceras sin cambios.</p>
+              </div>
+              <div className="flex gap-2">
+                <button className="btn-white !text-xs" onClick={descargarCSV}>Plantilla CSV</button>
+                <button className="btn-white !text-xs" onClick={descargarXLSX}>Plantilla XLSX</button>
+              </div>
+            </div>
+            <label
+              className="mt-3 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center cursor-pointer hover:border-[#0099D8]"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) leerArchivo(f); }}
+            >
+              <p className="font-bold text-sm">Selecciona o arrastra un archivo CSV / XLSX</p>
+              <p className="text-xs text-slate-500 mt-1">XLSX se convierte a CSV con separador ;.</p>
+              <span className="btn-white !text-xs mt-3">Seleccionar archivo</span>
+              <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) leerArchivo(f); }} />
+            </label>
+            {archivo && <p className="text-[11px] text-slate-500 mt-2">Seleccionado: {archivo}</p>}
+          </div>
+          {msg && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
+          {resultado && <p className="text-sm rounded-lg bg-slate-50 border border-slate-200 text-slate-700 px-3 py-2 whitespace-pre-line">{resultado}</p>}
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t bg-slate-50">
+          <button className="btn-white" onClick={onClose}>Cancelar</button>
+          <button className="btn-white !text-[#0099D8]" onClick={validar} disabled={trabajando}>{trabajando ? "Validando…" : "Validar"}</button>
+          <button className="btn-green" onClick={procesar} disabled={trabajando}>{trabajando ? "Procesando…" : "Procesar"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UsuarioModal({
   initial, proveedores, onClose, onGuardado,
 }: {
@@ -166,6 +289,7 @@ export default function UsuariosPage() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [modal, setModal] = useState<null | { mode: "nuevo" } | { mode: "editar"; u: Usuario }>(null);
+  const [showCarga, setShowCarga] = useState(false);
   const [accionando, setAccionando] = useState<string | null>(null);
 
   const cargar = async () => {
@@ -221,6 +345,7 @@ export default function UsuariosPage() {
         desc="Gestión de identidades, accesos, roles y estados (seg_usuarios)."
         actions={<>
           <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
+          <button className="btn-white" onClick={() => setShowCarga(true)}>Carga masiva</button>
           <button className="btn-green" onClick={() => setModal({ mode: "nuevo" })}>+ Nuevo usuario</button>
         </>}
       /></div>
@@ -274,6 +399,9 @@ export default function UsuariosPage() {
             </tbody>
           </table></div>
         </div>
+      )}
+      {showCarga && (
+        <CargaMasivaModal onClose={() => setShowCarga(false)} onProcesado={() => { cargar(); }} />
       )}
       {modal?.mode === "nuevo" && (
         <UsuarioModal initial={null} proveedores={proveedores} onClose={() => setModal(null)} onGuardado={() => { setInfo("Usuario registrado."); cargar(); }} />
