@@ -1855,6 +1855,18 @@ async function hCambiarPasswordUsuario(args: z.infer<typeof EsquemaCambiarPasswo
     e.status = 403; throw e;
   }
   let uid = args.user_id;
+  // El UI envía el id de ficha (U00xxx): se resuelve al UUID de Auth por correo.
+  if (uid && !/^[0-9a-f-]{36}$/i.test(uid)) {
+    const { data: ficha } = await ctx.service.from("seg_usuarios").select("correo").eq("id", uid).maybeSingle();
+    const mail = (ficha as { correo?: string } | null)?.correo;
+    if (!mail) throw new Error(`Ficha no encontrada: ${uid}`);
+    const { data } = await ctx.service.auth.admin.listUsers();
+    uid = (data?.users ?? []).find((u) => u.email?.toLowerCase() === mail.toLowerCase())?.id;
+    if (!uid) {
+      const e = new Error(`Sin acceso de login para ${mail}: primero créalo en Nuevo usuario con su correo real`) as Error & { status?: number };
+      e.status = 422; throw e;
+    }
+  }
   if (!uid && args.email) {
     const { data } = await ctx.service.auth.admin.listUsers();
     uid = (data?.users ?? []).find((u) => u.email?.toLowerCase() === args.email!.toLowerCase())?.id;
