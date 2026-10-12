@@ -229,6 +229,23 @@ export default function VentaDetallePage() {
     return a + Number(r.subtotal ?? (Number(r.cantidad ?? 0) * Number(r.precio_unit ?? 0) - Number(r.descuento_monto ?? 0)));
   }, 0);
 
+  const pendientes: { origen: string; motivo: string }[] = [];
+  if (venta) {
+    const raw = venta as Record<string, unknown>;
+    const obsAdmin = String(raw.observacion_admin ?? "").trim();
+    if (obsAdmin || est === "observado") {
+      pendientes.push({ origen: "Solicitud", motivo: obsAdmin || "Solicitud en estado observado." });
+    }
+    const insRaw = (raw.instalacion ?? null) as Record<string, unknown> | null;
+    const obsIns = insRaw ? String(insRaw.observacion ?? "").trim() : "";
+    if (obsIns) pendientes.push({ origen: "Instalación", motivo: obsIns });
+    for (const a of abonos) {
+      const r = a as Record<string, unknown>;
+      const m = String(r.observacion ?? "").trim();
+      if (m) pendientes.push({ origen: `Abono S/ ${Number(r.monto ?? 0).toFixed(2)}`, motivo: m });
+    }
+  }
+
   return (
     <AuthGate>
       <Shell>
@@ -251,6 +268,18 @@ export default function VentaDetallePage() {
           <>
             {error && <p className="card p-3 mt-4 text-sm text-red-700 bg-red-50 border-red-200">{error}</p>}
             {info && <p className="card p-3 mt-4 text-sm text-emerald-700 bg-emerald-50 border-emerald-200">{info}</p>}
+
+            {pendientes.length > 0 && (
+              <div className="card p-4 mt-4 bg-amber-50 border-amber-300">
+                <p className="font-extrabold text-amber-800">⚠ Pendiente de subsanar</p>
+                <ul className="mt-2 space-y-1 text-sm text-amber-900 list-disc pl-5">
+                  {pendientes.map((p, i) => (
+                    <li key={i}><b>{p.origen}:</b> {p.motivo}</li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-amber-700">Sube los sustentos correctos y el proceso continúa.</p>
+              </div>
+            )}
 
             <section className="card p-5 mt-4">
               <h3 className="font-bold mb-1">Adjuntos de la solicitud</h3>

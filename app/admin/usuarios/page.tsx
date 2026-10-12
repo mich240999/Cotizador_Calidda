@@ -6,7 +6,7 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
-import { AccActivar, AccDesactivar, AccEditar } from "@/components/Accion";
+import { AccActivar, AccDesactivar, AccEditar, IconBtn } from "@/components/Accion";
 
 type Usuario = {
   id: string;
@@ -281,6 +281,47 @@ function UsuarioModal({
   );
 }
 
+function CambioPasswordModal({ u, onClose, onOk }: { u: Usuario; onClose: () => void; onOk: (msg: string) => void }) {
+  const [pwd1, setPwd1] = useState("");
+  const [pwd2, setPwd2] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const guardar = async () => {
+    setMsg(null);
+    if (pwd1.length < 8) { setMsg("La nueva contraseña debe tener mínimo 8 caracteres."); return; }
+    if (pwd1 !== pwd2) { setMsg("Las contraseñas no coinciden."); return; }
+    setGuardando(true);
+    try {
+      await apiOperacion("cambiarPasswordUsuario", { user_id: u.id, password: pwd1 });
+      onOk(`Contraseña actualizada para ${u.nombre ?? correoDe(u)}.`);
+      onClose();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "No se pudo cambiar la contraseña");
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-md p-6 my-6">
+        <h2 className="text-lg font-extrabold">Cambiar contraseña</h2>
+        <p className="text-xs text-slate-500 mt-1">{u.nombre ?? "—"} · {correoDe(u)}</p>
+        <div className="grid gap-3 mt-4">
+          <div><label className="label">Nueva contraseña (mín. 8) *</label><input className="input" type="password" placeholder="••••••••" value={pwd1} onChange={(e) => setPwd1(e.target.value)} /></div>
+          <div><label className="label">Repetir contraseña *</label><input className="input" type="password" placeholder="••••••••" value={pwd2} onChange={(e) => setPwd2(e.target.value)} /></div>
+        </div>
+        {msg && <p className="mt-3 text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
+        <div className="flex gap-2 mt-5">
+          <button className="btn-white flex-1" onClick={onClose}>Cancelar</button>
+          <button className="btn-green flex-1" onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Cambiar contraseña"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function UsuariosPage() {
   const [rows, setRows] = useState<Usuario[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -289,6 +330,7 @@ export default function UsuariosPage() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [modal, setModal] = useState<null | { mode: "nuevo" } | { mode: "editar"; u: Usuario }>(null);
+  const [modalPwd, setModalPwd] = useState<Usuario | null>(null);
   const [showCarga, setShowCarga] = useState(false);
   const [accionando, setAccionando] = useState<string | null>(null);
 
@@ -388,6 +430,7 @@ export default function UsuariosPage() {
                     <td className="whitespace-nowrap">
                       <div className="flex gap-1.5">
                         <AccEditar title="Editar usuario" disabled={accionando === u.id} onClick={() => setModal({ mode: "editar", u })} />
+                        <IconBtn simbolo="🔑" title="Cambiar contraseña" tono="azul" disabled={accionando === u.id} onClick={() => setModalPwd(u)} />
                         {activo
                           ? <AccDesactivar title="Desactivar usuario" disabled={accionando === u.id} onClick={() => cambiarEstado(u)} />
                           : <AccActivar title="Activar usuario" disabled={accionando === u.id} onClick={() => cambiarEstado(u)} />}
@@ -408,6 +451,9 @@ export default function UsuariosPage() {
       )}
       {modal?.mode === "editar" && (
         <UsuarioModal initial={modal.u} proveedores={proveedores} onClose={() => setModal(null)} onGuardado={() => { setInfo("Usuario actualizado."); cargar(); }} />
+      )}
+      {modalPwd && (
+        <CambioPasswordModal u={modalPwd} onClose={() => setModalPwd(null)} onOk={(m) => { setInfo(m); }} />
       )}
     </Shell></AuthGate>
   );

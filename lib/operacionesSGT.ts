@@ -202,6 +202,7 @@ const EsquemaCrearCotSGT = z.object({
   plazo: z.coerce.number().int().min(1).max(360).optional().default(9),
   proveedor: z.string().trim().max(200).optional().default(""),
   asesor: z.string().trim().max(200).optional().default(""),
+  asesor_telefono: z.string().trim().max(30).optional().default(""),
   observaciones: z.string().trim().max(2000).optional().default(""),
   validez_dias: z.coerce.number().int().min(0).max(365).optional().default(15)
 });
@@ -1137,6 +1138,7 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
     cuota_mensual: cuota,
     proveedor: args.proveedor || null,
     asesor: args.asesor || null,
+    asesor_telefono: args.asesor_telefono || null,
     descuento
   };
   let cab: { id: string } | null = null;
@@ -1835,6 +1837,91 @@ async function hCargaMasivaAsesores(args: z.infer<typeof EsquemaCargaAsesores>, 
   return { total: filas.length, insertadas, errores: fallos, nota: "Correos/DNI provisorios: actualizar en Usuarios." };
 }
 
+const EsquemaCambiarPassword = z.object({
+  user_id: z.string().trim().min(1).max(60).optional(),
+  email: z.string().trim().email().max(160).optional(),
+  password: z.string().min(8).max(128),
+}).refine((v) => v.user_id || v.email, { message: "user_id o email requerido" });
+
+async function hCambiarPasswordUsuario(args: z.infer<typeof EsquemaCambiarPassword>, ctx: OperacionContext) {
+  // ADMIN de app o SUPERADMIN SGT pueden cambiar claves (Auditoría: Stephany la pide).
+  let permitido = ctx.sesion.rol === "admin";
+  if (!permitido) {
+    const { data: ficha } = await ctx.service.from("seg_usuarios").select("rol_codigo").eq("correo", (ctx.sesion.email ?? "").toLowerCase()).maybeSingle();
+    permitido = ["ADMIN", "SUPERADMIN"].includes(String((ficha as { rol_codigo?: string } | null)?.rol_codigo ?? "").toUpperCase());
+  }
+  if (!permitido) {
+    const e = new Error("Solo ADMIN o SUPERADMIN pueden cambiar contraseñas") as Error & { status?: number };
+    e.status = 403; throw e;
+  }
+  let uid = args.user_id;
+  if (!uid && args.email) {
+    const { data } = await ctx.service.auth.admin.listUsers();
+    uid = (data?.users ?? []).find((u) => u.email?.toLowerCase() === args.email!.toLowerCase())?.id;
+    if (!uid) throw new Error(`Sin acceso Auth para: ${args.email}`);
+  }
+  const { error } = await ctx.service.auth.admin.updateUserById(uid!, { password: args.password });
+  if (error) throw new Error(error.message);
+  return { ok: true, user_id: uid };
+}
+
+const EsquemaActualizarMaterialSGT = z.object({
+  id: z.string().trim().min(1).max(60),
+  nombre: z.string().trim().min(2).max(300).optional(),
+  descripcion: z.string().trim().max(1000).optional(),
+  unidad: z.string().trim().min(1).max(20).optional(),
+  espacio: z.enum(["COTIZACION", "VENTAS"]).optional(),
+  espacio_remodelar: z.string().trim().max(120).optional(),
+  codigo_sap: z.string().trim().max(60).optional(),
+  precio: z.coerce.number().min(0).max(10_000_000).optional(),
+  id_proveedor: z.string().trim().max(20).optional().nullable(),
+  asesor_nombre: z.string().trim().max(300).optional(),
+  id_oficina: z.string().trim().max(20).optional().nullable(),
+  id_grupo: z.string().trim().max(20).optional().nullable(),
+  estado: z.enum(["ACTIVO", "INACTIVO"]).optional(),
+});
+
+async function hActualizarMaterialSGT(args: z.infer<typeof EsquemaActualizarMaterialSGT>, ctx: OperacionContext) {
+  const patch: Record<string, unknown> = {};
+  if (args.nombre !== undefined) patch.nombre = args.nombre;
+  if (args.descripcion !== undefined) patch.descripcion = args.descripcion || null;
+  if (args.unidad !== undefined) patch.unidad = args.unidad.toUpperCase();
+  if (args.espacio !== undefined) patch.espacio = args.espacio;
+  if (args.espacio_remodelar !== undefined) patch.espacio_remodelar = args.espacio_remodelar || null;
+  if (args.codigo_sap !== undefined) patch.codigo_sap = args.codigo_sap || null;
+  if (args.id_proveedor !== undefined) patch.id_proveedor = args.id_proveedor || null;
+  if (args.asesor_nombre !== undefined) patch.asesor_nombre = args.asesor_nombre || null;
+  if (args.id_oficina !== undefined) patch.id_oficina = args.id_oficina || null;
+  if (args.id_grupo !== undefined) patch.id_grupo = args.id_grupo || null;
+  if (args.estado !== undefined) patch.estado = args.estado;
+  const tienePrecio = args.precio !== undefined;
+  if (Object.keys(patch).length === 0 && !tienePrecio) throw new Error("Nada que actualizar");
+  if (Object.keys(patch).length > 0) {
+    const { data, error } = await ctx.service.from("mae_materiales").update(patch).eq("id", args.id).select().single();
+    if (error) {
+      if (/duplicate|unique|llave duplicada/i.test(error.message)) {
+        const e = new Error("Código SAP duplicado") as Error & { status?: number };
+        e.status = 409; throw e;
+      }
+      throw new Error(error.message);
+    }
+    if (!data) throw new Error(`Material no encontrado: ${args.id}`);
+  }
+  if (tienePrecio) {
+    // Nueva tarifa vigente desde hoy (conserva historial).
+    const hoy = new Date().toISOString().slice(0, 10);
+    await ctx.service.from("pre_tarifario").update({ fecha_fin: hoy, estado: "VENCIDA" })
+      .eq("id_material", args.id).is("fecha_fin", null);
+    const { error } = await ctx.service.from("pre_tarifario").insert({
+      id_material: args.id, precio: args.precio, moneda: "PEN", incluye_igv: true,
+      fecha_inicio: hoy, fecha_fin: null, estado: "VIGENTE",
+    });
+    if (error) throw new Error(`tarifa: ${error.message}`);
+  }
+  const { data: final } = await ctx.service.from("mae_materiales").select("*").eq("id", args.id).single();
+  return final;
+}
+
 // ---------------------------------------------------------------- mapa
 export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarProveedoresSGT: { descripcion: "SGT: lista proveedores (+interlocutor)", roles: TODOS, schema: EsquemaQ, handler: hListarProveedoresSGT },
@@ -1870,6 +1957,8 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarUsuariosSGT: { descripcion: "SGT: lista usuarios reales (seg_usuarios)", roles: TODOS, schema: EsquemaQ, handler: hListarUsuariosSGT },
   crearUsuarioSGT: { descripcion: "SGT: crea acceso Auth + ficha seg_usuarios", roles: SOLO_ADMIN, schema: EsquemaCrearUsuarioSGT, handler: hCrearUsuarioSGT },
   actualizarUsuarioSGT: { descripcion: "SGT: actualiza ficha de usuario", roles: SOLO_ADMIN, schema: EsquemaActualizarUsuarioSGT, handler: hActualizarUsuarioSGT },
+  cambiarPasswordUsuario: { descripcion: "SGT: cambia contraseña (ADMIN o SUPERADMIN SGT)", roles: OPERATIVO, schema: EsquemaCambiarPassword, handler: hCambiarPasswordUsuario },
+  actualizarMaterialSGT: { descripcion: "SGT: actualiza material + tarifa nueva (historial)", roles: OPERATIVO, schema: EsquemaActualizarMaterialSGT, handler: hActualizarMaterialSGT },
   getMatrizPermisos: { descripcion: "SGT: matriz de permisos por rol", roles: TODOS, schema: EsquemaVacio, handler: hGetMatrizPermisos },
   guardarMatrizPermisos: { descripcion: "SGT: guarda cambios de la matriz (admin)", roles: SOLO_ADMIN, schema: EsquemaGuardarMatriz, handler: hGuardarMatrizPermisos },
   listarMaterialesSGT: { descripcion: "SGT: materiales con tarifa vigente por fecha", roles: TODOS, schema: EsquemaMaterialesSGT, handler: hListarMaterialesSGT },

@@ -15,6 +15,7 @@ function cuotaMensual(capital: number, n: number) {
 
 type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; email?: string; correo?: string; telefono?: string };
 type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string };
+type UsuarioSGT = { id: string | number; nombre: string; telefono?: string; rol?: string; rol_codigo?: string };
 type Material = { id: string; codigo?: string; codigo_tmp?: string; nombre: string; descripcion?: string; precio_unit?: number; precio_vigente?: number };
 
 type Fila = { material_id: string; nombre: string; descripcion: string; cant: number; precio: number; dsctoPct: number };
@@ -34,6 +35,8 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   const [clienteId, setClienteId] = useState("");
   const [buscaCliente, setBuscaCliente] = useState("");
   const [proveedor, setProveedor] = useState("");
+  const [asesorId, setAsesorId] = useState("");
+  const [asesores, setAsesores] = useState<UsuarioSGT[]>([]);
   const [tel, setTel] = useState("");
   const [obs, setObs] = useState("");
   const [mat, setMat] = useState<Fila[]>([]);
@@ -61,10 +64,11 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
         } catch { /* fallback base */ }
         return apiOperacion<unknown>("listarClientes", { limit: 500 });
       })();
-      const [rc, rp, rm] = await Promise.allSettled([
+      const [rc, rp, rm, ru] = await Promise.allSettled([
         qp,
         apiOperacion<unknown>("listarProveedoresSGT", { limit: 200 }),
         apiOperacion<unknown>("listarMaterialesSGT", { limit: 200, espacio: "COTIZACION" }),
+        apiOperacion<unknown>("listarUsuariosSGT", {}),
       ]);
       if (!vivo) return;
       const warns: string[] = [];
@@ -74,6 +78,13 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       else warns.push("No se pudieron cargar los proveedores (ejecuta schema_sgt360.sql).");
       if (rm.status === "fulfilled" && Array.isArray(rm.value)) setMateriales(rm.value as Material[]);
       else warns.push("No se pudieron cargar los materiales con tarifa (ejecuta schema_sgt360.sql).");
+      if (ru.status === "fulfilled" && Array.isArray(ru.value)) {
+        const soloAsesores = (ru.value as UsuarioSGT[]).filter((u) => {
+          const rol = String(u.rol_codigo ?? u.rol ?? "").toUpperCase();
+          return rol.includes("ASESOR") || rol.includes("SUPERVISOR");
+        });
+        setAsesores(soloAsesores);
+      } else warns.push("No se pudieron cargar los asesores del backend.");
       setAvisos(warns);
       setCargando(false);
     })();
@@ -91,6 +102,14 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   }, [clientes, buscaCliente]);
 
   const clienteSel = useMemo(() => clientes.find((c) => String(c.id) === clienteId) ?? null, [clientes, clienteId]);
+
+  const asesorSel = useMemo(() => asesores.find((a) => String(a.id) === asesorId) ?? null, [asesores, asesorId]);
+
+  const elegirAsesor = (id: string) => {
+    setAsesorId(id);
+    const u = asesores.find((a) => String(a.id) === id);
+    if (u && u.telefono) setTel(String(u.telefono));
+  };
 
   const elegirMaterial = (i: number, materialId: string) => {
     const m = materiales.find((x) => String(x.id) === materialId);
@@ -132,6 +151,10 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       setError("Selecciona un proveedor.");
       return;
     }
+    if (!asesorId || !asesorSel) {
+      setError("Selecciona un asesor.");
+      return;
+    }
     if (mat.length === 0) {
       setError("Agrega al menos un material.");
       return;
@@ -163,7 +186,8 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
           tea: 40,
           plazo: cuotas,
           proveedor,
-          asesor: tel,
+          asesor: asesorSel.nombre,
+          asesor_telefono: tel,
           observaciones: obs,
         });
       } catch {
@@ -221,6 +245,17 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="label">Asesor *</label>
+                <select className="input" value={asesorId} onChange={(e) => elegirAsesor(e.target.value)}>
+                  <option value="">— Seleccionar —</option>
+                  {asesores.map((a) => (
+                    <option key={String(a.id)} value={String(a.id)}>{a.nombre}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="grid md:grid-cols-3 gap-3 mt-3">
               <div>
                 <label className="label">Teléfono del asesor</label>
                 <input className="input" placeholder="999 999 999" value={tel} onChange={(e) => setTel(e.target.value)} />

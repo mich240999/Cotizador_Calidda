@@ -239,6 +239,41 @@ async function avisarAbonoAdmin(args: {
   }
 }
 
+/** Aviso al solicitante cuando Stephany observa algo (best-effort: nunca rompe). */
+async function avisarObservacion(
+  ctx: OperacionContext,
+  solicitudId: string,
+  etapa: string,
+  motivo: string
+): Promise<"enviado" | "omitido"> {
+  try {
+    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
+    if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return "omitido";
+    const { data: sol } = await ctx.service.from(T_SOL).select("created_by").eq("id", solicitudId).maybeSingle();
+    const uid = (sol as { created_by?: string } | null)?.created_by;
+    if (!uid) return "omitido";
+    const { data: usr } = await ctx.service.auth.admin.getUserById(uid);
+    const destino = usr?.user?.email;
+    if (!destino) return "omitido";
+    const nodemailer = await import("nodemailer");
+    const transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: Number(SMTP_PORT || 587),
+      secure: Number(SMTP_PORT || 587) === 465,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
+    await transporter.sendMail({
+      from: SMTP_FROM || SMTP_USER,
+      to: destino,
+      subject: `Subsanar ${etapa} — solicitud ${solicitudId}`,
+      text: `Stephany observó ${etapa} de tu solicitud ${solicitudId} y hay algo por subsanar.\n\nMotivo: ${motivo}\n\nCorrige y vuelve a subir los sustentos correctos desde el detalle de la venta; el proceso continúa desde donde quedó.`,
+    });
+    return "enviado";
+  } catch {
+    return "omitido";
+  }
+}
+
 // ---------------------------------------------------------------- schemas
 
 const EsquemaListarVentas = z.object({
@@ -576,6 +611,13 @@ async function hValidarAbono(args: z.infer<typeof EsquemaValidarAbono>, ctx: Ope
         : { estado: "pendiente", observacion: args.observacion };
     const { data, error } = await ctx.service.from(T_ABO).update(patch).eq("id", args.abono_id).select().single();
     if (error || !data) throw new Error(error?.message ?? `Abono no encontrado: ${args.abono_id}`);
+    if (args.accion === "observar") {
+      const sid = String((data as { solicitud_id?: string }).solicitud_id ?? "");
+      if (sid) {
+        const aviso = await avisarObservacion(ctx, sid, "tu abono", args.observacion || "");
+        return { ...(data as object), aviso_email: aviso };
+      }
+    }
     return data;
   } catch (e) {
     exigirTabla(e);
@@ -669,7 +711,8 @@ async function hObservarSolicitud(args: z.infer<typeof EsquemaObservarSolicitud>
       .select()
       .single();
     if (error || !data) throw new Error(error?.message ?? `Solicitud no encontrada: ${args.solicitud_id}`);
-    return data;
+    const aviso = await avisarObservacion(ctx, args.solicitud_id, "tu solicitud", args.observacion);
+    return { ...(data as object), aviso_email: aviso };
   } catch (e) {
     exigirTabla(e);
   }
@@ -834,7 +877,8 @@ async function hObservarInstalacion(args: z.infer<typeof EsquemaObservarInstalac
       .select()
       .single();
     if (eCab) throw new Error(eCab.message);
-    return { solicitud: cab, instalacion: instOk, estado: "observada" };
+    const aviso = await avisarObservacion(ctx, args.solicitud_id, "la instalación", args.observacion);
+    return { solicitud: cab, instalacion: instOk, estado: "observada", aviso_email: aviso };
   } catch (e) {
     exigirTabla(e);
   }

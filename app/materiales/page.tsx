@@ -5,6 +5,7 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
+import { AccActivar, AccDesactivar, AccEditar } from "@/components/Accion";
 
 type Espacio = "" | "COTIZACION" | "VENTAS";
 
@@ -27,6 +28,7 @@ type Material = {
   grupo?: string | null;
   precio_vigente?: number | null;
   tarifa_vigente?: boolean | null;
+  estado?: string | null;
 };
 
 type Opcion = { id: string; etiqueta: string };
@@ -434,14 +436,170 @@ function NuevoMaterialModal({ onClose, onGuardado }: { onClose: () => void; onGu
 }
 
 /* ------------------------------------------------------------------ */
+/* Modal: editar material + activar/desactivar                          */
+/* ------------------------------------------------------------------ */
+
+function activoMaterial(m: Material): boolean {
+  if (m.estado != null) return String(m.estado).toUpperCase() === "ACTIVO";
+  return true;
+}
+
+function EditarMaterialModal({ material, onClose, onGuardado }: { material: Material; onClose: () => void; onGuardado: () => void }) {
+  const [nombre, setNombre] = useState(material.nombre ?? "");
+  const [descripcion, setDescripcion] = useState(String(material.descripcion ?? ""));
+  const [unidad, setUnidad] = useState(String(material.unidad ?? "UND"));
+  const [espacio, setEspacio] = useState(String(material.espacio ?? "VENTAS"));
+  const [espacioRemodelar, setEspacioRemodelar] = useState(String(material.espacio_remodelar ?? ""));
+  const [codigoSap, setCodigoSap] = useState(String(material.codigo_sap ?? material.codigo ?? ""));
+  const [precio, setPrecio] = useState("");
+  const [idProveedor, setIdProveedor] = useState(String(material.id_proveedor ?? ""));
+  const [asesor, setAsesor] = useState(String(material.asesor_nombre ?? ""));
+  const [idOficina, setIdOficina] = useState(String(material.id_oficina ?? ""));
+  const [idGrupo, setIdGrupo] = useState(String(material.id_grupo ?? ""));
+  const [msg, setMsg] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const [proveedores, setProveedores] = useState<Opcion[]>([]);
+  const [oficinas, setOficinas] = useState<Opcion[]>([]);
+  const [grupos, setGrupos] = useState<Opcion[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [p, o, g] = await Promise.all([
+          apiOperacion<Record<string, unknown>[]>("listarProveedoresSGT", {}),
+          apiOperacion<Record<string, unknown>[]>("listarOficinasVentas", {}),
+          apiOperacion<Record<string, unknown>[]>("listarGruposVendedores", {}),
+        ]);
+        setProveedores(
+          (Array.isArray(p) ? p : []).map((r) => ({
+            id: String(r.id ?? ""),
+            etiqueta: String(r.nombre ?? r.razon_social ?? r.nombre_comercial ?? r.interlocutor ?? r.id ?? ""),
+          })).filter((x) => x.id)
+        );
+        setOficinas(
+          (Array.isArray(o) ? o : []).map((r) => ({
+            id: String(r.id ?? ""),
+            etiqueta: String(r.nombre ?? r.id ?? ""),
+          })).filter((x) => x.id)
+        );
+        setGrupos(
+          (Array.isArray(g) ? g : []).map((r) => ({
+            id: String(r.id ?? ""),
+            etiqueta: String(r.nombre ?? r.grupo ?? r.id ?? ""),
+          })).filter((x) => x.id)
+        );
+      } catch {
+        // Los selects quedan vacíos; el backend acepta nulos.
+      }
+    })();
+  }, []);
+
+  const guardar = async () => {
+    setMsg(null);
+    if (nombre.trim().length < 2) { setMsg("El nombre es obligatorio (mínimo 2 caracteres)."); return; }
+    if (espacio !== "COTIZACION" && espacio !== "VENTAS") { setMsg("Espacio inválido (COTIZACION|VENTAS)."); return; }
+    let precioNum: number | undefined;
+    if (precio.trim() !== "") {
+      const p = Number(precio.trim().replace(",", "."));
+      if (!Number.isFinite(p) || p < 0) { setMsg("Precio nuevo inválido."); return; }
+      precioNum = Math.round(p * 100) / 100;
+    }
+    setGuardando(true);
+    try {
+      await apiOperacion("actualizarMaterialSGT", {
+        id: material.id,
+        nombre: nombre.trim(),
+        descripcion: descripcion.trim(),
+        unidad: unidad.trim() || "UND",
+        espacio,
+        espacio_remodelar: espacioRemodelar.trim(),
+        codigo_sap: codigoSap.trim(),
+        ...(precioNum != null ? { precio: precioNum } : {}),
+        id_proveedor: idProveedor || null,
+        asesor_nombre: asesor.trim(),
+        id_oficina: idOficina || null,
+        id_grupo: idGrupo || null,
+      });
+      onGuardado();
+      onClose();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "No se pudo actualizar");
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-lg p-6 my-6">
+        <h2 className="text-lg font-extrabold">Editar material</h2>
+        <p className="text-xs text-slate-500 mt-1">Si indicas un precio nuevo se crea una tarifa conservando el historial.</p>
+        <div className="grid gap-3 mt-4">
+          <div><label className="label">Nombre *</label><input className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} /></div>
+          <div><label className="label">Descripción</label><input className="input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Unidad</label><input className="input" value={unidad} onChange={(e) => setUnidad(e.target.value)} /></div>
+            <div>
+              <label className="label">Espacio</label>
+              <select className="input" value={espacio} onChange={(e) => setEspacio(e.target.value)}>
+                <option value="COTIZACION">COTIZACION</option>
+                <option value="VENTAS">VENTAS</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Espacio a remodelar</label><input className="input" value={espacioRemodelar} onChange={(e) => setEspacioRemodelar(e.target.value)} /></div>
+            <div><label className="label">Código SAP</label><input className="input" value={codigoSap} onChange={(e) => setCodigoSap(e.target.value)} /></div>
+          </div>
+          <div><label className="label">Precio nuevo (S/, opcional)</label><input className="input" value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="Vacío = conservar tarifa" inputMode="decimal" /></div>
+          <div>
+            <label className="label">Proveedor</label>
+            <select className="input" value={idProveedor} onChange={(e) => setIdProveedor(e.target.value)}>
+              <option value="">— Sin proveedor —</option>
+              {proveedores.map((p) => <option key={p.id} value={p.id}>{p.etiqueta}</option>)}
+            </select>
+          </div>
+          <div><label className="label">Asesor</label><input className="input" value={asesor} onChange={(e) => setAsesor(e.target.value)} /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Oficina de venta</label>
+              <select className="input" value={idOficina} onChange={(e) => setIdOficina(e.target.value)}>
+                <option value="">— Ninguna —</option>
+                {oficinas.map((o) => <option key={o.id} value={o.id}>{o.etiqueta}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Grupo de vendedores</label>
+              <select className="input" value={idGrupo} onChange={(e) => setIdGrupo(e.target.value)}>
+                <option value="">— Ninguno —</option>
+                {grupos.map((g) => <option key={g.id} value={g.id}>{g.etiqueta}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+        {msg && <p className="mt-3 text-xs text-red-700">{msg}</p>}
+        <div className="flex gap-2 mt-4">
+          <button className="btn-white flex-1" onClick={onClose}>Cancelar</button>
+          <button className="btn-green flex-1" onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Guardar cambios"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Página                                                              */
 /* ------------------------------------------------------------------ */
 
 export default function MaterialesPage() {
   const [modal, setModal] = useState<null | "material" | "carga">(null);
+  const [editar, setEditar] = useState<Material | null>(null);
+  const [accionando, setAccionando] = useState<string | null>(null);
   const [rows, setRows] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [qEnviado, setQEnviado] = useState("");
   const [espacio, setEspacio] = useState<Espacio>("");
@@ -483,6 +641,22 @@ export default function MaterialesPage() {
     setQEnviado("");
     setEspacio("");
     cargar("", "");
+  };
+
+  const cambiarEstado = async (m: Material) => {
+    const nuevo = activoMaterial(m) ? "INACTIVO" : "ACTIVO";
+    setAccionando(m.id);
+    setError(null);
+    setInfo(null);
+    try {
+      await apiOperacion("actualizarMaterialSGT", { id: m.id, estado: nuevo });
+      setInfo(`Material ${nuevo === "ACTIVO" ? "activado" : "desactivado"}.`);
+      await cargar(qEnviado, espacio);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo actualizar");
+    } finally {
+      setAccionando(null);
+    }
   };
 
   return (
@@ -537,6 +711,7 @@ export default function MaterialesPage() {
         </div>
 
         {error && <p className="card p-4 mt-4 text-sm text-red-700 bg-red-50 border-red-200">{error}</p>}
+        {info && <p className="card p-4 mt-4 text-sm text-emerald-700 bg-emerald-50 border-emerald-200">{info}</p>}
 
         {loading ? (
           <div className="card p-10 mt-4 text-center text-slate-500">Cargando materiales…</div>
@@ -562,7 +737,9 @@ export default function MaterialesPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((m) => (
+                {rows.map((m) => {
+                  const activo = activoMaterial(m);
+                  return (
                   <tr key={m.id}>
                     <td>{m.espacio ?? "—"}</td>
                     <td>{m.espacio_remodelar ?? "—"}</td>
@@ -576,9 +753,17 @@ export default function MaterialesPage() {
                     <td>{m.asesor_nombre ?? "—"}</td>
                     <td>{m.oficina ?? m.id_oficina ?? "—"}</td>
                     <td>{m.grupo ?? m.id_grupo ?? "—"}</td>
-                    <td className="text-slate-400">—</td>
+                    <td className="whitespace-nowrap">
+                      <div className="flex gap-1.5">
+                        <AccEditar title="Editar material" disabled={accionando === m.id} onClick={() => setEditar(m)} />
+                        {activo
+                          ? <AccDesactivar title="Desactivar material" disabled={accionando === m.id} onClick={() => cambiarEstado(m)} />
+                          : <AccActivar title="Activar material" disabled={accionando === m.id} onClick={() => cambiarEstado(m)} />}
+                      </div>
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -586,6 +771,7 @@ export default function MaterialesPage() {
 
         {modal === "material" && <NuevoMaterialModal onClose={() => setModal(null)} onGuardado={() => cargar(qEnviado, espacio)} />}
         {modal === "carga" && <CargaMasivaModal onClose={() => setModal(null)} onProcesado={() => cargar(qEnviado, espacio)} />}
+        {editar && <EditarMaterialModal material={editar} onClose={() => setEditar(null)} onGuardado={() => { setInfo("Material actualizado."); cargar(qEnviado, espacio); }} />}
       </Shell>
     </AuthGate>
   );
