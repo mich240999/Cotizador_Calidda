@@ -29,7 +29,7 @@ export default function AdminPage() {
     let vivo = true;
     (async () => {
       try {
-        const u = await apiOperacion<unknown>("listarUsuariosSGT", { limit: 5000 });
+        const u = await apiOperacion<unknown>("listarUsuariosSGT", { limit: 500 });
         if (vivo) setNUsuarios(Array.isArray(u) ? u.length : 0);
       } catch {
         if (vivo) setNUsuarios(0);
