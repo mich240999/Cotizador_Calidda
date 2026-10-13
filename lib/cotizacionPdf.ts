@@ -30,14 +30,18 @@ const GRIS_BG = [244, 247, 250] as const;
 const GRIS_LINEA = [210, 218, 226] as const;
 
 const CONSIDERACIONES = [
-  "1. Precios en soles, incluyen IGV salvo indicación contraria.",
-  "2. Validez de la oferta: 15 días calendario.",
-  "3. El financiamiento está sujeto a evaluación crediticia.",
-  "4. La instalación requiere punto de gas habilitado y accesible.",
-  "5. Los materiales cuentan con garantía de 12 meses por defectos de fábrica.",
-  "6. Cualquier trabajo adicional será cotizado por separado.",
-  "7. La aceptación de esta cotización se confirma con la firma del contrato."
+  "1. El precio considera la ejecución del proyecto de manera integral, que incluye asesoría, visita técnica, diseño, ejecución del proyecto y garantía.",
+  "2. Los montos incluyen IGV.",
+  "3. La cotización no incluye trabajos de desmontaje, albañilería, gasfitería y electricidad.",
+  "4. El plazo inicia desde la aprobación del diseño por parte del usuario.",
+  "5. La cotización incluye diseño, materiales, fabricación, instalación y transporte.",
+  "6. El servicio ofrecido tiene garantía de 1 año por fabricación del mueble.",
+  "7. Si el importe total excede la línea de crédito aprobada por Cálidda, el usuario podrá abonar la diferencia como cuota inicial a Cálidda.",
 ];
+
+/** Pie del documento: contacto comercial. */
+const CONTACTO_PDF_TEL = "614 9000";
+const CONTACTO_PDF_EMAIL = "muebles@calidda.com.pe";
 
 function teaADecimal(teaRaw: number, fallback = 0.4): number {
   if (!Number.isFinite(teaRaw)) return fallback;
@@ -339,7 +343,7 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     doc.text(String(d.clienteContacto).slice(0, 100), ML + 22, yy);
     yy += 4;
   }
-  y = yy + 5;
+  y = yy + 9;
 
   // ---- MATERIALES Y SERVICIOS: tabla con bordes ----
   y = tituloSeccion("MATERIALES Y SERVICIOS", y);
@@ -388,7 +392,7 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
   doc.setFont("helvetica", "bold"); doc.setFontSize(10);
   doc.text("Total:", MR - 52, y); doc.text(fmt(d.total), MR, y, { align: "right" });
   doc.setFontSize(8.5);
-  y += 8;
+  y += 12;
 
   // ---- FINANCIAMIENTO: 5 cajas + matriz horizontal con elegida en verde ----
   if (y > 230) { doc.addPage(); y = 18; }
@@ -403,15 +407,16 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
   ];
   const yBox = y;
   doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
+  doc.roundedRect(ML, yBox, ANCHO, 13, 2, 2);
   boxes.forEach(([lab, val], i) => {
     const x = ML + i * boxW;
-    doc.rect(x, yBox, boxW, 11);
+    if (i > 0) doc.line(x, yBox, x, yBox + 13);
     gris(130); doc.setFont("helvetica", "normal"); doc.setFontSize(6.5);
-    doc.text(lab, x + 2, yBox + 3.8);
+    doc.text(lab, x + 2, yBox + 4.2);
     doc.setTextColor(0, 0, 0); doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
-    doc.text(String(val).slice(0, 24), x + 2, yBox + 8);
+    doc.text(String(val).slice(0, 24), x + 2, yBox + 9.5);
   });
-  y = yBox + 15;
+  y = yBox + 19;
 
   const nCuotas = d.tabla.length;
   const c0 = 30, cw = (ANCHO - c0) / Math.max(1, nCuotas);
@@ -437,23 +442,36 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     doc.setFont("helvetica", "bold"); doc.setFontSize(8);
     const cxC = x + cw / 2;
     doc.text(String(f.plazo), cxC, headY + 4.2, { align: "center" });
-    doc.setFont("helvetica", elegida ? "bold" : "normal"); doc.setFontSize(7);
+    doc.setFont("helvetica", elegida ? "bold" : "normal"); doc.setFontSize(6.5);
     doc.text(fmt(f.cuota), cxC, headY + 10.2, { align: "center" });
     if (elegida) doc.setTextColor(0, 0, 0);
   });
-  y = headY + 16;
+  // Etiqueta ELEGIDA bajo la columna elegida.
+  {
+    const ie = d.tabla.findIndex((f) => f.plazo === d.plazo);
+    if (ie >= 0) {
+      const cxC = ML + c0 + ie * cw + cw / 2;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(6); gris(100);
+      doc.text("ELEGIDA", cxC, headY + 15.5, { align: "center" });
+      doc.setTextColor(0, 0, 0);
+    }
+  }
+  y = headY + 20;
 
-  // ---- CONSIDERACIONES + banda amarilla ----
+  // ---- CONSIDERACIONES en caja + banda amarilla ----
   if (y > 225) { doc.addPage(); y = 18; }
   y = tituloSeccion("CONSIDERACIONES", y);
   doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+  const yCons0 = y;
   for (const c of CONSIDERACIONES) {
-    const ls = doc.splitTextToSize(c, ANCHO) as string[];
+    const ls = doc.splitTextToSize(c, ANCHO - 8) as string[];
     if (y + ls.length * 3.8 > 258) { doc.addPage(); y = 18; }
-    doc.text(ls, ML, y);
+    doc.text(ls, ML + 4, y);
     y += ls.length * 3.8 + 1;
   }
-  y += 3;
+  doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
+  doc.roundedRect(ML, yCons0 - 5, ANCHO, y - yCons0 + 8, 2, 2);
+  y += 6;
   doc.setFillColor(...AMARILLO);
   doc.rect(ML, y - 4, ANCHO, 8, "F");
   doc.setDrawColor(200, 150, 0); doc.setLineWidth(0.4);
@@ -471,12 +489,19 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     y += lo.length * 3.8;
   }
 
+  const ahora = new Date();
+  const fGen = `${String(ahora.getDate()).padStart(2, "0")}/${String(ahora.getMonth() + 1).padStart(2, "0")}/${ahora.getFullYear()} ${String(ahora.getHours()).padStart(2, "0")}:${String(ahora.getMinutes()).padStart(2, "0")}`;
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
     doc.setPage(i);
-    doc.setFont("helvetica", "italic"); doc.setFontSize(7);
-    gris(120);
-    doc.text(`Documento generado por Ambientes Cálidos · ${d.codigo} · pág. ${i}/${n}`, W / 2, 290, { align: "center" });
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
+    gris(110);
+    doc.text(
+      `Documento de Ambientes Cálidos generado desde Cálidda 360 el ${fGen}. Contacto: ${CONTACTO_PDF_TEL} · ${CONTACTO_PDF_EMAIL}`,
+      W / 2, 288, { align: "center" }
+    );
+    doc.setFontSize(7);
+    doc.text(`Pág. ${i}/${n}`, W / 2, 292.5, { align: "center" });
     doc.setTextColor(0, 0, 0);
   }
   return doc;
