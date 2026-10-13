@@ -407,13 +407,22 @@ async function hListarVentas(args: z.infer<typeof EsquemaListarVentas>, ctx: Ope
   }
 }
 
-/** Resuelve un cliente a mae_clientes. Si viene de la tabla base, lo migra solo. */
+/** Resuelve un cliente a mae_clientes. Si viene de la tabla base, lo migra solo.
+ *  Busca por id y, si no, por (tipo_doc, nro_doc) para no duplicar: un cliente
+ *  puede tener múltiples solicitudes de venta.
+ */
 async function resolverClienteSGT(ctx: OperacionContext, id: string): Promise<string> {
   const { data: ex } = await ctx.service.from("mae_clientes").select("id").eq("id", id).maybeSingle();
   if (ex) return id;
   const { data: base } = await ctx.service.from("clientes").select("*").eq("id", id).maybeSingle();
   if (!base) lanzar(422, "El cliente no existe en mae_clientes: créalo en Clientes primero");
   const b = base as Record<string, any>;
+  const dni = String(b.dni ?? b.documento ?? "");
+  // ¿Ya migrado antes con otro id? (mismo documento) → reusar.
+  if (dni) {
+    const { data: previo } = await ctx.service.from("mae_clientes").select("id").eq("nro_doc", dni).limit(1).maybeSingle();
+    if (previo) return (previo as { id: string }).id;
+  }
   const { data: ids } = await ctx.service.from("mae_clientes").select("id").limit(5000);
   const nuevo = siguienteId("CLI", ((ids ?? []) as { id?: string }[]).map((r) => r.id), 6);
   const { error } = await ctx.service.from("mae_clientes").insert({
@@ -439,6 +448,10 @@ async function resolverProveedorSGT(ctx: OperacionContext, id: string): Promise<
   const { data: base } = await ctx.service.from("proveedores").select("*").eq("id", id).maybeSingle();
   if (!base) lanzar(422, "El proveedor no existe en mae_proveedores: créalo en Administración > Proveedores");
   const b = base as Record<string, any>;
+  if (b.ruc) {
+    const { data: previo } = await ctx.service.from("mae_proveedores").select("id").eq("ruc", String(b.ruc)).limit(1).maybeSingle();
+    if (previo) return (previo as { id: string }).id;
+  }
   if (!b.ruc) lanzar(422, "El proveedor base no tiene RUC: complétalo en Administración > Proveedores antes de vender");
   const { data: ids } = await ctx.service.from("mae_proveedores").select("id").limit(5000);
   const nuevo = siguienteId("PRV", ((ids ?? []) as { id?: string }[]).map((r) => r.id));
@@ -463,6 +476,14 @@ async function resolverMaterialSGT(ctx: OperacionContext, id: string): Promise<s
   const { data: base } = await ctx.service.from("materiales").select("*").eq("id", id).maybeSingle();
   if (!base) lanzar(422, `El material ${id} no existe en el maestro: créalo en Materiales primero`);
   const b = base as Record<string, any>;
+  if (b.codigo) {
+    const { data: previo } = await ctx.service.from("mae_materiales").select("id").eq("codigo_sap", String(b.codigo)).limit(1).maybeSingle();
+    if (previo) return (previo as { id: string }).id;
+  }
+  if (b.nombre) {
+    const { data: previoN } = await ctx.service.from("mae_materiales").select("id").eq("nombre", String(b.nombre)).limit(1).maybeSingle();
+    if (previoN) return (previoN as { id: string }).id;
+  }
   const { data: ids } = await ctx.service.from("mae_materiales").select("id").limit(5000);
   const nuevo = siguienteId("MAT-", ((ids ?? []) as { id?: string }[]).map((r) => r.id), 5);
   const { error } = await ctx.service.from("mae_materiales").insert({

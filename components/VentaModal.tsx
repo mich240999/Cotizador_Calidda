@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiOperacion } from "./Tablas";
+import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import { AccQuitar } from "./Accion";
 import { TEA_FIJA, cuotaMensual, subirArchivoStorage, useRolVista } from "./VentasComun";
 
@@ -61,7 +62,7 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [materiales, setMateriales] = useState<Material[]>([]);
-  const [asesores, setAsesores] = useState<{ id: string; nombre?: string; telefono?: string }[]>([]);
+  const [asesores, setAsesores] = useState<{ id: string; nombre?: string; telefono?: string; correo?: string; id_proveedor?: string | null }[]>([]);
   const [cargando, setCargando] = useState(true);
   const [avisos, setAvisos] = useState<string[]>([]);
 
@@ -114,8 +115,20 @@ export default function VentaModal({ onClose }: { onClose: () => void }) {
       if (rm.status === "fulfilled" && Array.isArray(rm.value)) setMateriales(rm.value as Material[]);
       else w.push("No se pudieron cargar los materiales del backend.");
       if (ra.status === "fulfilled" && Array.isArray(ra.value)) {
-        setAsesores((ra.value as { id: string; nombre?: string; telefono?: string; rol?: string; rol_codigo?: string }[])
-          .filter((u) => ["ASESOR", "SUPERVISOR"].includes(String(u.rol ?? u.rol_codigo ?? "").toUpperCase())));
+        const lista = (ra.value as { id: string; nombre?: string; telefono?: string; correo?: string; id_proveedor?: string | null; rol?: string; rol_codigo?: string }[])
+          .filter((u) => ["ASESOR", "SUPERVISOR"].includes(String(u.rol ?? u.rol_codigo ?? "").toUpperCase()));
+        setAsesores(lista);
+        // Asesor por defecto: el usuario logueado (teléfono de su ficha + su empresa).
+        try {
+          const { data: ses } = await getSupabaseBrowser().auth.getSession();
+          const mail = ses.session?.user?.email?.toLowerCase();
+          const yo = mail ? lista.find((x) => String(x.correo ?? "").toLowerCase() === mail) : undefined;
+          if (yo) {
+            setAsesorId(String(yo.id));
+            if (yo.telefono) setAsesorTel(String(yo.telefono));
+            if (yo.id_proveedor) setProveedorSel(String(yo.id_proveedor));
+          }
+        } catch { /* sin sesión legible: selección manual */ }
       }
       setAvisos(w);
       setCargando(false);
