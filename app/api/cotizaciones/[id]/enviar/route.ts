@@ -39,7 +39,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   try {
     const service = createSupabaseServiceRole();
     const datos = await obtenerDatosPdf(service, id);
-    const doc = buildCotizacionPdf(datos);
+    const doc = await buildCotizacionPdf(datos);
     const pdf = Buffer.from(doc.output("arraybuffer"));
     const filename = `cotizacion-${datos.codigo}.pdf`;
 

@@ -211,36 +211,35 @@ export async function obtenerDatosPdf(service: SupabaseClient, id: string): Prom
   return obtenerDatosLegacy(service, clave);
 }
 
-/** Logo Cálidda para el header (SOLO SERVER: lee public/logo-calidda.png).
- *  Retorna {dataUrl, wMm, hMm} con alto 11mm preservando proporción, o null.
+/** Logo Cálidda para el header (SOLO SERVER).
+ *  Lee public/logo-calidda.png y lo reduce a 240px con sharp para que el PDF
+ *  no pese 1MB. Retorna {dataUrl, wMm, hMm} con alto 11mm, o null (texto).
  */
 let _logoCache: { dataUrl: string; wMm: number; hMm: number } | null | undefined;
-function logoCalidda(): { dataUrl: string; wMm: number; hMm: number } | null {
+async function logoCalidda(): Promise<{ dataUrl: string; wMm: number; hMm: number } | null> {
   if (_logoCache !== undefined) return _logoCache;
   _logoCache = null;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require("fs") as typeof import("fs");
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const path = require("path") as typeof import("path");
+    const fs = await import("fs");
+    const path = await import("path");
+    const sharp = (await import("sharp")).default;
     const p = path.join(process.cwd(), "public", "logo-calidda.png");
-    const buf: Buffer = fs.readFileSync(p);
-    if (buf.length < 33) return _logoCache;
-    // Dimensiones del IHDR del PNG (bytes 16-23, big-endian).
-    const w = buf.readUInt32BE(16);
-    const h = buf.readUInt32BE(20);
+    const small: Buffer = await sharp(fs.readFileSync(p)).resize({ width: 240 }).png().toBuffer();
+    const meta = await sharp(small).metadata();
+    const w = meta.width ?? 240;
+    const h = meta.height ?? 60;
     if (!w || !h) return _logoCache;
     const hMm = 11;
     _logoCache = {
-      dataUrl: `data:image/png;base64,${buf.toString("base64")}`,
+      dataUrl: `data:image/png;base64,${small.toString("base64")}`,
       wMm: Math.min(55, (hMm * w) / h),
       hMm,
     };
-  } catch { /* sin logo: se usa texto */ }
+  } catch { /* sin logo o sin sharp: se usa texto */ }
   return _logoCache;
 }
 
-export function buildCotizacionPdf(d: DatosPdf): jsPDF {
+export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const W = 210, ML = 14, MR = W - 14, ANCHO = W - 28;
   const fmt = (n: number) => `S/ ${Number(n || 0).toFixed(2)}`;
@@ -264,7 +263,7 @@ export function buildCotizacionPdf(d: DatosPdf): jsPDF {
   };
 
   // ---- header blanco estilo modelo: logo izquierda, COTIZACIÓN derecha ----
-  const logo = logoCalidda();
+  const logo = await logoCalidda();
   if (logo) {
     try {
       doc.addImage(logo.dataUrl, "PNG", ML, 6, logo.wMm, logo.hMm);
