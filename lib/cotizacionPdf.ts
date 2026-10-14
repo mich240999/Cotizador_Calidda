@@ -453,17 +453,17 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     doc.text(fmt(f.cuota), cxC, headY + 10.2, { align: "center" });
     if (elegida) doc.setTextColor(0, 0, 0);
   });
-  // Etiqueta ELEGIDA bajo la columna elegida.
+  // Etiqueta ELEGIDA bajo la columna elegida (con aire para no chocar la sección siguiente).
   {
     const ie = d.tabla.findIndex((f) => f.plazo === d.plazo);
     if (ie >= 0) {
       const cxC = ML + c0 + ie * cw + cw / 2;
       doc.setFont("helvetica", "bold"); doc.setFontSize(6); gris(100);
-      doc.text("ELEGIDA", cxC, headY + 15.5, { align: "center" });
+      doc.text("ELEGIDA", cxC, headY + 15, { align: "center" });
       doc.setTextColor(0, 0, 0);
     }
   }
-  y = headY + 20;
+  y = headY + 24;
 
   // ---- CONSIDERACIONES en caja + banda amarilla ----
   if (y > 225) { doc.addPage(); y = 18; }
@@ -477,7 +477,7 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     y += ls.length * 3.8 + 1;
   }
   doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
-  doc.roundedRect(ML, yCons0 - 5, ANCHO, y - yCons0 + 8, 2, 2);
+  doc.roundedRect(ML, yCons0 - 7, ANCHO, y - yCons0 + 10, 2, 2);
   y += 6;
   doc.setFillColor(...AMARILLO);
   doc.rect(ML, y - 4, ANCHO, 8, "F");
