@@ -477,7 +477,7 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     y += ls.length * 3.8 + 1;
   }
   doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
-  doc.roundedRect(ML, yCons0 - 7, ANCHO, y - yCons0 + 10, 2, 2);
+  doc.roundedRect(ML, yCons0 + 4, ANCHO, y - yCons0 - 1, 2, 2);
   y += 6;
   doc.setFillColor(...AMARILLO);
   doc.rect(ML, y - 4, ANCHO, 8, "F");
