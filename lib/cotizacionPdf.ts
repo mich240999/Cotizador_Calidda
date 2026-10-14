@@ -469,15 +469,12 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
   if (y > 225) { doc.addPage(); y = 18; }
   y = tituloSeccion("CONSIDERACIONES", y);
   doc.setFont("helvetica", "normal"); doc.setFontSize(8);
-  const yCons0 = y;
   for (const c of CONSIDERACIONES) {
-    const ls = doc.splitTextToSize(c, ANCHO - 8) as string[];
+    const ls = doc.splitTextToSize(c, ANCHO) as string[];
     if (y + ls.length * 3.8 > 258) { doc.addPage(); y = 18; }
-    doc.text(ls, ML + 4, y);
+    doc.text(ls, ML, y);
     y += ls.length * 3.8 + 1;
   }
-  doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
-  doc.roundedRect(ML, yCons0 + 4, ANCHO, y - yCons0 - 1, 2, 2);
   y += 6;
   doc.setFillColor(...AMARILLO);
   doc.rect(ML, y - 4, ANCHO, 8, "F");
