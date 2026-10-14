@@ -375,19 +375,26 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     doc.text(matLineas, cx[1] + 1.5, y + 4);
     doc.text(String(it.cant), cx[2] + 1.5, y + 4);
     doc.text(Number(it.punit).toFixed(2), cx[3] + 1.5, y + 4);
-    doc.text(pct(it.dscto), cx[4] + 1.5, y + 4);
+    doc.text(it.dscto > 0 ? pct(it.dscto) : "-", cx[4] + 1.5, y + 4);
     doc.setFont("helvetica", "bold");
-    doc.text(Number(it.neto).toFixed(2), cx[5] + 1.5, y + 4);
+    doc.text(fmt(it.neto), cx[5] + 1.5, y + 4);
     doc.setFont("helvetica", "normal");
     y += h;
     doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
     doc.line(ML, y, MR, y);
     for (let i = 1; i < cx.length - 1; i++) doc.line(cx[i], y0, cx[i], y);
   }
-  y += 3;
+  y += 6;
+  // Subtotal / Descuento (solo si hay) / IGV 18% / Total.
+  // (El descuento guardado puede venir negativo cuando incluye el IGV.)
+  const descPos = d.descuento > 0 ? d.descuento : 0;
+  const igv = Math.round((d.total - d.subtotal + descPos) * 100) / 100;
   doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
   doc.text("Subtotal:", MR - 52, y); doc.text(fmt(d.subtotal), MR, y, { align: "right" }); y += 4.5;
-  doc.text("Descuento:", MR - 52, y); doc.text(fmt(d.descuento), MR, y, { align: "right" }); y += 4.5;
+  if (descPos > 0) {
+    doc.text("Descuento:", MR - 52, y); doc.text(fmt(descPos), MR, y, { align: "right" }); y += 4.5;
+  }
+  doc.text("IGV 18%:", MR - 52, y); doc.text(fmt(igv), MR, y, { align: "right" }); y += 4.5;
   doc.setDrawColor(...VERDE); doc.setLineWidth(0.5); doc.line(MR - 62, y, MR, y); y += 4.5;
   doc.setFont("helvetica", "bold"); doc.setFontSize(10);
   doc.text("Total:", MR - 52, y); doc.text(fmt(d.total), MR, y, { align: "right" });
