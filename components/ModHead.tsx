@@ -7,11 +7,13 @@ export default function ModHead({
   title,
   desc,
   actions,
+  centro,
 }: {
   eyebrow: string;
   title: string;
   desc?: string;
   actions?: React.ReactNode;
+  centro?: React.ReactNode;
 }) {
   return (
     <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0B5FA5] via-[#0088C7] to-[#00A9CE] text-white p-5 md:p-6 shadow-lg shadow-sky-900/10">
@@ -23,6 +25,7 @@ export default function ModHead({
           <h1 className="text-2xl font-extrabold tracking-tight">{title}</h1>
           {desc && <p className="text-sm text-white/80 mt-1 max-w-2xl">{desc}</p>}
         </div>
+        {centro && <div className="flex flex-1 min-w-[200px] items-center justify-center self-center">{centro}</div>}
         {actions && <div className="flex gap-2 flex-wrap">{actions}</div>}
       </div>
     </div>

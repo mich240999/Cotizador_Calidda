@@ -203,8 +203,13 @@ export default function CotizacionDetallePage({
         eyebrow="GESTIÓN COMERCIAL"
         title={`Cotización ${cot?.codigo ?? cot?.numero ?? id.slice(0, 8)}`}
         desc="Detalle, estados, PDF y envío por correo."
+        centro={cot && (
+          <span className="inline-flex items-center gap-2.5 rounded-full bg-white/15 px-4 py-1.5 ring-1 ring-white/40 backdrop-blur">
+            <span className="text-[11px] font-extrabold tracking-[0.18em] text-white/85">ESTADO</span>
+            <BadgeEstado estado={String(cot.estado).toUpperCase()} />
+          </span>
+        )}
         actions={<>
-          {cot && <BadgeEstado estado={String(cot.estado).toUpperCase()} />}
           <button
             onClick={regenerarPDF}
             disabled={!cot || accionando !== null}

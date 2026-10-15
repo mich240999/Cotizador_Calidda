@@ -197,7 +197,7 @@ async function obtenerDatosLegacy(service: SupabaseClient, id: string): Promise<
     clienteTel: String(cli.telefono ?? "—"),
     proveedor: String(c.proveedor ?? cli.proveedor ?? "—"),
     asesor: String(c.asesor ?? "—"),
-    asesorTelefono: "—",
+    asesorTelefono: String((c as Record<string, unknown>).asesor_telefono ?? "—"),
     asesorEmail: "—",
     cuotaInicial, capital: capital > 0 ? capital : total, tea, plazo, cuotaMensual, tabla,
     items
@@ -313,7 +313,7 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     ["CLIENTE", d.clienteNombre ?? "—", "DOCUMENTO", d.clienteDoc ?? "—"],
     ["CORREO DEL CLIENTE", d.clienteEmail ?? "—", "TELÉFONO DEL CLIENTE", d.clienteTel ?? "—"],
     ["PROVEEDOR", [d.proveedor ?? "—", d.proveedorRuc ? `RUC ${d.proveedorRuc}` : ""].filter(Boolean).join(" · "), "ASESOR-CONTACTO",
-      [d.asesor ?? "—", d.asesorTelefono && d.asesorTelefono !== "—" ? d.asesorTelefono : "", d.asesorEmail && d.asesorEmail !== "—" ? d.asesorEmail : ""].filter(Boolean).join(" · ")],
+      [d.asesor ?? "—", d.asesorTelefono && d.asesorTelefono !== "—" ? `Tel. ${d.asesorTelefono}` : ""].filter(Boolean).join(" / ")],
   ];
   const colW = ANCHO / 2;
   const topCli = y;
