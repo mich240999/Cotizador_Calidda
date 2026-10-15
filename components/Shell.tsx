@@ -138,20 +138,24 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       {/* Header blanco */}
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 sticky top-0 z-30">
         <div className="flex items-center gap-3 px-4 lg:px-6 h-16 group/barra">
-          <Link href="/dashboard" className="flex items-center gap-2 shrink-0">
-            <LogoCalidda priority className="h-7 w-auto max-w-[110px] object-contain" />
-            <span className="leading-tight">
-              <span className="block text-sm font-extrabold text-slate-900 dark:text-white tracking-tight whitespace-nowrap">
-                Ambientes Cáliddos
-              </span>
-              <span className="block text-[10px] font-medium text-slate-400 dark:text-slate-500 whitespace-nowrap">
-                Gestión comercial y financiamiento
-              </span>
-            </span>
-            <span className="hidden md:block h-8 w-px bg-slate-200 mx-2" />
-            <span className="hidden md:block text-sm font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap">
-              Cálidda · Gas Natural del Perú
-            </span>
+          <Link href="/dashboard" title="Ambientes Cáliddos" className="flex items-center gap-2 shrink-0">
+            <LogoCalidda priority className={`${plegado ? "h-8 w-auto max-w-[44px]" : "h-7 w-auto max-w-[110px]"} object-contain`} />
+            {!plegado && (
+              <>
+                <span className="leading-tight">
+                  <span className="block text-sm font-extrabold text-slate-900 dark:text-white tracking-tight whitespace-nowrap">
+                    Ambientes Cáliddos
+                  </span>
+                  <span className="block text-[10px] font-medium text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                    Gestión comercial y financiamiento
+                  </span>
+                </span>
+                <span className="hidden md:block h-8 w-px bg-slate-200 mx-2" />
+                <span className="hidden md:block text-sm font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                  Cálidda · Gas Natural del Perú
+                </span>
+              </>
+            )}
           </Link>
           <button
             onClick={alternarMenu}
