@@ -199,11 +199,11 @@ export default function InstalacionesPage() {
   const [ver, setVer] = useState<Fila | null>(null);
   const [liquidando, setLiquidando] = useState<string | null>(null);
 
-  const cargar = async () => {
+  const cargar = async (qry?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const d = await apiOperacion<unknown>("listarInstalaciones", { limit: 200, page: 1, pageSize: 200 });
+      const d = await apiOperacion<unknown>("listarInstalaciones", { q: (qry ?? q).trim(), limit: 200, page: 1, pageSize: 200 });
       const arr = Array.isArray(d) ? d : ((d as { rows?: unknown })?.rows ?? []);
       setRows(Array.isArray(arr) ? (arr as Fila[]) : []);
     } catch (e) {
@@ -215,14 +215,15 @@ export default function InstalacionesPage() {
   };
 
   useEffect(() => {
-    cargar();
+    cargar("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtradas = useMemo(() => {
     const s = q.trim().toLowerCase();
     return rows.filter((v) => {
       if (s) {
-        const hay = [String(v.id ?? ""), String(v.cotizacion_codigo ?? ""), String(v.cliente_nombre ?? ""), String(v.cliente_documento ?? ""), String(v.cuenta_contrato ?? ""), String(v.proveedor_nombre ?? ""), String((v as Record<string, unknown>).numero_pedido ?? "")].join(" ").toLowerCase();
+        const hay = [String(v.id ?? ""), String(v.cotizacion_codigo ?? ""), String(v.cliente_nombre ?? ""), String(v.cliente_documento ?? ""), String(v.cuenta_contrato ?? ""), String(v.proveedor_nombre ?? ""), String(v.numero_pedido ?? ""), String(v.pv_abono ?? "")].join(" ").toLowerCase();
         if (!hay.includes(s)) return false;
       }
       if (fSol && String(v.estado ?? "").toLowerCase() !== fSol) return false;
@@ -295,15 +296,16 @@ export default function InstalacionesPage() {
         title="Instalaciones"
         desc="Ventas con PV generado: el proveedor solicita liquidación y luego se liquida. Busca arriba, tabla debajo."
         actions={<>
-          <button className="btn-white !bg-white/95" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
+          <button className="btn-white !bg-white/95" onClick={() => cargar()} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
           <button className="btn-white !bg-white/95" onClick={exportar} disabled={filtradas.length === 0}>Exportar XLSX</button>
         </>}
       />
       <div className="card p-4 mt-4 flex flex-wrap gap-3 items-end">
         <div className="flex-1 min-w-[220px]">
-          <label className="label">Buscar (venta, cotización, cliente, cuenta contrato, proveedor, PV)</label>
-          <input className="input" placeholder="Ej. VTA-000001, COT-AMCA-00005, DNI, PV-123" value={q} onChange={(e) => setQ(e.target.value)} />
+          <label className="label">Buscar (venta, cotización, cliente, cuenta contrato, proveedor, PV normal o abono)</label>
+          <input className="input" placeholder="Ej. VTA-000001, COT-AMCA-00005, DNI, PV-123" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && cargar()} />
         </div>
+        <button className="btn-green !py-2" onClick={() => cargar()} disabled={loading}>{loading ? "Buscando…" : "Buscar"}</button>
         <div>
           <label className="label">Estado venta</label>
           <select className="input !w-auto" value={fSol} onChange={(e) => setFSol(e.target.value)}>
@@ -330,7 +332,7 @@ export default function InstalacionesPage() {
           <label className="label">Hasta</label>
           <input type="date" className="input !w-auto" value={fHasta} onChange={(e) => setFHasta(e.target.value)} />
         </div>
-        <button className="btn-white !py-2" onClick={() => { setQ(""); setFSol(""); setFInst(""); setFDesde(""); setFHasta(""); }}>Limpiar filtros</button>
+        <button className="btn-white !py-2" onClick={() => { setQ(""); setFSol(""); setFInst(""); setFDesde(""); setFHasta(""); cargar(""); }}>Limpiar filtros</button>
       </div>
 
       {error && <p className="card p-4 mt-4 text-sm text-red-700 bg-red-50 border-red-200">{error}</p>}

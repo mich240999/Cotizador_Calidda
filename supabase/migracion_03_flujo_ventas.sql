@@ -68,6 +68,45 @@ ALTER TABLE public.vta_solicitudes_venta
   ADD COLUMN IF NOT EXISTS codigo_llamada TEXT,
   ADD COLUMN IF NOT EXISTS pv_abono TEXT;
 
+-- ---------------------------------------------------------------- ETAPA 7
+-- Matriz de permisos: refleja el sistema nuevo.
+-- - 02 pasa a "Generar solicitud desde cotización" (ya no hay botón manual).
+-- - 07 pasa a "Solicitar liquidación (proveedor)".
+-- - Nuevos: 09 Registrar PV, 10 Liquidar venta, ADMINISTRACION-45 Cortes.
+-- La matriz es informativa/gestionable en Administración > Permisos;
+-- la ejecución sigue validando por rol en cada operación (sin cambios).
+
+ALTER TABLE public.seg_permisos_matriz
+  ADD COLUMN IF NOT EXISTS nombre TEXT;
+
+INSERT INTO public.seg_permisos_matriz (rol_codigo, modulo, grupo, recurso, nombre, permitido)
+SELECT r, 'GESTION_COMERCIAL', 'Ventas', x.recurso, x.nombre,
+  (r = 'ADMIN')
+FROM (VALUES
+  ('GESTION_COMERCIAL-09', 'Registrar PV y generar solicitud'),
+  ('GESTION_COMERCIAL-10', 'Liquidar venta')
+) AS x(recurso, nombre)
+CROSS JOIN (VALUES ('ADMIN'), ('PROVEEDOR'), ('SUPERVISOR'), ('ASESOR')) AS r(r)
+ON CONFLICT (rol_codigo, recurso) DO NOTHING;
+
+INSERT INTO public.seg_permisos_matriz (rol_codigo, modulo, grupo, recurso, nombre, permitido)
+SELECT r, 'ADMINISTRACION', 'Cortes', 'ADMINISTRACION-45', 'Configurar cortes programados',
+  (r = 'ADMIN')
+FROM (VALUES ('ADMIN'), ('PROVEEDOR'), ('SUPERVISOR'), ('ASESOR')) AS r(r)
+ON CONFLICT (rol_codigo, recurso) DO NOTHING;
+
+UPDATE public.seg_permisos_matriz SET nombre = 'Generar solicitud desde cotización'
+  WHERE recurso = 'GESTION_COMERCIAL-02';
+UPDATE public.seg_permisos_matriz SET nombre = 'Solicitar liquidación (proveedor)'
+  WHERE recurso = 'GESTION_COMERCIAL-07';
+
+UPDATE public.seg_permisos_matriz SET permitido = true
+  WHERE rol_codigo = 'ADMIN' AND recurso IN ('GESTION_COMERCIAL-09', 'GESTION_COMERCIAL-10', 'ADMINISTRACION-45');
+UPDATE public.seg_permisos_matriz SET permitido = true
+  WHERE rol_codigo = 'PROVEEDOR' AND recurso = 'GESTION_COMERCIAL-07';
+UPDATE public.seg_permisos_matriz SET permitido = true
+  WHERE rol_codigo = 'ASESOR' AND recurso IN ('GESTION_COMERCIAL-01', 'GESTION_COMERCIAL-02', 'GESTION_COMERCIAL-03');
+
 -- ---------------------------------------------------------------- ETAPA 5
 -- Cortes programados: horas y correos configurables desde Administración.
 -- pg_cron llama cada 15 min al endpoint; el endpoint envía solo en las

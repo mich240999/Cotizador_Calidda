@@ -24,8 +24,8 @@ SELECT cron.schedule(
   '*/15 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://TU-APP.vercel.app/api/cron/cortes?tipo=todos',
-    headers := '{"Authorization": "Bearer TU-SECRETO"}'::jsonb
+    url := 'https://cotizador-calidda.onrender.com/api/cron/cortes?tipo=todos',
+    headers := '{"Authorization": "Bearer a8acf600aaa175ef2711afc4c08e97f1"}'::jsonb
   );
   $$
 );

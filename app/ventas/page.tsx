@@ -378,11 +378,11 @@ export default function VentasPage() {
     }
   };
 
-  const cargar = async () => {
+  const cargar = async (qry?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const datos = await apiOperacion<unknown>("listarVentas", { limit: 200, page: 1, pageSize: 200 });
+      const datos = await apiOperacion<unknown>("listarVentas", { q: (qry ?? q).trim(), limit: 200, page: 1, pageSize: 200 });
       const arr = Array.isArray(datos) ? datos : ((datos as { rows?: unknown })?.rows ?? []);
       setRows(Array.isArray(arr) ? (arr as Venta[]) : []);
     } catch (e) {
@@ -394,7 +394,8 @@ export default function VentasPage() {
   };
 
   useEffect(() => {
-    cargar();
+    cargar("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const historico = useMemo(() => {
@@ -402,7 +403,7 @@ export default function VentasPage() {
     return rows.filter((v) => {
       const r = v as Record<string, unknown>;
       if (s) {
-        const hay = [ventaNumero(v), ventaCliente(v), ventaDoc(v), String(r.cliente_nombre ?? ""), String(r.cuenta_contrato ?? ""), String(r.cotizacion_codigo ?? "")].join(" ").toLowerCase();
+        const hay = [ventaNumero(v), ventaCliente(v), ventaDoc(v), String(r.cliente_nombre ?? ""), String(r.cuenta_contrato ?? ""), String(r.cotizacion_codigo ?? ""), String(r.numero_pedido ?? ""), String(r.pv_abono ?? "")].join(" ").toLowerCase();
         if (!hay.includes(s)) return false;
       }
       if (fEst !== "TODOS" && ventaEstado(v).toLowerCase() !== fEst) return false;
@@ -587,9 +588,10 @@ export default function VentasPage() {
           <p className="font-bold">2. Histórico de solicitudes</p>
           <div className="flex flex-wrap gap-3 items-end mt-3">
             <div className="flex-1 min-w-[200px]">
-              <label className="label">Buscar</label>
-              <input className="input" placeholder="Número, cotización, cliente, cuenta contrato" value={q} onChange={(e) => setQ(e.target.value)} />
+              <label className="label">Buscar (número, cotización, cliente, cuenta contrato, PV)</label>
+              <input className="input" placeholder="Número, cotización, cliente, cuenta contrato, PV normal o de abono" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && cargar()} />
             </div>
+            <button className="btn-green !py-2" onClick={() => cargar()} disabled={loading}>{loading ? "Buscando…" : "Buscar"}</button>
             <div>
               <label className="label">Estado</label>
               <select className="input !w-auto" value={fEst} onChange={(e) => setFEst(e.target.value)}>
@@ -605,7 +607,7 @@ export default function VentasPage() {
               <label className="label">Hasta</label>
               <input type="date" className="input !w-auto" value={fHasta} onChange={(e) => setFHasta(e.target.value)} />
             </div>
-            <button className="btn-white !py-2" onClick={() => { setQ(""); setFEst("TODOS"); setFDesde(""); setFHasta(""); }}>Limpiar</button>
+            <button className="btn-white !py-2" onClick={() => { setQ(""); setFEst("TODOS"); setFDesde(""); setFHasta(""); cargar(""); }}>Limpiar</button>
           </div>
         </div>
 

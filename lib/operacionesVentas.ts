@@ -420,8 +420,40 @@ async function hListarVentas(args: z.infer<typeof EsquemaListarVentas>, ctx: Ope
     if (args.estado) q = q.eq("estado", args.estado.toLowerCase());
     if (args.canal) q = q.eq("canal", args.canal.toLowerCase());
     if (args.q) {
+      // Búsqueda exacta o por coincidencia (ilike): incluye PV normal y de
+      // abono, a nivel cabecera y de ítems.
       const s = args.q.replace(/[%(),]/g, "");
-      q = q.or(`id.ilike.%${s}%,id_cliente.ilike.%${s}%,id_proveedor.ilike.%${s}%,observaciones.ilike.%${s}%`);
+      let idsPorPV: string[] = [];
+      try {
+        const { data: its } = await ctx.service.from(T_ITEM).select("solicitud_id")
+          .or(`numero_pedido_venta.ilike.%${s}%,numero_pedido_abono.ilike.%${s}%`).limit(500);
+        idsPorPV = [...new Set(((its ?? []) as Fila[]).map((it) => String(it.solicitud_id)))];
+      } catch { /* sin columnas de pedido */ }
+      const base = `id.ilike.%${s}%,id_cliente.ilike.%${s}%,id_proveedor.ilike.%${s}%,observaciones.ilike.%${s}%`;
+      const conPV = `${base},numero_pedido.ilike.%${s}%,pv_abono.ilike.%${s}%`
+        + (idsPorPV.length ? `,id.in.(${idsPorPV.map((x) => `"${x}"`).join(",")})` : "");
+      q = q.or(conPV);
+      const { data, error, count } = await q.range(desde, desde + args.pageSize - 1);
+      if (error && /column|schema cache/i.test(error.message)) {
+        // BD sin migración 03-04: reintenta sin columnas nuevas.
+        let q2 = ctx.service.from(T_SOL).select("*", { count: "exact" }).order("created_at", { ascending: false });
+        if (!sc.todo) {
+          if (sc.proveedor) q2 = q2.or(`id_proveedor.eq.${sc.proveedor},created_by.eq.${ctx.sesion.userId}`);
+          else q2 = q2.eq("created_by", ctx.sesion.userId);
+        }
+        if (args.estado) q2 = q2.eq("estado", args.estado.toLowerCase());
+        if (args.canal) q2 = q2.eq("canal", args.canal.toLowerCase());
+        q2 = q2.or(base);
+        const r2 = await q2.range(desde, desde + args.pageSize - 1);
+        if (r2.error) throw new Error(r2.error.message);
+        const rows2 = ((r2.data ?? []) as Fila[]);
+        const enr2 = await enriquecerSolicitudes(ctx, rows2);
+        return { rows: enr2, total: r2.count ?? rows2.length, page: args.page, pageSize: args.pageSize };
+      }
+      if (error) throw new Error(error.message);
+      const rows = ((data ?? []) as Fila[]);
+      const enriquecidas = await enriquecerSolicitudes(ctx, rows);
+      return { rows: enriquecidas, total: count ?? rows.length, page: args.page, pageSize: args.pageSize };
     }
     const { data, error, count } = await q.range(desde, desde + args.pageSize - 1);
     if (error) throw new Error(error.message);
@@ -1556,23 +1588,59 @@ const EsquemaLiquidar = z.object({
 async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalaciones>, ctx: OperacionContext) {
   try {
     const desde = (args.page - 1) * args.pageSize;
-    let q = ctx.service.from(T_SOL).select("*", { count: "exact" }).order("created_at", { ascending: false });
     const sc = alcanceVentas(ctx);
-    if (!sc.todo) {
-      if (sc.proveedor) q = q.or(`id_proveedor.eq.${sc.proveedor},created_by.eq.${ctx.sesion.userId}`);
-      else q = q.eq("created_by", ctx.sesion.userId);
-    }
-    q = q.in("estado", ["generada", "aprobada", "en_instalacion", "instalada", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"]);
-    if (args.estado_sol) q = q.eq("estado", args.estado_sol.toLowerCase());
-    if (args.desde) q = q.gte("created_at", `${args.desde}T00:00:00`);
-    if (args.hasta) q = q.lte("created_at", `${args.hasta}T23:59:59`);
+    const armar = (conPV: boolean) => {
+      let qq = ctx.service.from(T_SOL).select("*", { count: "exact" }).order("created_at", { ascending: false });
+      if (!sc.todo) {
+        if (sc.proveedor) qq = qq.or(`id_proveedor.eq.${sc.proveedor},created_by.eq.${ctx.sesion.userId}`);
+        else qq = qq.eq("created_by", ctx.sesion.userId);
+      }
+      qq = qq.in("estado", ["generada", "aprobada", "en_instalacion", "instalada", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"]);
+      if (args.estado_sol) qq = qq.eq("estado", args.estado_sol.toLowerCase());
+      if (args.desde) qq = qq.gte("created_at", `${args.desde}T00:00:00`);
+      if (args.hasta) qq = qq.lte("created_at", `${args.hasta}T23:59:59`);
+      if (args.q) {
+        const s = args.q.replace(/[%(),]/g, "");
+        let orQ = `id.ilike.%${s}%,id_cliente.ilike.%${s}%,id_proveedor.ilike.%${s}%,observaciones.ilike.%${s}%`;
+        if (conPV) orQ += `,numero_pedido.ilike.%${s}%,pv_abono.ilike.%${s}%`;
+        qq = qq.or(orQ);
+      }
+      return qq.range(desde, desde + args.pageSize - 1);
+    };
+    // PV de ítems → solicitudes (best-effort, sin columnas nuevas = vacío).
+    let idsPorPV: string[] = [];
     if (args.q) {
-      const s = args.q.replace(/[%(),]/g, "");
-      q = q.or(`id.ilike.%${s}%,id_cliente.ilike.%${s}%,id_proveedor.ilike.%${s}%,observaciones.ilike.%${s}%,numero_pedido.ilike.%${s}%`);
+      try {
+        const s = args.q.replace(/[%(),]/g, "");
+        const { data: its } = await ctx.service.from(T_ITEM).select("solicitud_id")
+          .or(`numero_pedido_venta.ilike.%${s}%,numero_pedido_abono.ilike.%${s}%`).limit(500);
+        idsPorPV = [...new Set(((its ?? []) as Fila[]).map((it) => String(it.solicitud_id)))];
+      } catch { /* sin columnas de pedido */ }
     }
-    const { data, error, count } = await q.range(desde, desde + args.pageSize - 1);
+    let { data, error, count } = await armar(true);
+    if (error && /column|schema cache/i.test(error.message)) {
+      // BD sin migración 03-04: reintenta sin columnas nuevas.
+      ({ data, error, count } = await armar(false));
+    }
     if (error) throw new Error(error.message);
     let rows = ((data ?? []) as Fila[]);
+    if (idsPorPV.length && args.q) {
+      try {
+        const { data: extra } = await ctx.service.from(T_SOL).select("*").in("id", idsPorPV).limit(200);
+        const vistas = new Set(rows.map((r) => String(r.id)));
+        const estadosOK = ["generada", "aprobada", "en_instalacion", "instalada", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"];
+        for (const r of ((extra ?? []) as Fila[])) {
+          if (vistas.has(String(r.id))) continue;
+          if (!estadosOK.includes(String(r.estado ?? "").toLowerCase())) continue;
+          if (!sc.todo) {
+            const mismaEmpresa = !!sc.proveedor && String(r.id_proveedor ?? "") === sc.proveedor;
+            if (!mismaEmpresa && String(r.created_by ?? "") !== ctx.sesion.userId) continue;
+          }
+          rows = [...rows, r];
+          vistas.add(String(r.id));
+        }
+      } catch { /* sin coincidencias extra */ }
+    }
     // Instalación por solicitud (izquierda: sin fila = pendiente de instalar).
     const mIns = new Map<string, Fila>();
     if (rows.length) {
