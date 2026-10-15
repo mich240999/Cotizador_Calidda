@@ -389,6 +389,50 @@ function VisualizarModal({ c, onClose, onCambio }: { c: Cliente; onClose: () => 
   );
 }
 
+const FILAS_POR_LOTE = 800;
+
+/** Divide el CSV en filas respetando celdas entrecomilladas (multilínea). */
+function dividirFilasCSV(texto: string): string[] {
+  const filas: string[] = [];
+  let cur = "";
+  let entre = false;
+  const salto = () => {
+    if (cur !== "" || filas.length === 0) filas.push(cur);
+    cur = "";
+  };
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto[i];
+    if (entre) {
+      if (ch === '"') {
+        if (texto[i + 1] === '"') { cur += '""'; i++; }
+        else { entre = false; cur += ch; }
+      } else cur += ch;
+    } else if (ch === '"') {
+      entre = true;
+      cur += ch;
+    } else if (ch === "\n") {
+      salto();
+    } else if (ch === "\r") {
+      /* se ignora */
+    } else cur += ch;
+  }
+  if (cur !== "") filas.push(cur);
+  return filas.filter((f, i) => i === 0 || f.trim() !== "");
+}
+
+/** Parte el contenido en lotes (cabecera + N filas) para no saturar la subida. */
+function partirEnLotes(texto: string): string[] {
+  const filas = dividirFilasCSV(texto.trim());
+  if (filas.length <= 1) return [texto.trim()];
+  const cabeza = filas[0];
+  const datos = filas.slice(1);
+  const lotes: string[] = [];
+  for (let i = 0; i < datos.length; i += FILAS_POR_LOTE) {
+    lotes.push([cabeza, ...datos.slice(i, i + FILAS_POR_LOTE)].join("\n"));
+  }
+  return lotes;
+}
+
 function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onProcesado: () => void }) {
   const [texto, setTexto] = useState("");
   const [archivo, setArchivo] = useState("");
@@ -463,16 +507,24 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
     if (!texto.trim()) { setMsg("Selecciona o arrastra un archivo CSV/XLSX primero."); return; }
     setTrabajando(true);
     try {
-      let r: { total?: number; validas?: number; errores?: string[] };
-      try {
-        r = await apiOperacion("validarArchivoClientes", { csv: texto });
-      } catch {
-        r = { total: 0, validas: 0, errores: ["Validación no disponible: ejecuta el backend actualizado"] };
+      const lotes = partirEnLotes(texto);
+      let validas = 0;
+      const errs: string[] = [];
+      for (let i = 0; i < lotes.length; i++) {
+        setResultado(`Validando lote ${i + 1} de ${lotes.length}…`);
+        try {
+          const r = await apiOperacion<{ total?: number; validas?: number; errores?: string[] }>("validarArchivoClientes", { csv: lotes[i] });
+          validas += r?.validas ?? 0;
+          for (const e of (r?.errores ?? [])) {
+            if (errs.length < 200) errs.push(e);
+          }
+        } catch {
+          errs.push(`Lote ${i + 1}: no se pudo validar (revisa tu conexión o actualiza el backend)`);
+        }
       }
-      const errs = r.errores ?? [];
       setResultado(errs.length === 0
-        ? `Archivo válido: ${r.validas ?? 0} filas listas para crear.`
-        : `${r.validas ?? 0} válidas · ${errs.length} errores:\n${errs.slice(0, 10).join("\n")}${errs.length > 10 ? `\n…y ${errs.length - 10} más` : ""}`);
+        ? `Archivo válido: ${validas} filas listas para crear.`
+        : `${validas} válidas · ${errs.length} errores:\n${errs.slice(0, 10).join("\n")}${errs.length > 10 ? `\n…y ${errs.length - 10} más` : ""}`);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "No se pudo validar");
     } finally {
@@ -485,9 +537,24 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
     if (!texto.trim()) { setMsg("Selecciona o arrastra un archivo CSV/XLSX primero."); return; }
     setTrabajando(true);
     try {
-      const r = await apiOperacion<{ total?: number; insertadas?: number; errores?: string[] }>("cargaMasivaClientes", { csv: texto, validar_sap: validarSap });
-      const errs = r?.errores ?? [];
-      setResultado(`Creados ${r?.insertadas ?? 0} de ${r?.total ?? 0}.${errs.length > 0 ? `\nErrores:\n${errs.slice(0, 10).join("\n")}` : ""}`);
+      const lotes = partirEnLotes(texto);
+      let total = 0;
+      let insertadas = 0;
+      const errs: string[] = [];
+      for (let i = 0; i < lotes.length; i++) {
+        setResultado(`Procesando lote ${i + 1} de ${lotes.length}… (${insertadas} creados)`);
+        try {
+          const r = await apiOperacion<{ total?: number; insertadas?: number; errores?: string[] }>("cargaMasivaClientes", { csv: lotes[i], validar_sap: validarSap });
+          total += r?.total ?? 0;
+          insertadas += r?.insertadas ?? 0;
+          for (const e of (r?.errores ?? [])) {
+            if (errs.length < 200) errs.push(e);
+          }
+        } catch (e) {
+          errs.push(`Lote ${i + 1}: ${e instanceof Error ? e.message : "no se pudo procesar"}`);
+        }
+      }
+      setResultado(`Creados ${insertadas} de ${total}.${errs.length > 0 ? `\nErrores:\n${errs.slice(0, 10).join("\n")}${errs.length > 10 ? `\n…y ${errs.length - 10} más` : ""}` : ""}`);
       onProcesado();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "No se pudo procesar");

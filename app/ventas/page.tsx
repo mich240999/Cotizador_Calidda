@@ -501,13 +501,9 @@ export default function VentasPage() {
                       <td>{c.asesor ?? "—"}</td>
                       <td className="whitespace-nowrap font-bold">{formatoMoneda(c.total)}</td>
                       <td>
-                        {c.solicitud_id ? (
-                          <span className="text-[11px] font-bold bg-slate-100 text-slate-500 rounded-lg px-2 py-1">Ya registrada</span>
-                        ) : (
-                          <button className="btn-green !py-1.5 !text-xs whitespace-nowrap" disabled={generando === c.id} onClick={() => generarSolicitud(c)}>
-                            {generando === c.id ? "Abriendo…" : "Generar solicitud"}
-                          </button>
-                        )}
+                        <button className="btn-green !py-1.5 !text-xs whitespace-nowrap" disabled={generando === c.id} onClick={() => generarSolicitud(c)}>
+                          {generando === c.id ? "Abriendo…" : "Generar solicitud"}
+                        </button>
                       </td>
                     </tr>
                   ))}

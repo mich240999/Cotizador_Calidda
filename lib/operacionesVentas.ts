@@ -1274,7 +1274,9 @@ async function anotarConSolicitud(ctx: OperacionContext, cots: Fila[]): Promise<
       }
     } catch { /* sin columna/tabla: ninguna marcada */ }
   }
-  return cots.map((c) => {
+  // Solo cotizaciones SIN solicitud: las que ya tienen no vuelven a salir
+  // ni permiten crear otra.
+  return cots.filter((c) => !mSol.has(String(c.id))).map((c) => {
     const cli = (c.clientes ?? {}) as Record<string, any>;
     return {
       id: c.id,
@@ -1291,7 +1293,7 @@ async function anotarConSolicitud(ctx: OperacionContext, cots: Fila[]): Promise<
       cliente_doc: cli.dni ?? null,
       cliente_email: cli.email ?? null,
       cliente_telefono: cli.telefono ?? null,
-      solicitud_id: mSol.get(String(c.id)) ?? null,
+      solicitud_id: null,
     };
   });
 }
