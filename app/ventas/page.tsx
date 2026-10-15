@@ -436,7 +436,7 @@ export default function VentasPage() {
       cot: String(r.cotizacion_codigo ?? "—"),
       cli: ventaCliente(v),
       cta: String(r.cuenta_contrato ?? "—"),
-      prov: ventaProveedor(v),
+      prov: String(r.proveedor_nombre ?? ventaProveedor(v)),
       ase: String(r.asesor_nombre ?? "—"),
       total: Number(r.monto_total ?? ventaTotal(v)),
       ant: Number(r.anticipo ?? 0),
