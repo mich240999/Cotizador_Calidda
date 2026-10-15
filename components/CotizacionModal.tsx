@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiOperacion } from "./Tablas";
 import { AccQuitar } from "./Accion";
 import { componerObservaciones } from "@/lib/detallesMueble";
+import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
 const CUOTAS = [3, 6, 9, 12, 18, 24, 36, 48, 60];
 const TEA = 0.4;
@@ -24,7 +25,7 @@ function cuotaMensual(capital: number, n: number) {
 
 type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; email?: string; correo?: string; telefono?: string; cuenta_contrato?: string };
 type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string };
-type UsuarioSGT = { id: string | number; nombre: string; telefono?: string; rol?: string; rol_codigo?: string };
+type UsuarioSGT = { id: string | number; nombre: string; telefono?: string; correo?: string; id_proveedor?: string | number | null; rol?: string; rol_codigo?: string };
 type Material = { id: string; codigo?: string; codigo_tmp?: string; nombre: string; descripcion?: string; precio_unit?: number; precio_vigente?: number };
 
 type Fila = { material_id: string; nombre: string; descripcion: string; cant: number; precio: number; dsctoPct: number };
@@ -110,6 +111,25 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
+  // Si quien crea es un asesor logueado, asesor + proveedor ya vienen seteados.
+  const [autoAsesor, setAutoAsesor] = useState(false);
+  useEffect(() => {
+    if (autoAsesor || asesores.length === 0 || cargando) return;
+    (async () => {
+      try {
+        const { data: ses } = await getSupabaseBrowser().auth.getSession();
+        const mail = ses.session?.user?.email?.toLowerCase();
+        if (!mail) return;
+        const yo = asesores.find((x) => String(x.correo ?? "").toLowerCase() === mail);
+        if (yo) {
+          setAutoAsesor(true);
+          elegirAsesor(String(yo.id));
+        }
+      } catch { /* sin sesión legible: selección manual */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asesores, proveedores, cargando, autoAsesor]);
+
   const clientesFiltrados = useMemo(() => {
     const s = buscaCliente.trim().toLowerCase();
     if (!s) return clientes;
@@ -125,7 +145,13 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   const elegirAsesor = (id: string) => {
     setAsesorId(id);
     const u = asesores.find((a) => String(a.id) === id);
-    if (u && u.telefono) setTel(String(u.telefono));
+    if (!u) return;
+    if (u.telefono) setTel(String(u.telefono));
+    // Proveedor del asesor (viene de su usuario): se setea solo.
+    if (u.id_proveedor != null && String(u.id_proveedor) !== "") {
+      const p = proveedores.find((x) => String(x.id) === String(u.id_proveedor));
+      if (p) setProveedor(nombreProv(p));
+    }
   };
 
   const elegirMaterial = (i: number, materialId: string) => {
@@ -314,29 +340,41 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
             </div>
             <div className="mt-3">
               <label className="label">Cliente seleccionado</label>
-              <select className="input" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
-                <option value="">— Seleccionar cliente activo —</option>
-                {clientesFiltrados.map((c) => (
-                  <option key={String(c.id)} value={String(c.id)}>
-                    {nombreCliente(c)}{docCliente(c) ? ` · ${docCliente(c)}` : ""}
-                  </option>
-                ))}
-              </select>
-              {!clienteSel ? (
-                <div className="mt-2 rounded-xl bg-emerald-50/60 border border-emerald-100 p-3">
-                  <p className="font-bold text-sm">Cliente no seleccionado</p>
-                  <p className="text-xs text-slate-500">Busca y selecciona un cliente activo.</p>
-                </div>
-              ) : (
-                <div className="mt-2 rounded-xl bg-emerald-50/60 border border-emerald-100 p-3">
-                  <p className="font-bold text-sm uppercase">{nombreCliente(clienteSel)}</p>
-                  <p className="text-xs text-slate-500">
-                    {[docCliente(clienteSel), mailCliente(clienteSel), clienteSel.telefono].filter(Boolean).join(" · ") || "Sin datos de contacto"}
-                  </p>
-                  {clienteSel.cuenta_contrato && (
-                    <p className="text-xs font-bold text-emerald-700 mt-1">Cta. Contrato: {clienteSel.cuenta_contrato}</p>
-                  )}
-                </div>
+              <textarea
+                className="input bg-slate-50"
+                rows={2}
+                readOnly
+                value={
+                  clienteSel
+                    ? `${nombreCliente(clienteSel).toUpperCase()}\n${[docCliente(clienteSel) && `Doc ${docCliente(clienteSel)}`, mailCliente(clienteSel), clienteSel.telefono, clienteSel.cuenta_contrato && `Cta. Contrato ${clienteSel.cuenta_contrato}`].filter(Boolean).join(" · ") || "Sin datos de contacto"}`
+                    : "Busca arriba y toca un cliente de la lista."
+                }
+              />
+              <div className="mt-2 max-h-44 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
+                {clientesFiltrados.slice(0, 8).map((c) => {
+                  const sel = String(c.id) === clienteId;
+                  return (
+                    <button
+                      key={String(c.id)}
+                      type="button"
+                      onClick={() => setClienteId(String(c.id))}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-sky-50 ${sel ? "bg-emerald-50" : ""}`}
+                    >
+                      <span className={`font-bold ${sel ? "text-emerald-700" : ""}`}>
+                        {sel ? "✓ " : ""}{nombreCliente(c)}
+                      </span>
+                      <span className="block text-[11px] text-slate-500">
+                        {[docCliente(c), mailCliente(c)].filter(Boolean).join(" · ")}
+                      </span>
+                    </button>
+                  );
+                })}
+                {clientesFiltrados.length === 0 && (
+                  <p className="px-3 py-4 text-sm text-slate-400 text-center">Sin coincidencias para esa búsqueda.</p>
+                )}
+              </div>
+              {clientesFiltrados.length > 8 && (
+                <p className="text-[11px] text-slate-400 mt-1">Mostrando 8 de {clientesFiltrados.length}: afina la búsqueda.</p>
               )}
             </div>
           </section>
