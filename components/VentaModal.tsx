@@ -341,7 +341,13 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
       setOk(cod ? `Borrador guardado: ${cod}` : "Borrador guardado correctamente.");
       setTimeout(onClose, 1200);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo guardar");
+      const m = e instanceof Error ? e.message : "No se pudo guardar";
+      // El backend anterior exigía adjuntos: si responde eso, no está actualizado.
+      if (esPrefill && /adjunto_.*(8 character|min)/i.test(m)) {
+        setError("El servidor aún no tiene la actualización (exige adjuntos del flujo anterior). Verifica en /api/version que el commit sea el último y haz Redeploy en Render.");
+      } else {
+        setError(m);
+      }
     } finally {
       setGuardando(false);
     }
