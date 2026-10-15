@@ -21,23 +21,32 @@ type Cot = {
   proveedor?: string | null;
   asesor?: string | null;
   created_by?: string | null;
+  creador_nombre?: string | null;
+  creador_email?: string | null;
   created_at?: string;
   updated_at?: string;
   clientes?: { nombres?: string; nombre?: string } | null;
 };
 
 type Proveedor = { id: string | number; nombre: string };
-type Usuario = { id: string; email?: string; nombre?: string };
 
 function nombreCliente(c: Cot): string {
   return c.clientes?.nombres ?? c.clientes?.nombre ?? "—";
+}
+
+/** Usuario de venta: nombre del asesor o del usuario creador (nunca el UUID). */
+function usuarioVenta(c: Cot): string {
+  const asesor = String(c.asesor ?? "").trim();
+  if (asesor) return asesor;
+  const creador = String(c.creador_nombre ?? "").trim();
+  if (creador) return creador;
+  return "—";
 }
 
 export default function CotizacionesPage() {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<Cot[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
-  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -59,12 +68,6 @@ export default function CotizacionesPage() {
       } catch {
         setProveedores([]);
       }
-      try {
-        const us = await apiOperacion<unknown>("adminListarUsuarios", {});
-        setUsuarios(Array.isArray(us) ? (us as Usuario[]) : []);
-      } catch {
-        setUsuarios([]);
-      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar");
       setRows([]);
@@ -77,6 +80,17 @@ export default function CotizacionesPage() {
     cargar();
   }, []);
 
+  // Opciones del filtro de usuario: nombres de venta presentes en las filas
+  // (funciona para todos los roles, sin depender de adminListarUsuarios).
+  const usuariosFiltro = useMemo(() => {
+    const set = new Map<string, string>();
+    for (const r of rows) {
+      const n = usuarioVenta(r);
+      if (n !== "—") set.set(n.toLowerCase(), n);
+    }
+    return [...set.values()].sort((a, b) => a.localeCompare(b, "es"));
+  }, [rows]);
+
   const filtradas = useMemo(() => {
     const s = q.toLowerCase();
     return rows.filter((r) => {
@@ -85,7 +99,7 @@ export default function CotizacionesPage() {
       if (s && !num.includes(s) && !cli.includes(s)) return false;
       if (estado && String(r.estado ?? "").toUpperCase() !== estado) return false;
       if (prov && String(r.proveedor ?? "") !== prov) return false;
-      if (usuario && String(r.created_by ?? r.asesor ?? "") !== usuario) return false;
+      if (usuario && usuarioVenta(r) !== usuario) return false;
       return true;
     });
   }, [rows, q, estado, prov, usuario]);
@@ -123,8 +137,8 @@ export default function CotizacionesPage() {
           </select>
           <select className="input !w-44" value={usuario} onChange={(e) => setUsuario(e.target.value)}>
             <option value="">Usuario: Todos</option>
-            {usuarios.map((u) => (
-              <option key={u.id} value={u.id}>{u.nombre ?? u.email ?? u.id}</option>
+            {usuariosFiltro.map((n) => (
+              <option key={n} value={n}>{n}</option>
             ))}
           </select>
           <button className="btn-white !py-2" onClick={limpiar}>Limpiar filtros</button>
@@ -147,7 +161,7 @@ export default function CotizacionesPage() {
                     <td className="font-bold text-[#0099D8]">{r.codigo ?? r.numero ?? r.id.slice(0, 8)}</td>
                     <td>{nombreCliente(r)}</td>
                     <td>{r.proveedor ?? "—"}</td>
-                    <td>{r.asesor ?? r.created_by ?? "—"}</td>
+                    <td>{usuarioVenta(r)}</td>
                     <td><span className="text-[11px] font-bold bg-amber-100 text-amber-700 rounded-lg px-2 py-1">{String(r.estado ?? "—").toUpperCase()}</span></td>
                     <td>S/ {Number(r.total ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td>{r.plazo ? `${r.plazo} cuotas S/ ${Number(r.cuota_mensual ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</td>

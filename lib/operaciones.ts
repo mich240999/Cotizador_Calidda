@@ -210,7 +210,26 @@ async function hListarCotizaciones(args: z.infer<typeof EsquemaListarCotizacione
   if (cliente_id) query = query.eq("cliente_id", cliente_id);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return data ?? [];
+  const rows = ((data ?? []) as Record<string, any>[]);
+  // Nombre del usuario de venta: created_by es UUID de profiles.
+  // Se adjunta creador_nombre para no mostrar el UUID en la lista.
+  try {
+    const ids = [...new Set(rows.map((r) => String(r.created_by ?? "")).filter(Boolean))];
+    if (ids.length > 0) {
+      const { data: profs, error: eP } = await ctx.service.from("profiles").select("id,nombre,email").in("id", ids);
+      if (!eP && profs) {
+        const porId = new Map(((profs ?? []) as Record<string, any>[]).map((p) => [String(p.id), p]));
+        for (const r of rows) {
+          const p = porId.get(String(r.created_by ?? ""));
+          if (p) {
+            r.creador_nombre = String(p.nombre ?? p.email ?? "");
+            r.creador_email = String(p.email ?? "");
+          }
+        }
+      }
+    }
+  } catch { /* sin perfiles: la UI muestra asesor o id */ }
+  return rows;
 }
 
 async function hCambiarEstado(args: z.infer<typeof EsquemaCambiarEstado>, ctx: OperacionContext) {
