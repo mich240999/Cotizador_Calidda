@@ -263,7 +263,12 @@ export default function CotizacionDetallePage({
               <div className="card p-5">
                 <h2 className="font-semibold mb-2">Totales</h2>
                 {(() => {
-                  const importe = Number(cot.total ?? cot.subtotal ?? 0);
+                  // Importe = sumatoria de precios de los productos SIN IGV
+                  // (el IGV solo va en las cuotas del financiamiento).
+                  const sumaItems = items.length > 0
+                    ? Math.round(items.reduce((a, it) => a + lineaImporte(it), 0) * 100) / 100
+                    : 0;
+                  const importe = sumaItems > 0 ? sumaItems : Number(cot.subtotal ?? 0);
                   const adelanto = Number(cot.cuota_inicial ?? cot.cuotaInicial ?? 0);
                   const descuento = Number(cot.descuento ?? 0);
                   const total = Math.max(Math.round((importe - adelanto) * 100) / 100, 0);

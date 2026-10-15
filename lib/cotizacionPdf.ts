@@ -107,9 +107,14 @@ async function obtenerDatosSGT(service: SupabaseClient, numero: string): Promise
 
   const subtotal = Number(c.subtotal ?? 0);
   const descuento = Number(c.descuento ?? 0);
-  const total = Number(c.total ?? 0);
+  const totalStored = Number(c.total ?? 0);
   const cuotaInicial = Number(c.cuota_inicial ?? 0);
-  const capital = Number(c.capital_financiado ?? (total - cuotaInicial)) || 0;
+  // Importe = sumatoria de productos SIN IGV (el IGV solo va en las cuotas).
+  const netoSgt = Math.round(items.reduce((a, it) => a + it.neto, 0) * 100) / 100;
+  const total = netoSgt > 0 ? netoSgt : totalStored;
+  const capital = netoSgt > 0
+    ? Math.max(Math.round((total - cuotaInicial) * 100) / 100, 0)
+    : (Number(c.capital_financiado ?? (total - cuotaInicial)) || 0);
   const tea = teaADecimal(Number(c.tea ?? 40));
   const plazo = Number(c.cuotas_elegidas ?? 9) || 9;
 
@@ -194,11 +199,13 @@ async function obtenerDatosLegacy(service: SupabaseClient, id: string): Promise<
   });
   const bruto = items.reduce((a, it) => a + it.cant * it.punit, 0);
   const netoSum = items.reduce((a, it) => a + it.neto, 0);
-  const subtotal = Number(c.subtotal ?? bruto) || Math.round(bruto * 100) / 100;
-  const total = Number(c.total ?? netoSum) || Math.round(netoSum * 100) / 100;
-  const descuento = c.descuento != null ? Number(c.descuento) : Math.round((subtotal - total) * 100) / 100;
+  const netoItems = Math.round(netoSum * 100) / 100;
+  // Importe = sumatoria de productos SIN IGV (el IGV solo va en las cuotas).
+  const total = netoItems > 0 ? netoItems : (Number(c.total ?? 0) || 0);
+  const subtotal = netoItems > 0 ? netoItems : (Number(c.subtotal ?? bruto) || Math.round(bruto * 100) / 100);
+  const descuento = c.descuento != null ? Number(c.descuento) : Math.max(Math.round((subtotal - total) * 100) / 100, 0);
   const cuotaInicial = Number(c.cuota_inicial ?? 0) || 0;
-  const capital = Number(c.capital ?? (total - cuotaInicial)) || total - cuotaInicial;
+  const capital = Math.max(Math.round((total - cuotaInicial) * 100) / 100, 0);
   const tea = teaADecimal(Number(c.tea ?? 0.40));
   const plazo = Number(c.plazo ?? 9) || 9;
   let tabla = tablaSimulacion(capital > 0 ? capital : total, tea, PLAZOS_SIMULACION, true)
