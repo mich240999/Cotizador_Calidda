@@ -1209,10 +1209,41 @@ async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionCo
     if (rAbonos.error) throw new Error(rAbonos.error.message);
     if (rIns.error) throw new Error(rIns.error.message);
     const nombres = await resolverNombres(ctx, [sol]);
-    const n = nombres.get(String(sol.id)) ?? { asesor: null, creado_por: null } as { asesor: string | null; creado_por: string | null };
+    const n = nombres.get(String(sol.id)) ?? { cliente: null, documento: null, proveedor: null, asesor: null, creado_por: null, cuenta_contrato: null, ambiente: null, nse: null };
+    // Nombres de materiales (código + descripción) para los ítems.
+    const itemsRaw = ((rItems.data ?? []) as Fila[]);
+    const idsMat = [...new Set(itemsRaw.map((it) => String(it.id_material ?? "")).filter(Boolean))];
+    const mMat = new Map<string, Fila>();
+    if (idsMat.length) {
+      try {
+        const { data: mats } = await ctx.service.from("mae_materiales").select("id,nombre,descripcion,codigo_tmp,codigo_sap").in("id", idsMat);
+        for (const m of ((mats ?? []) as Fila[])) mMat.set(String(m.id), m);
+      } catch { /* sin maestro: se muestra el id */ }
+    }
+    const items = itemsRaw.map((it) => {
+      const m = mMat.get(String(it.id_material ?? ""));
+      const codigo = String(m?.codigo_tmp ?? m?.codigo_sap ?? "");
+      const nombre = String(m?.nombre ?? "");
+      const desc = String(m?.descripcion ?? "");
+      return {
+        ...it,
+        material_codigo: codigo,
+        material_nombre: nombre || String(it.id_material ?? ""),
+        material_descripcion: desc || nombre || String(it.id_material ?? ""),
+      };
+    });
     return {
-      solicitud: { ...sol, asesor_nombre: n.asesor, creado_por_nombre: n.creado_por },
-      items: rItems.data ?? [],
+      solicitud: {
+        ...sol,
+        cliente_nombre: n.cliente,
+        cliente_documento: n.documento,
+        proveedor_nombre: n.proveedor,
+        asesor_nombre: (sol.asesor_nombre ?? null) || n.asesor,
+        creado_por_nombre: n.creado_por,
+        cuenta_contrato: (sol.cuenta_contrato ?? null) || n.cuenta_contrato,
+        ambiente: (sol.ambiente ?? null) || n.ambiente,
+      },
+      items,
       abonos: rAbonos.data ?? [],
       instalacion: rIns.data ?? null,
     };

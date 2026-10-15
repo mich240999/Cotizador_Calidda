@@ -178,15 +178,23 @@ function VisorVenta({ id, onClose }: { id: string; onClose: () => void }) {
               <div className="table-wrap"><table className="tabla">
                 <thead><tr><th>MATERIAL</th><th>CANT.</th><th>P. UNIT</th><th>MODO</th><th>SUBTOTAL</th></tr></thead>
                 <tbody>
-                  {items.map((it, i) => (
-                    <tr key={String(it.id ?? i)}>
-                      <td>{String(it.nombre ?? it.id_material ?? "—")}</td>
-                      <td>{String(it.cantidad ?? "")}</td>
-                      <td>{formatoMoneda(Number(it.precio_unit ?? 0))}</td>
-                      <td className="capitalize">{String(it.modo ?? "")}</td>
-                      <td>{formatoMoneda(Number(it.subtotal ?? 0))}</td>
-                    </tr>
-                  ))}
+                  {items.map((it, i) => {
+                    const cod = String(it.material_codigo ?? "");
+                    const nom = String(it.material_nombre ?? it.nombre ?? it.id_material ?? "—");
+                    const des = String(it.material_descripcion ?? "");
+                    return (
+                      <tr key={String(it.id ?? i)}>
+                        <td>
+                          <p className="font-bold">{cod ? `${cod} · ${nom}` : nom}</p>
+                          {des && des !== nom && <p className="text-[11px] text-slate-500">{des}</p>}
+                        </td>
+                        <td>{String(it.cantidad ?? "")}</td>
+                        <td>{formatoMoneda(Number(it.precio_unit ?? 0))}</td>
+                        <td className="capitalize">{String(it.modo ?? "")}</td>
+                        <td>{formatoMoneda(Number(it.subtotal ?? 0))}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table></div>
             </div>
