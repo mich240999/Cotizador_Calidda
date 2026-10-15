@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cuotaFrancesaConIgv, tablaSimulacion, PLAZOS_SIMULACION } from "./financiamiento";
-import { extraerDetalles } from "./detallesMueble";
+import { extraerDetalles, DETALLES_LABELS } from "./detallesMueble";
 
 /** SOLO SERVER: construcción del PDF estilo captura COT-AMCA-00012.
  *  Fuente 100% BD SGT360: ven_cotizaciones + ven_cotizacion_items +
@@ -503,19 +503,23 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
   doc.setFont("helvetica", "normal"); doc.setFontSize(7); gris(110);
   doc.text("* Cuota mensual con IGV del interés incluido (TEM × 1.18).", ML, y - 6);
 
-  // ---- DETALLES DEL MUEBLE: tabla etiqueta/valor ----
-  if (d.detalles.length > 0) {
+  // ---- DETALLES DEL MUEBLE: siempre visible, luego de las cuotas y
+  // antes de consideraciones. Sin datos muestra "—" por fila.
+  {
+    const detMueble = d.detalles.length > 0
+      ? d.detalles
+      : DETALLES_LABELS.map(({ etiqueta }) => ({ etiqueta, valor: "—" }));
     if (y > 225) { doc.addPage(); y = 18; }
     y = tituloSeccion("DETALLES DEL MUEBLE", y);
     const hFila = 7;
-    const alto = d.detalles.length * hFila;
+    const alto = detMueble.length * hFila;
     if (y + alto > 258) { doc.addPage(); y = 18; }
     const yDet = y;
     const colLab = 72;
     doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
     doc.rect(ML, yDet, ANCHO, alto);
     doc.line(ML + colLab, yDet, ML + colLab, yDet + alto);
-    d.detalles.forEach((t, i) => {
+    detMueble.forEach((t, i) => {
       const yy = yDet + i * hFila;
       if (i > 0) doc.line(ML, yy, MR, yy);
       gris(130); doc.setFont("helvetica", "normal"); doc.setFontSize(7);
