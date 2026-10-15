@@ -200,7 +200,7 @@ export default function OficinasPage() {
               </div>
               <div>
                 <label className="label">Nombre de la oficina *</label>
-                <input className="input" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej. Ambientes Cálidos Norte" />
+                <input className="input" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej. Ambientes Cáliddos Norte" />
               </div>
             </div>
             <div>

@@ -5,7 +5,7 @@ import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import LogoCalidda from "./LogoCalidda";
 
 /**
- * AuthGate — Ambientes Cálidos
+ * AuthGate — Ambientes Cáliddos
  * Auth email + contraseña de Supabase (sin OAuth).
  * - Login: signInWithPassword
  * - Recuperación: resetPasswordForEmail -> link a /auth/callback?next=/actualizar-password
@@ -176,7 +176,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           <div className="relative">
             <Asterisco className="h-12 w-12 sm:h-16 sm:w-16 lg:h-20 lg:w-20 text-white" />
             <h2 className="mt-6 lg:mt-10 text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight">
-              Hola,<br />Ambientes<br />Cálidos!
+              Hola,<br />Ambientes<br />Cáliddos!
             </h2>
             <p className="mt-4 lg:mt-8 text-white/85 text-sm sm:text-base leading-relaxed max-w-sm">
               Cotizaciones, clientes y gestión comercial en un solo lugar.
@@ -191,7 +191,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           <div className="w-full max-w-sm py-6 lg:py-0">
             <div className="flex items-center gap-2.5 sm:gap-3">
               <LogoCalidda className="h-9 sm:h-11 w-auto" />
-              <span className="text-xl sm:text-2xl font-extrabold text-black tracking-tight">Ambientes Cálidos</span>
+              <span className="text-xl sm:text-2xl font-extrabold text-black tracking-tight">Ambientes Cáliddos</span>
             </div>
 
             <h1 className="mt-8 lg:mt-12 text-2xl sm:text-3xl font-extrabold text-black tracking-tight">

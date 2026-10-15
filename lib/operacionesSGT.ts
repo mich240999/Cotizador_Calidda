@@ -4,7 +4,7 @@ import type { OperacionContext } from "./operaciones";
 import { cuotaFrancesaConIgv, tablaSimulacion, temConIgv, PLAZOS_SIMULACION } from "./financiamiento";
 
 /**
- * lib/operacionesSGT.ts — Operaciones Ambientes Cálidos (prefijo SGT).
+ * lib/operacionesSGT.ts — Operaciones Ambientes Cáliddos (prefijo SGT).
  * NO modifica lib/operaciones.ts; este mapa se fusiona en /api/operacion.
  * Todos los handlers usan service_role (ctx.service) y son tolerantes a
  * tablas SGT aún no migradas: si la tabla no existe, degradan a la tabla

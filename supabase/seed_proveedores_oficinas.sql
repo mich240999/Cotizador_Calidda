@@ -1,6 +1,6 @@
 -- ============================================================================
 -- SGT360 · Seed proveedores y oficina de ventas (carga inicial)
--- 13 proveedores + oficina Ambientes Cálidos.
+-- 13 proveedores + oficina Ambientes Cáliddos.
 -- Upsert por id: si el registro ya existe se actualiza con estos valores.
 -- Ejecutar DESPUÉS de supabase/schema_sgt360.sql. Idempotente.
 -- ============================================================================
@@ -28,7 +28,7 @@ ON CONFLICT (id) DO UPDATE SET
   estado = EXCLUDED.estado;
 
 INSERT INTO public.mae_oficinas_ventas (id, codigo_sap, nombre, descripcion, estado) VALUES
-  ('OFV0001', 'AMCA', 'Ambientes Cálidos', 'Venta de Muebles de Melamina', 'ACTIVO')
+  ('OFV0001', 'AMCA', 'Ambientes Cáliddos', 'Venta de Muebles de Melamina', 'ACTIVO')
 ON CONFLICT (id) DO UPDATE SET
   codigo_sap = EXCLUDED.codigo_sap,
   nombre = EXCLUDED.nombre,

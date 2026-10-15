@@ -61,7 +61,7 @@ function CuentaValidada() {
         <div className="w-full max-w-sm py-6 lg:py-0">
           <div className="flex items-center gap-2.5 sm:gap-3">
             <LogoCalidda className="h-9 sm:h-11 w-auto" />
-            <span className="text-xl sm:text-2xl font-extrabold text-black tracking-tight">Ambientes Cálidos</span>
+            <span className="text-xl sm:text-2xl font-extrabold text-black tracking-tight">Ambientes Cáliddos</span>
           </div>
           <div className="mt-10 rounded-2xl border border-slate-200 p-5 text-sm">
             <div className="flex justify-between gap-4 py-1.5 border-b border-slate-100"><span className="text-slate-400">Nombre</span><span className="font-bold text-right">{name}</span></div>
@@ -70,7 +70,7 @@ function CuentaValidada() {
             <div className="flex justify-between gap-4 py-1.5"><span className="text-slate-400">Estado</span><span className={`font-bold ${estado === "Activa" ? "text-emerald-600" : ""}`}>{estado}</span></div>
           </div>
           <Link href="/dashboard" className="mt-6 block w-full rounded-xl bg-[#0077B6] py-3.5 text-center text-[15px] font-semibold text-white transition hover:bg-[#005B96] no-underline">
-            Entrar a Ambientes Cálidos
+            Entrar a Ambientes Cáliddos
           </Link>
           <p className="mt-6 text-center text-[11px] text-slate-400">Versión 1.0.0</p>
         </div>

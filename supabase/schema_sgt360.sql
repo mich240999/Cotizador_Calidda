@@ -386,9 +386,9 @@ ON CONFLICT (id) DO UPDATE SET interlocutor = EXCLUDED.interlocutor, ruc = EXCLU
   razon_social = EXCLUDED.razon_social, nombre_comercial = EXCLUDED.nombre_comercial,
   correo = EXCLUDED.correo, telefono = EXCLUDED.telefono, estado = EXCLUDED.estado;
 
--- 8.3 Oficina Ambientes Cálidos AMCA-OFV0001
+-- 8.3 Oficina Ambientes Cáliddos AMCA-OFV0001
 INSERT INTO public.mae_oficinas_ventas (id, codigo_sap, nombre, descripcion, estado) VALUES
-  ('OFV0001', 'AMCA-OFV0001', 'Ambientes Cálidos', 'Oficina de ventas Ambientes Cálidos', 'ACTIVO')
+  ('OFV0001', 'AMCA-OFV0001', 'Ambientes Cáliddos', 'Oficina de ventas Ambientes Cáliddos', 'ACTIVO')
 ON CONFLICT (id) DO UPDATE SET codigo_sap = EXCLUDED.codigo_sap, nombre = EXCLUDED.nombre,
   descripcion = EXCLUDED.descripcion, estado = EXCLUDED.estado;
 
@@ -399,7 +399,7 @@ ON CONFLICT (id) DO UPDATE SET id_proveedor = EXCLUDED.id_proveedor,
   id_oficina = EXCLUDED.id_oficina, estado = EXCLUDED.estado;
 
 INSERT INTO public.mae_grupos_vendedores (id, codigo_sap, nombre, id_proveedor, id_oficina, estado) VALUES
-  ('GVE0001', 'AMCA-GVE0001', 'Grupo Ventas Ambientes Cálidos', 'PRV0001', 'OFV0001', 'ACTIVO')
+  ('GVE0001', 'AMCA-GVE0001', 'Grupo Ventas Ambientes Cáliddos', 'PRV0001', 'OFV0001', 'ACTIVO')
 ON CONFLICT (id) DO UPDATE SET codigo_sap = EXCLUDED.codigo_sap, nombre = EXCLUDED.nombre,
   id_proveedor = EXCLUDED.id_proveedor, id_oficina = EXCLUDED.id_oficina, estado = EXCLUDED.estado;
 

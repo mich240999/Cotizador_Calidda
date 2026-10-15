@@ -36,7 +36,7 @@ BEGIN
   SELECT id INTO v_ofv FROM public.mae_oficinas_ventas WHERE id = 'OFV0001';
   IF v_ofv IS NULL THEN
     INSERT INTO public.mae_oficinas_ventas (id, codigo_sap, nombre, descripcion, estado)
-    VALUES ('OFV0001','AMCA','Ambientes Cálidos','Venta de Muebles de Melamina','ACTIVO');
+    VALUES ('OFV0001','AMCA','Ambientes Cáliddos','Venta de Muebles de Melamina','ACTIVO');
     v_ofv := 'OFV0001';
   END IF;
   SELECT COALESCE(max(substring(id from 4)::int), 0) INTO v_n FROM public.mae_proveedores WHERE id ~ '^PRV[0-9]{4}$';

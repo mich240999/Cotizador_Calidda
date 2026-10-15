@@ -1,5 +1,5 @@
 /**
- * lib/financiamiento.ts — Matemática financiera Ambientes Cálidos.
+ * lib/financiamiento.ts — Matemática financiera Ambientes Cáliddos.
  *
  * Fórmula usada (cuota fija / sistema francés CON IGV del interés):
  *   TEM      = (1 + TEA)^(1/12) − 1     (TEA en decimal, ej. 40% = 0.40)

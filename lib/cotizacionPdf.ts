@@ -285,7 +285,7 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     doc.text("Cálidda", ML, 12);
   }
   gris(120); doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
-  doc.text("Ambientes Cálidos", ML, 20.5);
+  doc.text("Ambientes Cáliddos", ML, 20.5);
   doc.setTextColor(...TEAL);
   doc.setFont("helvetica", "bold"); doc.setFontSize(13);
   doc.text("COTIZACIÓN", MR, 11, { align: "right" });
@@ -508,7 +508,7 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
     gris(110);
     doc.text(
-      `Documento de Ambientes Cálidos generado desde Cálidda 360 el ${fGen}. Contacto: ${CONTACTO_PDF_TEL} · ${CONTACTO_PDF_EMAIL}`,
+      `Documento de Ambientes Cáliddos generado desde Cálidda 360 el ${fGen}. Contacto: ${CONTACTO_PDF_TEL} · ${CONTACTO_PDF_EMAIL}`,
       W / 2, 288, { align: "center" }
     );
     doc.setFontSize(7);

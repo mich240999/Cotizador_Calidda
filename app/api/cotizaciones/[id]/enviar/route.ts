@@ -15,7 +15,7 @@ const EsquemaBody = z.object({
  * POST /api/cotizaciones/[id]/enviar { para }
  * SOLO SERVER: genera el PDF con service_role y lo envía por SMTP
  * (nodemailer) con el PDF adjunto.
- * Asunto: "Cotización COT-... Ambientes Cálidos".
+ * Asunto: "Cotización COT-... Ambientes Cáliddos".
  */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const sesion = await getSession();
@@ -53,8 +53,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const info = await transporter.sendMail({
       from: SMTP_FROM || SMTP_USER,
       to: body.para,
-      subject: `Cotización ${datos.codigo} Ambientes Cálidos`,
-      text: `Estimado(a) ${datos.clienteNombre ?? ""}:\n\nAdjuntamos su cotización ${datos.codigo} de Ambientes Cálidos por un total de S/ ${Number(datos.total || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.\n\nFinanciamiento: adelanto S/ ${Number(datos.cuotaInicial || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, valor a financiar S/ ${Number(datos.capital || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, TEA ${(datos.tea * 100).toFixed(2)}%, ${datos.plazo} cuotas de S/ ${Number(datos.cuotaMensual || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (cuota con IGV del interés incluido).\n\n${datos.observaciones ?? ""}\n\nDocumento generado por Ambientes Cálidos.`,
+      subject: `Cotización ${datos.codigo} Ambientes Cáliddos`,
+      text: `Estimado(a) ${datos.clienteNombre ?? ""}:\n\nAdjuntamos su cotización ${datos.codigo} de Ambientes Cáliddos por un total de S/ ${Number(datos.total || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.\n\nFinanciamiento: adelanto S/ ${Number(datos.cuotaInicial || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, valor a financiar S/ ${Number(datos.capital || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, TEA ${(datos.tea * 100).toFixed(2)}%, ${datos.plazo} cuotas de S/ ${Number(datos.cuotaMensual || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (cuota con IGV del interés incluido).\n\n${datos.observaciones ?? ""}\n\nDocumento generado por Ambientes Cáliddos.`,
       attachments: [{ filename, content: pdf, contentType: "application/pdf" }]
     });
 

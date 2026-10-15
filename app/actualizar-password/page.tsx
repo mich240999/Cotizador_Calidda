@@ -91,7 +91,7 @@ export default function ActualizarPasswordPage() {
             Nueva<br />contraseña
           </h2>
           <p className="mt-4 text-white/85 text-sm sm:text-base leading-relaxed max-w-sm">
-            Crea una clave segura para volver a entrar a Ambientes Cálidos.
+            Crea una clave segura para volver a entrar a Ambientes Cáliddos.
           </p>
         </div>
         <p className="relative mt-6 text-xs sm:text-sm text-white/60">© 2026 Cálidda. Todos los derechos reservados.</p>
@@ -101,7 +101,7 @@ export default function ActualizarPasswordPage() {
         <div className="w-full max-w-sm py-6 lg:py-0">
           <div className="flex items-center gap-2.5 sm:gap-3">
             <LogoCalidda className="h-9 sm:h-11 w-auto" />
-            <span className="text-xl sm:text-2xl font-extrabold text-black tracking-tight">Ambientes Cálidos</span>
+            <span className="text-xl sm:text-2xl font-extrabold text-black tracking-tight">Ambientes Cáliddos</span>
           </div>
           <h1 className="mt-8 text-2xl sm:text-3xl font-extrabold text-black tracking-tight">Actualiza tu contraseña</h1>
           <p className="mt-2 text-sm text-slate-500">Ingrésala dos veces para confirmar el cambio.</p>

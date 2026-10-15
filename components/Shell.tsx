@@ -143,7 +143,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               <LogoCalidda priority className="h-9 w-auto" />
             <span className="leading-tight">
               <span className="block text-base font-extrabold text-slate-900 dark:text-white tracking-tight">
-                Ambientes Cálidos
+                Ambientes Cáliddos
               </span>
               <span className="block text-[11px] font-medium text-slate-400 dark:text-slate-500">
                 Gestión comercial y financiamiento
@@ -253,7 +253,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       </div>
 
       <footer className="hidden md:block text-center text-[11px] text-slate-400 pb-6">
-        Versión 1.0.0 · Ambientes Cálidos
+        Versión 1.0.0 · Ambientes Cáliddos
       </footer>
     </div>
   );
