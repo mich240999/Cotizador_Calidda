@@ -487,12 +487,17 @@ async function hListarVentas(args: z.infer<typeof EsquemaListarVentas>, ctx: Ope
 async function enriquecerSolicitudes(ctx: OperacionContext, rows: Fila[]): Promise<Fila[]> {
   const nombres = await resolverNombres(ctx, rows);
   const idsCot = [...new Set(rows.map((r) => String(r.cotizacion_id ?? "")).filter(Boolean))];
-  const mCot = new Map<string, { codigo: string; cuenta_contrato: string | null }>();
+  const mCot = new Map<string, { codigo: string; cuenta_contrato: string | null; proveedor: string | null; asesor: string | null }>();
   if (idsCot.length) {
     try {
-      const { data: cots } = await ctx.service.from("cotizaciones").select("id,codigo,cuenta_contrato").in("id", idsCot);
+      const { data: cots } = await ctx.service.from("cotizaciones").select("id,codigo,cuenta_contrato,proveedor,asesor").in("id", idsCot);
       for (const c of ((cots ?? []) as Fila[])) {
-        mCot.set(String(c.id), { codigo: String(c.codigo ?? ""), cuenta_contrato: (c.cuenta_contrato ?? null) as string | null });
+        mCot.set(String(c.id), {
+          codigo: String(c.codigo ?? ""),
+          cuenta_contrato: (c.cuenta_contrato ?? null) as string | null,
+          proveedor: (c.proveedor ?? null) as string | null,
+          asesor: (c.asesor ?? null) as string | null,
+        });
       }
     } catch { /* sin cotizaciones vinculadas */ }
   }
@@ -531,10 +536,10 @@ async function enriquecerSolicitudes(ctx: OperacionContext, rows: Fila[]): Promi
     const anticipo = Math.max(Number(r.anticipo ?? 0) || 0, 0);
     return {
       ...r,
-      cliente_nombre: n.cliente,
-      cliente_documento: n.documento,
-      proveedor_nombre: n.proveedor,
-      asesor_nombre: (r.asesor_nombre ?? null) || n.asesor,
+        cliente_nombre: n.cliente,
+        cliente_documento: n.documento,
+        proveedor_nombre: n.proveedor || cot?.proveedor,
+        asesor_nombre: (r.asesor_nombre ?? null) || n.asesor || cot?.asesor,
       creado_por_nombre: n.creado_por,
       cuenta_contrato: (r.cuenta_contrato ?? null) || cot?.cuenta_contrato || n.cuenta_contrato,
       ambiente: (r.ambiente ?? null) || n.ambiente,
