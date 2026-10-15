@@ -17,6 +17,7 @@ const CARDS = [
   ["roles", "Roles", "Roles del sistema."],
   ["permisos", "Permisos detallados", "Matriz de permisos por rol."],
   ["recursos", "Recursos visuales", "Logos y piezas de la plataforma."],
+  ["cortes", "Cortes programados", "Horas, correos y mensajes de avisos de PV y liquidación."],
 ];
 
 export default function AdminPage() {

@@ -1366,6 +1366,153 @@ async function hRegistrarPV(args: z.infer<typeof EsquemaRegistrarPV>, ctx: Opera
   }
 }
 
+// ---------------------------------------------------------------- Etapa 5: cortes programados
+
+const CLAVES_CORTE = ["ventas_pv", "instalaciones_liq"] as const;
+
+const EsquemaGuardarCorte = z.object({
+  clave: z.enum(["ventas_pv", "instalaciones_liq"]),
+  horas: z.string().trim().max(200).optional().default(""),
+  para: z.string().trim().max(500).optional().default(""),
+  copia: z.string().trim().max(500).optional().default(""),
+  asunto: z.string().trim().max(200).optional().default(""),
+  mensaje: z.string().trim().max(4000).optional().default(""),
+  activo: z.coerce.boolean().optional().default(true),
+});
+
+const EsquemaEnviarCorte = z.object({
+  clave: z.enum(["ventas_pv", "instalaciones_liq"]),
+});
+
+/** Hora actual de Lima (para comparar con las horas configuradas). */
+export function ahoraLima(): { fecha: string; hora: string } {
+  const partes = new Intl.DateTimeFormat("es-PE", {
+    timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const m: Record<string, string> = {};
+  for (const p of partes) m[p.type] = p.value;
+  return { fecha: `${m.year}-${m.month}-${m.day}`, hora: `${m.hour}:${m.minute}` };
+}
+
+type Servicio = { from(t: string): any };
+
+async function contarPendientesPV(service: Servicio): Promise<{ cantidad: number; numeros: string[] }> {
+  const { data, error } = await service.from(T_SOL).select("id,created_at")
+    .in("estado", ["borrador", "observado"]).is("numero_pedido", null)
+    .order("created_at", { ascending: true }).limit(51);
+  if (error) throw new Error(error.message);
+  const filas = ((data ?? []) as Fila[]);
+  return { cantidad: filas.length, numeros: filas.slice(0, 20).map((r) => String(r.id)) };
+}
+
+async function contarPendientesLiquidar(service: Servicio): Promise<{ cantidad: number; numeros: string[] }> {
+  const ids = new Set<string>();
+  try {
+    const { data } = await service.from(T_SOL).select("id")
+      .eq("estado", "validada_proveedor").limit(500);
+    for (const r of ((data ?? []) as Fila[])) ids.add(String(r.id));
+  } catch { /* sin solicitudes */ }
+  try {
+    const { data } = await service.from(T_INS).select("solicitud_id")
+      .eq("estado", "pendiente_liquidar").limit(500);
+    for (const r of ((data ?? []) as Fila[])) ids.add(String(r.solicitud_id));
+  } catch { /* estado nuevo aún sin filas */ }
+  const lista = [...ids].sort();
+  return { cantidad: lista.length, numeros: lista.slice(0, 20) };
+}
+
+function aplicarPlantilla(tpl: string, vars: Record<string, string | number>): string {
+  let s = String(tpl ?? "");
+  for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v));
+  return s;
+}
+
+function partirCorreos(s: string): string[] {
+  return String(s ?? "").split(/[,;\n]+/).map((x) => x.trim()).filter((x) => /@[a-z]/i.test(x));
+}
+
+/** Ejecuta un corte: cuenta pendientes y envía el correo configurado. */
+export async function procesarCorte(
+  service: Servicio,
+  clave: "ventas_pv" | "instalaciones_liq",
+  forzar = false
+): Promise<{ clave: string; enviado: boolean; motivo: string; cantidad?: number }> {
+  const { data: cfg, error } = await service.from("cfg_cortes").select("*").eq("clave", clave).maybeSingle();
+  if (error) throw new Error(`Falta la tabla cfg_cortes (migración 03, etapa 5): ${error.message}`);
+  if (!cfg) throw new Error(`Corte no configurado: ${clave}`);
+  const c = cfg as Record<string, any>;
+  if (!c.activo && !forzar) return { clave, enviado: false, motivo: "corte inactivo" };
+  const ahora = ahoraLima();
+  const horas = String(c.horas ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  const marca = `${ahora.fecha} ${ahora.hora}`;
+  if (!forzar && (!horas.includes(ahora.hora) || String(c.ultimo_envio ?? "") === marca)) {
+    return { clave, enviado: false, motivo: "fuera de horario o ya enviado" };
+  }
+  const conteo = clave === "ventas_pv"
+    ? await contarPendientesPV(service)
+    : await contarPendientesLiquidar(service);
+  const detalle = conteo.numeros.length > 0
+    ? conteo.numeros.map((n) => `• ${n}`).join("\n") + (conteo.cantidad > conteo.numeros.length ? `\n• …y ${conteo.cantidad - conteo.numeros.length} más` : "")
+    : "(sin pendientes)";
+  const vars = { cantidad: conteo.cantidad, fecha: ahora.fecha, hora: ahora.hora, detalle };
+  const para = partirCorreos(String(c.para ?? ""));
+  if (para.length === 0) return { clave, enviado: false, motivo: "sin correo destino configurado", cantidad: conteo.cantidad };
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) throw new Error("SMTP no configurado (SMTP_HOST/SMTP_USER/SMTP_PASS)");
+  const nodemailer = await import("nodemailer");
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: Number(SMTP_PORT || 587),
+    secure: Number(SMTP_PORT || 587) === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+  });
+  await transporter.sendMail({
+    from: SMTP_FROM || SMTP_USER,
+    to: para,
+    cc: partirCorreos(String(c.copia ?? "")) || undefined,
+    subject: aplicarPlantilla(String(c.asunto ?? `Corte ${clave}`), vars),
+    text: aplicarPlantilla(String(c.mensaje ?? "{cantidad} pendientes"), vars),
+  });
+  await service.from("cfg_cortes").update({ ultimo_envio: marca }).eq("clave", clave);
+  return { clave, enviado: true, motivo: "enviado", cantidad: conteo.cantidad };
+}
+
+async function hCortesListar(_args: unknown, ctx: OperacionContext) {
+  try {
+    const { data, error } = await ctx.service.from("cfg_cortes").select("*").order("clave");
+    if (error) throw new Error(error.message);
+    return { cortes: data ?? [], necesitaMigracion: false };
+  } catch (e) {
+    if (esTablaFaltante(e)) return { cortes: [], necesitaMigracion: true };
+    throw e;
+  }
+}
+
+async function hCorteGuardar(args: z.infer<typeof EsquemaGuardarCorte>, ctx: OperacionContext) {
+  const { data, error } = await ctx.service.from("cfg_cortes").upsert({
+    clave: args.clave,
+    horas: args.horas,
+    para: args.para,
+    copia: args.copia,
+    asunto: args.asunto,
+    mensaje: args.mensaje,
+    activo: args.activo,
+  }).select().single();
+  if (error) throw new Error(/Could not find the table|does not exist|42P01/i.test(error.message)
+    ? "Falta la tabla cfg_cortes: ejecuta la migración 03 (etapa 5)"
+    : error.message);
+  return data;
+}
+
+async function hCorteEnviar(args: z.infer<typeof EsquemaEnviarCorte>, ctx: OperacionContext) {
+  try {
+    return await procesarCorte(ctx.service, args.clave, true);
+  } catch (e) {
+    exigirTabla(e);
+  }
+}
+
 async function hActualizarTea(args: z.infer<typeof EsquemaTea>, ctx: OperacionContext) {
   try {
     const { data, error } = await ctx.service
@@ -1390,6 +1537,9 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   validarAbono: { descripcion: "Ventas: valida u observa un abono", roles: SOLO_ADMIN, schema: EsquemaValidarAbono, handler: hValidarAbono },
   aprobarSolicitud: { descripcion: "Ventas: aprueba solicitud exigiendo n.º de pedido por cada ítem", roles: SOLO_ADMIN, schema: EsquemaAprobar, handler: hAprobarSolicitud },
   registrarPV: { descripcion: "Ventas: registra PV + código de llamada → generada (PV abono solo si hubo anticipo)", roles: SOLO_ADMIN, schema: EsquemaRegistrarPV, handler: hRegistrarPV },
+  cfgCortesListar: { descripcion: "Cortes: lee configuración de cortes programados", roles: SOLO_ADMIN, schema: z.object({}).passthrough(), handler: hCortesListar },
+  cfgCorteGuardar: { descripcion: "Cortes: guarda horas/correos/asunto/mensaje de un corte", roles: SOLO_ADMIN, schema: EsquemaGuardarCorte, handler: hCorteGuardar },
+  cfgCorteEnviar: { descripcion: "Cortes: envía ahora un corte (prueba)", roles: SOLO_ADMIN, schema: EsquemaEnviarCorte, handler: hCorteEnviar },
   actualizarNumerosPedido: { descripcion: "Ventas: edita n.º de pedido por ítem sin cambiar estado", roles: SOLO_ADMIN, schema: EsquemaAprobar, handler: hActualizarNumerosPedido },
   observarSolicitud: { descripcion: "Ventas: observa solicitud", roles: SOLO_ADMIN, schema: EsquemaObservarSolicitud, handler: hObservarSolicitud },
   registrarInstalacion: { descripcion: "Ventas: registra instalación (4 evidencias) → en_instalacion", roles: OPERATIVO, schema: EsquemaInstalacion, handler: hRegistrarInstalacion },

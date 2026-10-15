@@ -67,3 +67,31 @@ ALTER TABLE public.vta_solicitudes_venta
 ALTER TABLE public.vta_solicitudes_venta
   ADD COLUMN IF NOT EXISTS codigo_llamada TEXT,
   ADD COLUMN IF NOT EXISTS pv_abono TEXT;
+
+-- ---------------------------------------------------------------- ETAPA 5
+-- Cortes programados: horas y correos configurables desde Administración.
+-- pg_cron llama cada 15 min al endpoint; el endpoint envía solo en las
+-- horas configuradas (hora de Lima) y una vez por hora (ultimo_envio).
+
+CREATE TABLE IF NOT EXISTS public.cfg_cortes (
+  clave TEXT PRIMARY KEY CHECK (clave IN ('ventas_pv','instalaciones_liq')),
+  horas TEXT NOT NULL DEFAULT '',
+  para TEXT NOT NULL DEFAULT '',
+  copia TEXT NOT NULL DEFAULT '',
+  asunto TEXT NOT NULL DEFAULT '',
+  mensaje TEXT NOT NULL DEFAULT '',
+  activo BOOLEAN NOT NULL DEFAULT true,
+  ultimo_envio TEXT
+);
+
+INSERT INTO public.cfg_cortes (clave, horas, para, copia, asunto, mensaje, activo)
+VALUES
+  ('ventas_pv', '12:00,17:00', '', '',
+   'Solicitudes pendientes de generar PV ({cantidad}) — corte {hora}',
+   'A las {hora} del {fecha} hay {cantidad} solicitudes pendientes de generar PV:\n{detalle}',
+   true),
+  ('instalaciones_liq', '11:00,16:00', '', '',
+   'Pedidos pendientes de liquidar ({cantidad}) — corte {hora}',
+   'A las {hora} del {fecha} hay {cantidad} pedidos pendientes de liquidar:\n{detalle}',
+   true)
+ON CONFLICT (clave) DO NOTHING;
