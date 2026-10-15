@@ -5,14 +5,13 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
-import { AccAbrir, AccAprobar, AccValidar, AccVer } from "@/components/Accion";
+import { AccAprobar, AccVer } from "@/components/Accion";
 import VentaModal, { PrefillVenta } from "@/components/VentaModal";
 import {
   BadgeEstadoVenta,
   ESTADOS_VENTA,
   etiquetaEstado,
   Venta,
-  ventaCanal,
   ventaCliente,
   ventaDoc,
   ventaEstado,
@@ -254,7 +253,6 @@ export default function VentasPage() {
   const [fDesde, setFDesde] = useState("");
   const [fHasta, setFHasta] = useState("");
   const [exportando, setExportando] = useState(false);
-  const [validando, setValidando] = useState<string | null>(null);
 
   const buscarCotizaciones = async () => {
     setBuscando(true);
@@ -353,31 +351,6 @@ export default function VentasPage() {
   };
 
   // ---- Histórico ----
-  const aprobarAbonos = async (v: Venta) => {
-    const idv = ventaId(v);
-    setError(null);
-    setInfo(null);
-    setValidando(idv);
-    try {
-      const d = await apiOperacion<{ abonos?: { id?: string | number; estado?: string }[] }>("getVenta", { id: idv });
-      const lista = Array.isArray(d?.abonos) ? d.abonos : [];
-      const pends = lista.filter((a) => String(a.estado ?? "").toLowerCase() === "pendiente");
-      if (pends.length === 0) {
-        setInfo(`Sin abonos pendientes en ${ventaNumero(v)}. La aprobación de la venta se hace dentro del detalle.`);
-        return;
-      }
-      for (const a of pends) {
-        await apiOperacion("validarAbono", { abono_id: String(a.id ?? ""), accion: "validar" });
-      }
-      setInfo(`Abonos aprobados en ${ventaNumero(v)}: ${pends.length}.`);
-      await cargar();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudieron aprobar los abonos");
-    } finally {
-      setValidando(null);
-    }
-  };
-
   const cargar = async (qry?: string) => {
     setLoading(true);
     setError(null);
@@ -566,7 +539,6 @@ export default function VentasPage() {
                               <div className="flex gap-1.5">
                                 {puedePV(v) && <AccAprobar title="Registrar PV" onClick={() => setPvDe(v)} />}
                                 <AccVer title="Ver solicitud" onClick={() => setVisorId(ventaId(v))} />
-                                <AccAbrir title="Abrir solicitud" href={`/ventas/${encodeURIComponent(ventaId(v) || "")}`} />
                               </div>
                             </td>
                           </tr>
@@ -643,8 +615,6 @@ export default function VentasPage() {
                           <div className="flex gap-1.5">
                             {puedePV(v) && <AccAprobar title="Registrar PV" onClick={() => setPvDe(v)} />}
                             <AccVer title="Ver solicitud" onClick={() => setVisorId(ventaId(v))} />
-                            <AccAbrir title="Abrir solicitud" href={`/ventas/${encodeURIComponent(ventaId(v) || "")}`} />
-                            <AccValidar title="Aprobar abonos pendientes" disabled={validando === ventaId(v)} onClick={() => aprobarAbonos(v)} />
                           </div>
                         </td>
                       </tr>

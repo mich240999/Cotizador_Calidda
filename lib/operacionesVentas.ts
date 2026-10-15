@@ -144,12 +144,12 @@ type Fila = Record<string, any>;
 async function resolverNombres(
   ctx: OperacionContext,
   filas: Fila[]
-): Promise<Map<string, { cliente: string | null; documento: string | null; proveedor: string | null; asesor: string | null; creado_por: string | null; cuenta_contrato: string | null; ambiente: string | null }>> {
+): Promise<Map<string, { cliente: string | null; documento: string | null; proveedor: string | null; asesor: string | null; creado_por: string | null; cuenta_contrato: string | null; ambiente: string | null; nse: string | null }>> {
   const idsCli = [...new Set(filas.map((r) => String(r.id_cliente ?? "")).filter(Boolean))];
   const idsProv = [...new Set(filas.map((r) => String(r.id_proveedor ?? "")).filter(Boolean))];
   const idsAse = [...new Set(filas.map((r) => String(r.id_asesor ?? "")).filter(Boolean))];
   const idsCreador = [...new Set(filas.map((r) => String(r.created_by ?? "")).filter(Boolean))];
-  const out = new Map<string, { cliente: string | null; documento: string | null; proveedor: string | null; asesor: string | null; creado_por: string | null; cuenta_contrato: string | null; ambiente: string | null }>();
+  const out = new Map<string, { cliente: string | null; documento: string | null; proveedor: string | null; asesor: string | null; creado_por: string | null; cuenta_contrato: string | null; ambiente: string | null; nse: string | null }>();
   const svc = ctx.service as unknown as { from(t: string): any };
 
   async function buscarEn(tablas: string[], ids: string[], cols: string): Promise<Fila[]> {
@@ -165,9 +165,21 @@ async function resolverNombres(
     return [];
   }
 
+  const buscarMaeCli = async (): Promise<Fila[]> => {
+    if (!idsCli.length) return [];
+    const cols = (extra: string) => `id,nombre_razon_social,nro_doc,cuenta_contrato,ambiente,telefono,correo${extra}`;
+    try {
+      return await buscarEn(["mae_clientes"], idsCli, cols(",nse"));
+    } catch (e) {
+      if (/column|schema cache/i.test(String((e as { message?: string })?.message ?? ""))) {
+        return buscarEn(["mae_clientes"], idsCli, cols("")).catch(() => [] as Fila[]);
+      }
+      throw e;
+    }
+  };
   const [cliMae, cliBase] = idsCli.length
     ? await Promise.all([
-        buscarEn(["mae_clientes"], idsCli, "id,nombre_razon_social,nro_doc,cuenta_contrato,ambiente,telefono,correo").catch(() => [] as Fila[]),
+        buscarMaeCli().catch(() => [] as Fila[]),
         buscarEn(["clientes"], idsCli, "id,nombres,dni").catch(() => [] as Fila[]),
       ])
     : [[], []];
@@ -207,6 +219,7 @@ async function resolverNombres(
       creado_por: (cr?.nombre ?? null) as string | null,
       cuenta_contrato: (c?.cuenta_contrato ?? null) as string | null,
       ambiente: (c?.ambiente ?? null) as string | null,
+      nse: (c?.nse ?? null) as string | null,
     });
   }
   return out;
@@ -509,7 +522,7 @@ async function enriquecerSolicitudes(ctx: OperacionContext, rows: Fila[]): Promi
     } catch { /* sin ítems */ }
   }
   return rows.map((r) => {
-    const n = nombres.get(String(r.id)) ?? { cliente: null, documento: null, proveedor: null, asesor: null, creado_por: null, cuenta_contrato: null, ambiente: null };
+    const n = nombres.get(String(r.id)) ?? { cliente: null, documento: null, proveedor: null, asesor: null, creado_por: null, cuenta_contrato: null, ambiente: null, nse: null };
     const cot = mCot.get(String(r.cotizacion_id ?? ""));
     const totalItems = mTot.get(String(r.id)) ?? 0;
     const anticipo = Math.max(Number(r.anticipo ?? 0) || 0, 0);
@@ -522,6 +535,7 @@ async function enriquecerSolicitudes(ctx: OperacionContext, rows: Fila[]): Promi
       creado_por_nombre: n.creado_por,
       cuenta_contrato: (r.cuenta_contrato ?? null) || cot?.cuenta_contrato || n.cuenta_contrato,
       ambiente: (r.ambiente ?? null) || n.ambiente,
+      nse: n.nse,
       cotizacion_codigo: cot?.codigo || null,
       monto_total: totalItems,
       monto_financiado: r.monto_financiado != null && Number(r.monto_financiado) > 0

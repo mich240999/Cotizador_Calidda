@@ -25,6 +25,13 @@ ALTER TABLE public.mae_clientes
 CREATE INDEX IF NOT EXISTS ix_mae_clientes_cta
   ON public.mae_clientes(cuenta_contrato);
 
+-- Validación de código SAP: los ya registrados quedan validados.
+ALTER TABLE public.mae_clientes
+  ADD COLUMN IF NOT EXISTS sap_validado BOOLEAN NOT NULL DEFAULT false;
+
+UPDATE public.mae_clientes SET sap_validado = true
+  WHERE codigo_sap IS NOT NULL AND codigo_sap <> '' AND sap_validado = false;
+
 -- ---------------------------------------------------------------- ETAPA 2
 -- Cuenta contrato como dato identificativo de la cotización.
 -- Se copia al crear (snapshot); si viene vacía se jala del maestro.

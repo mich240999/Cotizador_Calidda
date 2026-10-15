@@ -23,6 +23,7 @@ type Cliente = {
   email?: string | null;
   telefono?: string | null;
   codigo_sap?: string | null;
+  sap_validado?: boolean | null;
   cuenta_contrato?: string | null;
   telefono2?: string | null;
   bp_cliente?: string | null;
@@ -40,7 +41,7 @@ const nombreDe = (c: Cliente) => c.nombre_razon_social ?? c.nombres ?? c.nombre 
 const docDe = (c: Cliente) => c.nro_doc ?? "—";
 const tipoDocDe = (c: Cliente) => c.tipo_doc ?? "—";
 const correoDe = (c: Cliente) => c.correo ?? c.email ?? "";
-const revisionDe = (c: Cliente) => c.revision_label ?? (c.codigo_sap ? "Validado" : "Pendiente");
+const revisionDe = (c: Cliente) => c.revision_label ?? (c.sap_validado ? "Validado" : c.codigo_sap ? "Validado" : "Pendiente");
 const PAGE_SIZES = [10, 25, 50, 100];
 
 function normRespuesta(r: unknown): { rows: Cliente[]; total: number } {
@@ -322,7 +323,25 @@ function EditarClienteModal({ c, onClose, onGuardado }: { c: Cliente; onClose: (
   );
 }
 
-function VisualizarModal({ c, onClose }: { c: Cliente; onClose: () => void }) {
+function VisualizarModal({ c, onClose, onCambio }: { c: Cliente; onClose: () => void; onCambio?: (nuevo: Cliente) => void }) {
+  const [validando, setValidando] = useState(false);
+  const [msgVal, setMsgVal] = useState<string | null>(null);
+  const rev = revisionDe(c);
+  const puedeValidar = !!c.codigo_sap && rev !== "Validado";
+
+  const validarSap = async () => {
+    setMsgVal(null);
+    setValidando(true);
+    try {
+      const nuevo = await apiOperacion<Cliente>("validarSapCliente", { id: String(c.id) });
+      onCambio?.(nuevo ?? { ...c, sap_validado: true, revision_label: "Validado" });
+      onClose();
+    } catch (e) {
+      setMsgVal(e instanceof Error ? e.message : "No se pudo validar");
+    } finally {
+      setValidando(false);
+    }
+  };
   const filas: [string, string][] = [
     ["ID", String(c.id)],
     ["Tipo de persona", String(c.tipo_persona ?? "—")],
@@ -346,17 +365,25 @@ function VisualizarModal({ c, onClose }: { c: Cliente; onClose: () => void }) {
   ];
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-lg p-6">
-        <h2 className="font-bold text-lg">Cliente · {String(c.id)}</h2>
-        <dl className="mt-4 text-sm space-y-2">
+      <div className="bg-white rounded-2xl w-full max-w-md p-4">
+        <h2 className="font-bold">Cliente · {String(c.id)}</h2>
+        <dl className="mt-3 text-[13px] space-y-1 max-h-[60vh] overflow-y-auto">
           {filas.map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-4 border-b border-slate-100 pb-1.5">
-              <dt className="text-slate-400">{k}</dt>
+            <div key={k} className="flex justify-between gap-3 border-b border-slate-100 py-1">
+              <dt className="text-slate-400 shrink-0">{k}</dt>
               <dd className="font-semibold text-right break-all">{v}</dd>
             </div>
           ))}
         </dl>
-        <button className="btn-white w-full mt-5" onClick={onClose}>Cerrar</button>
+        {msgVal && <p className="mt-3 text-[13px] rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msgVal}</p>}
+        <div className="flex gap-2 mt-4">
+          <button className="btn-white flex-1 !py-1.5 text-sm" onClick={onClose}>Cerrar</button>
+          {puedeValidar && (
+            <button className="btn-green flex-1 !py-1.5 text-sm" onClick={validarSap} disabled={validando}>
+              {validando ? "Validando…" : "Validar código SAP"}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -725,7 +752,7 @@ export default function ClientesPage() {
 
       {showNuevo && <NuevoClienteModal onClose={() => setShowNuevo(false)} onGuardado={() => { setPage(1); cargar(1, pageSize); }} />}
       {showCarga && <CargaMasivaModal onClose={() => setShowCarga(false)} onProcesado={() => { setPage(1); cargar(1, pageSize); }} />}
-      {ver && <VisualizarModal c={ver} onClose={() => setVer(null)} />}
+      {ver && <VisualizarModal c={ver} onClose={() => setVer(null)} onCambio={(nuevo) => { setRows((prev) => prev.map((r) => String(r.id) === String(nuevo.id) ? { ...r, ...nuevo } : r)); setVer((prev) => (prev ? { ...prev, ...nuevo } : prev)); }} />}
       {editar && <EditarClienteModal c={editar} onClose={() => setEditar(null)} onGuardado={() => cargar(page, pageSize)} />}
     </Shell></AuthGate>
   );

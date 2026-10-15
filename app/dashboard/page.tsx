@@ -24,6 +24,7 @@ const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "O
 
 type FilaVenta = { numero: string; cliente: string; proveedor: string; canal: string; estado: string; total: number; fecha: string };
 type Cot = { id: string; estado?: string; total?: number; subtotal?: number; created_at?: string };
+type VentaDet = { total: number; financiado: number; proveedor: string; nse: string; estado: string; fecha: string };
 
 const fmtSoles = (n: number) =>
   `S/ ${Number(n || 0).toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -37,6 +38,7 @@ const etiquetaMes = (ym: string) => {
 export default function DashboardPage() {
   const [ventas, setVentas] = useState<FilaVenta[]>([]);
   const [cots, setCots] = useState<Cot[]>([]);
+  const [ventasDet, setVentasDet] = useState<VentaDet[]>([]);
   const [nCli, setNCli] = useState<number | null>(null);
   const [nMat, setNMat] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,16 +47,18 @@ export default function DashboardPage() {
   const [fHasta, setFHasta] = useState("");
   const [fCanal, setFCanal] = useState("");
   const [fEstado, setFEstado] = useState("");
+  const [fEstCot, setFEstCot] = useState("");
 
   const cargar = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [v, c, cl, m] = await Promise.allSettled([
+      const [v, c, cl, m, vd] = await Promise.allSettled([
         apiOperacion<unknown>("exportarVentas", {}),
         apiOperacion<unknown>("listarCotizaciones", { limit: 500 }),
         apiOperacion<unknown>("listarClientesSGT", { limit: 1, pageSize: 1 }).catch(() => apiOperacion<unknown>("listarClientes", { limit: 1 })),
         apiOperacion<unknown>("listarMaterialesSGT", { limit: 1 }),
+        apiOperacion<unknown>("listarVentas", { limit: 500, page: 1, pageSize: 200 }),
       ]);
       if (v.status === "fulfilled") {
         const o = v.value as { columnas?: string[]; filas?: unknown[][]; rows?: FilaVenta[] };
@@ -79,6 +83,20 @@ export default function DashboardPage() {
         }
       }
       if (c.status === "fulfilled" && Array.isArray(c.value)) setCots(c.value as Cot[]);
+      if (vd.status === "fulfilled") {
+        const r = vd.value as { rows?: Record<string, unknown>[] };
+        const arr = Array.isArray(r?.rows) ? r.rows : [];
+        setVentasDet(arr.map((x) => ({
+          total: Number(x.monto_total ?? 0) || 0,
+          financiado: Number(x.monto_financiado ?? 0) || 0,
+          proveedor: String(x.proveedor_nombre ?? "—"),
+          nse: String(x.nse ?? "—"),
+          estado: String(x.estado ?? "").toLowerCase(),
+          fecha: String(x.created_at ?? ""),
+        })));
+      } else {
+        setVentasDet([]);
+      }
       const totalDe = (r: unknown): number | null => {
         if (r && typeof r === "object" && "total" in (r as object)) return Number((r as { total: number }).total);
         return Array.isArray(r) ? (r as unknown[]).length : null;
@@ -117,12 +135,13 @@ export default function DashboardPage() {
 
   const cotsF = useMemo(() => {
     const arr = cots.filter((c) => {
+      if (fEstCot && String(c.estado ?? "").toUpperCase() !== fEstCot) return false;
       const f = String(c.created_at ?? "").slice(0, 10);
       if (!f) return true;
       return enRango(f);
     });
     return arr;
-  }, [cots, fDesde, fHasta]);
+  }, [cots, fDesde, fHasta, fEstCot]);
 
   const montoTotal = ventasF.reduce((a, v) => a + v.total, 0);
   const cerradas = ventasF.filter((v) => v.estado === "cerrada" || v.estado === "liquidada").length;
@@ -144,11 +163,36 @@ export default function DashboardPage() {
     return [...map.entries()].map(([name, value]) => ({ name, value }));
   }, [ventasF]);
 
-  const porCanal = useMemo(() => {
+  const ventasDetF = useMemo(
+    () =>
+      ventasDet.filter(
+        (v) =>
+          enRango(v.fecha) &&
+          (!fEstado || v.estado === fEstado)
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ventasDet, fDesde, fHasta, fEstado]
+  );
+
+  const porNSE = useMemo(() => {
     const map = new Map<string, number>();
-    for (const v of ventasF) map.set(v.canal || "—", (map.get(v.canal || "—") ?? 0) + v.total);
-    return [...map.entries()].map(([name, monto]) => ({ name, monto: Math.round(monto * 100) / 100 }));
-  }, [ventasF]);
+    for (const v of ventasDetF) {
+      const k = v.nse && v.nse !== "—" ? `NSE ${v.nse}` : "Sin NSE";
+      map.set(k, (map.get(k) ?? 0) + v.total);
+    }
+    return [...map.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, monto]) => ({ name, monto: Math.round(monto * 100) / 100 }));
+  }, [ventasDetF]);
+
+  const porProveedor = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const v of ventasDetF) map.set(v.proveedor || "—", (map.get(v.proveedor || "—") ?? 0) + v.total);
+    return [...map.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, monto]) => ({ name, monto: Math.round(monto * 100) / 100 }));
+  }, [ventasDetF]);
 
   const cotsEstado = useMemo(() => {
     const map = new Map<string, number>();
@@ -159,11 +203,12 @@ export default function DashboardPage() {
     return [...map.entries()].map(([name, value]) => ({ name, value }));
   }, [cotsF]);
 
-  const limpiar = () => { setFDesde(""); setFHasta(""); setFCanal(""); setFEstado(""); };
+  const limpiar = () => { setFDesde(""); setFHasta(""); setFCanal(""); setFEstado(""); setFEstCot(""); };
 
+  const bonoTotal = ventasDetF.reduce((a, v) => a + v.financiado, 0);
   const kpis = [
     { label: "Ventas (filtro)", valor: String(ventasF.length), sub: `${fmtSoles(montoTotal)} acumulado`, color: "text-[#0B5FA5]" },
-    { label: "Ticket promedio", valor: ventasF.length ? fmtSoles(montoTotal / ventasF.length) : "S/ 0.00", sub: "por solicitud", color: "text-[#0099D8]" },
+    { label: "Bono total", valor: fmtSoles(bonoTotal), sub: "monto financiado", color: "text-[#0099D8]" },
     { label: "Tasa de cierre", valor: ventasF.length ? `${Math.round((cerradas / ventasF.length) * 100)}%` : "—", sub: `${cerradas} liquidadas`, color: "text-emerald-600" },
     { label: "Cotizaciones", valor: String(cotsF.length), sub: `${fmtSoles(montoCots)} cotizado`, color: "text-amber-600" },
     { label: "Clientes", valor: nCli === null ? "…" : String(nCli), sub: "registrados", color: "text-violet-600" },
@@ -202,8 +247,17 @@ export default function DashboardPage() {
             <label className="label">Estado venta</label>
             <select className="input !w-auto" value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
               <option value="">Todos</option>
-              {["borrador", "pendiente_aprobacion", "observado", "aprobada", "en_instalacion", "instalada", "validada_proveedor", "cerrada", "liquidada"].map((e) => (
+              {["borrador", "pendiente_aprobacion", "observado", "aprobada", "generada", "en_instalacion", "instalada", "validada_proveedor", "pendiente_liquidar", "cerrada", "liquidada"].map((e) => (
                 <option key={e} value={e}>{e.replace(/_/g, " ")}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Estado cotización</label>
+            <select className="input !w-auto" value={fEstCot} onChange={(e) => setFEstCot(e.target.value)}>
+              <option value="">Todos</option>
+              {["BORRADOR", "ENVIADA", "APROBADA", "RECHAZADA"].map((e) => (
+                <option key={e} value={e}>{e}</option>
               ))}
             </select>
           </div>
@@ -265,16 +319,32 @@ export default function DashboardPage() {
             </div>
 
             <div className="card p-5">
-              <p className="font-bold">Monto por canal</p>
-              <p className="text-xs text-slate-400 mb-2">Proveedor · microaliado · contratista</p>
+              <p className="font-bold">Ventas totales (S/) por NSE</p>
+              <p className="text-xs text-slate-400 mb-2">Suma de montos por nivel socioeconómico</p>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={porCanal} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 0 }}>
+                  <BarChart data={porNSE} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                     <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v: number) => `S/${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v}`} />
-                    <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12, textTransform: "capitalize" } as never} />
+                    <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12 } as never} />
                     <Tooltip formatter={(v) => [fmtSoles(Number(v)), "Monto"]} />
                     <Bar dataKey="monto" fill="#0B5FA5" radius={[0, 6, 6, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="card p-5">
+              <p className="font-bold">Ventas totales (S/) por proveedor</p>
+              <p className="text-xs text-slate-400 mb-2">Top 10 proveedores por monto</p>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={porProveedor} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                    <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v: number) => `S/${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v}`} />
+                    <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 } as never} />
+                    <Tooltip formatter={(v) => [fmtSoles(Number(v)), "Monto"]} />
+                    <Bar dataKey="monto" fill="#00A651" radius={[0, 6, 6, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

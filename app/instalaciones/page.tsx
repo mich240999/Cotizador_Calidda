@@ -5,7 +5,7 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
-import { AccAbrir, AccAprobar, AccVer } from "@/components/Accion";
+import { AccAprobar, AccVer } from "@/components/Accion";
 import { BadgeEstadoVenta, subirArchivoStorage, useRolVista } from "@/components/VentasComun";
 
 type Fila = Record<string, unknown>;
@@ -374,7 +374,6 @@ export default function InstalacionesPage() {
                           {liquidando === String(v.id) ? "…" : "✓ Liquidar"}
                         </button>
                       )}
-                      <AccAbrir title="Abrir venta" href={`/ventas/${encodeURIComponent(String(v.id))}`} />
                     </div>
                   </td>
                 </tr>

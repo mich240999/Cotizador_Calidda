@@ -8,16 +8,13 @@ import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
 import {
-  BadgeAbono,
   BadgeEstadoVenta,
-  MEDIOS_ABONO,
   SUSTENTOS_INSTALACION,
   SelectorRol,
   TimelineVenta,
   Venta,
   subirArchivoStorage,
   useRolVista,
-  ventaAbonos,
   ventaCliente,
   ventaDoc,
   ventaEstado,
@@ -27,7 +24,6 @@ import {
   ventaProveedor,
   ventaTotal,
 } from "@/components/VentasComun";
-import { AccObservar, AccValidar } from "@/components/Accion";
 
 export default function VentaDetallePage() {
   const params = useParams();
@@ -49,11 +45,6 @@ export default function VentaDetallePage() {
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const [showAbono, setShowAbono] = useState(false);
-  const [abMonto, setAbMonto] = useState("");
-  const [abMedio, setAbMedio] = useState<string>(MEDIOS_ABONO[0]);
-  const [abComp, setAbComp] = useState("");
-
   const [showInst, setShowInst] = useState(false);
   const [sustentos, setSustentos] = useState<Record<string, string>>({});
 
@@ -62,7 +53,6 @@ export default function VentaDetallePage() {
   const [showObservar, setShowObservar] = useState(false);
   const [motivo, setMotivo] = useState("");
   const [etapaObs, setEtapaObs] = useState("aprobación");
-  const [abonoObs, setAbonoObs] = useState<string | null>(null);
   const [subiendo, setSubiendo] = useState<string | null>(null);
 
   const subirA = async (f: File, carpeta: "comprobantes" | "sustentos", set: (u: string) => void, marca: string) => {
@@ -122,20 +112,6 @@ export default function VentaDetallePage() {
     }
   };
 
-  const registrarAbono = () =>
-    correr(async () => {
-      const m = Number(abMonto);
-      if (!Number.isFinite(m) || m <= 0) throw new Error("Monto del abono inválido.");
-      if (!abComp.trim()) throw new Error("El comprobante (URL) es obligatorio.");
-      await apiOperacion("registrarAbono", { solicitud_id: id, monto: m, medio: abMedio, comprobante_url: abComp.trim() });
-      setShowAbono(false);
-      setAbMonto("");
-      setAbComp("");
-    }, "Abono registrado en estado pendiente. Stephany lo validará.");
-
-  const validarAbono = (abonoId: string) =>
-    correr(() => apiOperacion("validarAbono", { abono_id: abonoId, accion: "validar" }), "Abono validado.");
-
   const registrarInstalacion = () =>
     correr(async () => {
       const urls: Record<string, string> = {};
@@ -184,10 +160,6 @@ export default function VentaDetallePage() {
       if (!motivo.trim()) throw new Error("El motivo de la observación es obligatorio.");
       if (etapaObs === "instalación") {
         await apiOperacion("observarInstalacion", { solicitud_id: id, observacion: motivo.trim() });
-      } else if (etapaObs === "abonos") {
-        if (!abonoObs) throw new Error("Elige el abono a observar desde su fila.");
-        await apiOperacion("validarAbono", { abono_id: abonoObs, accion: "observar", observacion: motivo.trim() });
-        setAbonoObs(null);
       } else {
         await apiOperacion("observarSolicitud", { solicitud_id: id, observacion: `[${etapaObs}] ${motivo.trim()}` });
       }
@@ -201,13 +173,11 @@ export default function VentaDetallePage() {
     correr(() => apiOperacion("validarInstalacionProveedor", { solicitud_id: id }), "Instalación validada. Ya se puede liquidar.");
 
   const items = venta ? ventaItems(venta) : [];
-  const abonos = venta ? ventaAbonos(venta) : [];
   const obss = venta ? ventaObservaciones(venta) : [];
   const est = String(venta ? ventaEstado(venta) : "borrador").toLowerCase();
   // Puertas por estado: nada se puede aprobar/liquidar dos veces.
   const puedeAprobar = ["borrador", "observado"].includes(est);
   const puedeObservarSol = ["borrador", "observado", "aprobada"].includes(est);
-  const puedeAbono = !["liquidada", "cerrada"].includes(est);
   const puedeInstalar = ["aprobada", "generada", "en_instalacion", "instalada", "observada"].includes(est);
   const puedeValidarInst = ["instalada", "en_instalacion"].includes(est);
   const puedeLiquidar = est === "validada_proveedor";
@@ -239,11 +209,6 @@ export default function VentaDetallePage() {
     const insRaw = (raw.instalacion ?? null) as Record<string, unknown> | null;
     const obsIns = insRaw ? String(insRaw.observacion ?? "").trim() : "";
     if (obsIns) pendientes.push({ origen: "Instalación", motivo: obsIns });
-    for (const a of abonos) {
-      const r = a as Record<string, unknown>;
-      const m = String(r.observacion ?? "").trim();
-      if (m) pendientes.push({ origen: `Abono S/ ${Number(r.monto ?? 0).toFixed(2)}`, motivo: m });
-    }
   }
 
   return (
@@ -253,7 +218,7 @@ export default function VentaDetallePage() {
         <div className="mt-1"><ModHead
           eyebrow="REGISTRO DE VENTAS"
           title={venta ? `Venta ${ventaNumero(venta)}` : "Detalle de venta"}
-          desc={venta ? `${ventaCliente(venta)}${ventaDoc(venta) ? ` · ${ventaDoc(venta)}` : ""} · ${ventaProveedor(venta)} · ${formatoMoneda(totalCalc > 0 ? totalCalc : ventaTotal(venta))}` : "Detalle, abonos, instalación y cierre."}
+          desc={venta ? `${ventaCliente(venta)}${ventaDoc(venta) ? ` · ${ventaDoc(venta)}` : ""} · ${ventaProveedor(venta)} · ${formatoMoneda(totalCalc > 0 ? totalCalc : ventaTotal(venta))}` : "Detalle, instalación y cierre."}
           actions={<><SelectorRol rol={rol} setRol={setRol} />{venta && <BadgeEstadoVenta estado={ventaEstado(venta)} />}</>}
         /></div>
 
@@ -334,65 +299,6 @@ export default function VentaDetallePage() {
                         <td className="font-mono text-xs">{String((it as Record<string, unknown>).numero_pedido_abono ?? "—")}</td>
                       </tr>
                     ))}
-                  </tbody>
-                </table></div>
-              )}
-            </section>
-
-            <section className="card mt-4">
-              <div className="px-5 py-3 border-b font-semibold flex items-center gap-2">
-                Abonos · {abonos.length}
-                {!esAdmin && <button className="btn-white !py-1 !px-3 text-xs ml-auto" onClick={() => setShowAbono((s) => !s)}>Registrar abono</button>}
-              </div>
-              {showAbono && !esAdmin && puedeAbono && (
-                <div className="p-5 grid md:grid-cols-4 gap-3 border-b bg-slate-50">
-                  <div><label className="label">Monto (S/) *</label><input type="number" min={0} step="any" className="input" value={abMonto} onChange={(e) => setAbMonto(e.target.value)} /></div>
-                  <div><label className="label">Medio</label><select className="input" value={abMedio} onChange={(e) => setAbMedio(e.target.value)}>{MEDIOS_ABONO.map((m) => <option key={m} value={m}>{m}</option>)}</select></div>
-                  <div className="md:col-span-2">
-                    <label className="label">Comprobante (URL o archivo PDF/foto) *</label>
-                    <input className="input" placeholder="https://…" value={abComp} onChange={(e) => setAbComp(e.target.value)} />
-                    <input
-                      type="file" accept=".pdf,image/*" className="input mt-2"
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) subirA(f, "comprobantes", setAbComp, "abono"); e.target.value = ""; }}
-                    />
-                    {subiendo === "abono" && <p className="text-[11px] text-slate-500 mt-1">Subiendo archivo…</p>}
-                  </div>
-                  <div className="md:col-span-4 flex justify-end gap-2">
-                    <button className="btn-white" onClick={() => setShowAbono(false)}>Cancelar</button>
-                    <button className="btn-green" onClick={registrarAbono} disabled={busy}>{busy ? "Guardando…" : "Guardar abono"}</button>
-                  </div>
-                </div>
-              )}
-              {abonos.length === 0 ? (
-                <div className="p-5"><EmptyState titulo="Sin abonos" detalle="Aún no hay abonos registrados para esta venta." /></div>
-              ) : (
-                <div className="overflow-x-auto"><table className="tabla">
-                  <thead><tr><th>MONTO</th><th>MEDIO</th><th>COMPROBANTE</th><th>ESTADO</th><th>ACCIONES</th></tr></thead>
-                  <tbody>
-                    {abonos.map((a, i) => {
-                      const est = String(a.estado ?? "pendiente");
-                      return (
-                        <tr key={String(a.id ?? i)}>
-                          <td className="font-bold">S/ {Number(a.monto ?? 0).toFixed(2)}</td>
-                          <td className="capitalize">{String(a.medio ?? "—")}</td>
-                          <td className="max-w-[220px] truncate">
-                            {(() => {
-                              const url = String(a.comprobante_url ?? a.comprobante ?? "");
-                              return url && url !== "—"
-                                ? <a className="text-xs font-bold text-[#0099D8] hover:underline" href={url} target="_blank" rel="noreferrer" title={url}>Ver comprobante ↗</a>
-                                : <span className="text-xs text-slate-400">Sin comprobante</span>;
-                            })()}
-                          </td>
-                          <td><BadgeAbono estado={est} /></td>
-                          <td className="whitespace-nowrap">{esAdmin && puedeAbono && est.toLowerCase() !== "validado" && (
-                            <div className="flex gap-1.5">
-                              <AccValidar title="Validar abono" onClick={() => validarAbono(String(a.id ?? ""))} disabled={busy} />
-                              <AccObservar title="Observar abono" onClick={() => { setAbonoObs(String(a.id ?? "")); setEtapaObs("abonos"); setShowObservar(true); }} disabled={busy} />
-                            </div>
-                          )}</td>
-                        </tr>
-                      );
-                    })}
                   </tbody>
                 </table></div>
               )}
@@ -481,7 +387,6 @@ export default function VentaDetallePage() {
               <h3 className="font-bold mb-3">Acciones</h3>
               {!esAdmin ? (
                 <div className="flex flex-wrap gap-2">
-                  {puedeAbono && <button className="btn-white" onClick={() => setShowAbono((s) => !s)}>Registrar abono</button>}
                   {veInstalacion && puedeInstalar && <button className="btn-white" onClick={() => setShowInst((s) => !s)}>Registrar instalación</button>}
                 </div>
               ) : (
@@ -535,12 +440,11 @@ export default function VentaDetallePage() {
                 <div className="mt-4 rounded-xl border border-slate-200 p-4 space-y-3">
                   <div>
                     <label className="label">Etapa observada</label>
-                    <select className="input !w-56" value={etapaObs} onChange={(e) => setEtapaObs(e.target.value)}>
-                      <option value="aprobación">Aprobación</option>
-                      <option value="abonos">Abonos</option>
-                      <option value="instalación">Instalación</option>
-                      <option value="cierre">Cierre</option>
-                    </select>
+                      <select className="input !w-56" value={etapaObs} onChange={(e) => setEtapaObs(e.target.value)}>
+                        <option value="aprobación">Aprobación</option>
+                        <option value="instalación">Instalación</option>
+                        <option value="cierre">Cierre</option>
+                      </select>
                   </div>
                   <div>
                     <label className="label">Motivo *</label>

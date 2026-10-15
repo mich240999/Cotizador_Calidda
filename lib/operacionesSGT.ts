@@ -1346,6 +1346,7 @@ const EsquemaActualizarClienteSGT = z.object({
   referencia: z.string().trim().max(300).optional(),
   distrito: z.string().trim().max(120).optional(),
   ambiente: z.string().trim().max(120).optional(),
+  sap_validado: z.coerce.boolean().optional(),
   estado: z.enum(["ACTIVO", "INACTIVO"]).optional()
 });
 
@@ -1355,9 +1356,13 @@ const EsquemaCargaClientes = z.object({
 });
 const EsquemaValidarClientes = z.object({ csv: z.string().min(1).max(2_000_000) });
 
-/** Revisión comercial: con código SAP queda Validado, sin él queda Pendiente. */
-export function revisionCliente(codigoSap: unknown): "Validado" | "Pendiente" {
-  return String(codigoSap ?? "").trim() ? "Validado" : "Pendiente";
+/** Revisión comercial: Validado = tiene código SAP y fue validado
+ *  manualmente. Sin columna sap_validado (BD antigua) vale el SAP solo.
+ */
+export function revisionCliente(codigoSap: unknown, validado?: unknown): "Validado" | "Pendiente" {
+  if (!String(codigoSap ?? "").trim()) return "Pendiente";
+  if (validado === undefined) return "Validado";
+  return validado ? "Validado" : "Pendiente";
 }
 
 interface FilaClienteCSV {
@@ -1506,27 +1511,40 @@ async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT
     `nombre_razon_social.ilike.%${qq}%,nro_doc.ilike.%${qq}%,codigo_sap.ilike.%${qq}%,contacto.ilike.%${qq}%,cuenta_contrato.ilike.%${qq}%`;
   const orSinCta = (qq: string) =>
     `nombre_razon_social.ilike.%${qq}%,nro_doc.ilike.%${qq}%,codigo_sap.ilike.%${qq}%,contacto.ilike.%${qq}%`;
-  const armarQuery = (conCta: boolean) => {
+  const armarQuery = (conCta: boolean, conVal = true) => {
     const desde = (args.page - 1) * args.pageSize;
     let qq = ctx.service.from("mae_clientes").select("*", { count: "exact" }).order("created_at", { ascending: false });
     if (args.q) qq = qq.or(conCta ? orConCta(args.q) : orSinCta(args.q));
     if (args.tipo_persona) qq = qq.eq("tipo_persona", args.tipo_persona.toUpperCase());
     if (args.tipo_doc) qq = qq.eq("tipo_doc", args.tipo_doc.toUpperCase());
     if (args.estado) qq = qq.eq("estado", args.estado.toUpperCase());
-    if (args.revision === "Validado") qq = qq.not("codigo_sap", "is", null).neq("codigo_sap", "");
-    if (args.revision === "Pendiente") qq = qq.or("codigo_sap.is.null,codigo_sap.eq.");
+    if (args.revision === "Validado") {
+      qq = qq.not("codigo_sap", "is", null).neq("codigo_sap", "");
+      if (conVal) qq = qq.eq("sap_validado", true);
+    }
+    if (args.revision === "Pendiente") {
+      qq = qq.or(conVal
+        ? "codigo_sap.is.null,codigo_sap.eq.,sap_validado.is.null,sap_validado.is.false"
+        : "codigo_sap.is.null,codigo_sap.eq.");
+    }
     return qq.range(desde, desde + args.pageSize - 1);
   };
   try {
-    let { data, error, count } = await armarQuery(true);
-    if (error && /column .*cuenta_contrato|cuenta_contrato.*column|column .*does not exist/i.test(error.message)) {
-      // BD sin migración 03: busca sin cuenta contrato.
-      ({ data, error, count } = await armarQuery(false));
+    // Intento completo; si la BD no tiene las columnas nuevas, degrada.
+    let conCta = true;
+    let conVal = true;
+    let res = await armarQuery(conCta, conVal);
+    while (res.error && /column|schema cache/i.test(res.error.message) && (conCta || conVal)) {
+      if (/cuenta_contrato/i.test(res.error.message)) conCta = false;
+      else if (/sap_validado/i.test(res.error.message)) conVal = false;
+      else break;
+      res = await armarQuery(conCta, conVal);
     }
+    const { data, error, count } = res;
     if (error) throw new Error(error.message);
     const rows = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
       ...r,
-      revision_label: revisionCliente(r.codigo_sap)
+      revision_label: revisionCliente(r.codigo_sap, (r as Record<string, unknown>).sap_validado)
     }));
     return { rows, total: count ?? rows.length, page: args.page, pageSize: args.pageSize };
   } catch (e) {
@@ -1554,6 +1572,7 @@ async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT
 const COLUMNAS_CLI_ETAPA1 = [
   "cuenta_contrato", "telefono2", "bp_cliente", "linea_credito",
   "nse", "direccion", "referencia", "distrito", "ambiente",
+  "sap_validado",
 ] as const;
 
 function filaClienteEtapa1(args: {
@@ -1626,6 +1645,7 @@ async function hActualizarClienteSGT(args: z.infer<typeof EsquemaActualizarClien
   if (args.referencia !== undefined) patch.referencia = args.referencia || null;
   if (args.distrito !== undefined) patch.distrito = args.distrito || null;
   if (args.ambiente !== undefined) patch.ambiente = args.ambiente || null;
+  if (args.sap_validado !== undefined) patch.sap_validado = !!args.sap_validado;
   if (args.estado !== undefined) patch.estado = args.estado;
   if (Object.keys(patch).length === 0) throw new Error("Nada que actualizar");
   let upd = await ctx.service.from("mae_clientes").update(patch).eq("id", args.id).select().single();
@@ -1639,6 +1659,26 @@ async function hActualizarClienteSGT(args: z.infer<typeof EsquemaActualizarClien
     if (/duplicate|unique|llave duplicada/i.test(error.message)) {
       const e = new Error("Código SAP ya asignado a otro cliente") as Error & { status?: number };
       e.status = 409; throw e;
+    }
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+const EsquemaValidarSap = z.object({ id: z.string().trim().min(1).max(20) });
+
+/** Marca el código SAP del cliente como validado (revisión manual). */
+async function hValidarSapCliente(args: z.infer<typeof EsquemaValidarSap>, ctx: OperacionContext) {
+  const { data: cli, error: eCli } = await ctx.service.from("mae_clientes").select("id,codigo_sap").eq("id", args.id).maybeSingle();
+  if (eCli) throw new Error(eCli.message);
+  if (!cli) throw new Error("Cliente no encontrado");
+  if (!String((cli as { codigo_sap?: string }).codigo_sap ?? "").trim()) {
+    throw new Error("El cliente no tiene código SAP para validar");
+  }
+  const { data, error } = await ctx.service.from("mae_clientes").update({ sap_validado: true }).eq("id", args.id).select().single();
+  if (error) {
+    if (/column|schema cache/i.test(error.message)) {
+      throw new Error("Falta la columna sap_validado: ejecuta la migración 03");
     }
     throw new Error(error.message);
   }
@@ -2233,6 +2273,7 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarClientesSGT: { descripcion: "SGT: lista clientes con filtros y paginación", roles: TODOS, schema: EsquemaFiltrosClientesSGT, handler: hListarClientesSGT },
   crearClienteSGT: { descripcion: "SGT: crea cliente (documento único, SAP opcional)", roles: OPERATIVO, schema: EsquemaCrearClienteSGT, handler: hCrearClienteSGT },
   actualizarClienteSGT: { descripcion: "SGT: actualiza cliente (estado/SAP/datos)", roles: OPERATIVO, schema: EsquemaActualizarClienteSGT, handler: hActualizarClienteSGT },
+  validarSapCliente: { descripcion: "SGT: valida el código SAP del cliente (revisión manual)", roles: ["admin", "oficina"], schema: EsquemaValidarSap, handler: hValidarSapCliente },
   validarArchivoClientes: { descripcion: "SGT: valida CSV/XLSX de clientes sin guardar", roles: OPERATIVO, schema: EsquemaValidarClientes, handler: hValidarArchivoClientes },
   cargaMasivaClientes: { descripcion: "SGT: carga masiva clientes (máx 500)", roles: OPERATIVO, schema: EsquemaCargaClientes, handler: hCargaMasivaClientes },
   validarArchivoMateriales: { descripcion: "SGT: valida CSV/XLSX de materiales sin guardar", roles: OPERATIVO, schema: EsquemaCargaMateriales, handler: hValidarArchivoMateriales },
