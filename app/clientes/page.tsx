@@ -57,13 +57,13 @@ function normRespuesta(r: unknown): { rows: Cliente[]; total: number } {
 type FormCliente = {
   tipoPersona: string; tipoDoc: string; nroDoc: string; nombre: string;
   correo: string; telefono: string; telefono2: string; sap: string;
-  cuentaContrato: string; bp: string; linea: string; nse: string;
+  cuentaContrato: string; linea: string; nse: string;
   direccion: string; referencia: string; distrito: string; ambiente: string;
 };
 
 const FORM_VACIO: FormCliente = {
   tipoPersona: "", tipoDoc: "", nroDoc: "", nombre: "", correo: "",
-  telefono: "", telefono2: "", sap: "", cuentaContrato: "", bp: "",
+  telefono: "", telefono2: "", sap: "", cuentaContrato: "",
   linea: "", nse: "", direccion: "", referencia: "", distrito: "", ambiente: "",
 };
 
@@ -96,7 +96,6 @@ function NuevoClienteModal({ onClose, onGuardado }: { onClose: () => void; onGua
           telefono2: f.telefono2.trim(),
           codigo_sap: f.sap.trim(),
           cuenta_contrato: f.cuentaContrato.trim(),
-          bp_cliente: f.bp.trim(),
           ...(lineaNum !== undefined && Number.isFinite(lineaNum) ? { linea_credito: lineaNum } : {}),
           nse: f.nse.trim(),
           direccion: f.direccion.trim(),
@@ -160,10 +159,9 @@ function NuevoClienteModal({ onClose, onGuardado }: { onClose: () => void; onGua
             {campo("nroDoc", "Número de documento", "Ingresa el documento", true)}
             {campo("nombre", "Nombre / Razón social", "Nombres o razón social", true)}
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {campo("cuentaContrato", "Cuenta Contrato", "N° cuenta contrato")}
-            {campo("bp", "BP Cliente", "Business partner")}
-            {campo("sap", "Código de cliente SAP", "Posterior si deseas")}
+            {campo("sap", "BP Cliente (código SAP)", "Business partner")}
           </div>
           <div className="grid grid-cols-3 gap-2">
             {campo("correo", "Correo", "correo@ejemplo.com")}
@@ -206,7 +204,6 @@ function EditarClienteModal({ c, onClose, onGuardado }: { c: Cliente; onClose: (
     telefono2: String(c.telefono2 ?? ""),
     sap: String(c.codigo_sap ?? ""),
     cuentaContrato: String(c.cuenta_contrato ?? ""),
-    bp: String(c.bp_cliente ?? ""),
     linea: c.linea_credito != null ? String(c.linea_credito) : "",
     nse: String(c.nse ?? ""),
     direccion: String(c.direccion ?? ""),
@@ -236,7 +233,6 @@ function EditarClienteModal({ c, onClose, onGuardado }: { c: Cliente; onClose: (
         telefono2: f.telefono2.trim(),
         codigo_sap: f.sap.trim(),
         cuenta_contrato: f.cuentaContrato.trim(),
-        bp_cliente: f.bp.trim(),
         ...(lineaNum !== undefined && Number.isFinite(lineaNum) ? { linea_credito: lineaNum } : {}),
         nse: f.nse.trim(),
         direccion: f.direccion.trim(),
@@ -292,10 +288,9 @@ function EditarClienteModal({ c, onClose, onGuardado }: { c: Cliente; onClose: (
             {campo("nroDoc", "Número de documento")}
             {campo("nombre", "Nombre / Razón social")}
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {campo("cuentaContrato", "Cuenta Contrato")}
-            {campo("bp", "BP Cliente")}
-            {campo("sap", "Código de cliente SAP")}
+            {campo("sap", "BP Cliente (código SAP)")}
           </div>
           <div className="grid grid-cols-3 gap-2">
             {campo("correo", "Correo")}
@@ -348,7 +343,6 @@ function VisualizarModal({ c, onClose, onCambio }: { c: Cliente; onClose: () => 
     ["Documento", `${tipoDocDe(c)} ${docDe(c)}`],
     ["Cliente", nombreDe(c)],
     ["Cuenta Contrato", String(c.cuenta_contrato ?? "—")],
-    ["BP Cliente", String(c.bp_cliente ?? "—")],
     ["Contacto", String(c.contacto ?? "—")],
     ["Correo", correoDe(c) || "—"],
     ["Teléfono 1", String(c.telefono ?? "—")],
@@ -359,7 +353,7 @@ function VisualizarModal({ c, onClose, onCambio }: { c: Cliente; onClose: () => 
     ["Referencia", String(c.referencia ?? "—")],
     ["Distrito", String(c.distrito ?? "—")],
     ["Ambiente", String(c.ambiente ?? "—")],
-    ["Código SAP", String(c.codigo_sap ?? "—")],
+    ["BP Cliente (código SAP)", String(c.codigo_sap ?? "—")],
     ["Revisión", revisionDe(c)],
     ["Estado", String(c.estado ?? "—")],
   ];
@@ -578,7 +572,7 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <p className="font-bold text-sm">1. Preparar archivo</p>
-                <p className="text-xs text-slate-500">Usa la plantilla oficial formato Airtable (Leads-Base) y conserva las cabeceras sin cambios. Se admiten hasta 20,000 filas por archivo. Obligatorios: DNI Cliente y Nombres y Apellidos.</p>
+                <p className="text-xs text-slate-500">Usa la plantilla oficial formato Airtable (Leads-Base) y conserva las cabeceras sin cambios. Se admiten hasta 20,000 filas por archivo. Solo se exige DNI Cliente; la validación es del código SAP (BP Cliente).</p>
               </div>
               <div className="flex gap-2">
                 <button className="btn-white !text-xs" onClick={descargarCSV}>Plantilla CSV</button>

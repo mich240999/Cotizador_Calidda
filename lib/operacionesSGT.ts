@@ -1318,7 +1318,6 @@ const EsquemaCrearClienteSGT = z.object({
   // Etapa 1 — campos Airtable (migracion_03).
   cuenta_contrato: z.string().trim().max(30).optional().default(""),
   telefono2: z.string().trim().max(30).optional().default(""),
-  bp_cliente: z.string().trim().max(30).optional().default(""),
   linea_credito: z.coerce.number().min(0).max(100_000_000).optional(),
   nse: z.string().trim().max(10).optional().default(""),
   direccion: z.string().trim().max(300).optional().default(""),
@@ -1339,7 +1338,6 @@ const EsquemaActualizarClienteSGT = z.object({
   codigo_sap: z.string().trim().max(30).optional(),
   cuenta_contrato: z.string().trim().max(30).optional(),
   telefono2: z.string().trim().max(30).optional(),
-  bp_cliente: z.string().trim().max(30).optional(),
   linea_credito: z.coerce.number().min(0).max(100_000_000).optional(),
   nse: z.string().trim().max(10).optional(),
   direccion: z.string().trim().max(300).optional(),
@@ -1377,7 +1375,6 @@ interface FilaClienteCSV {
   codigo_sap: string;
   cuenta_contrato: string;
   telefono2: string;
-  bp_cliente: string;
   linea_credito: number | null;
   nse: string;
   direccion: string;
@@ -1443,39 +1440,32 @@ function parseCSVClientes(csv: string): { filas: FilaClienteCSV[]; errores: stri
   const iCor = idx(["correo electronico", "correo", "email", "mail"]);
   const iTel = idx(["telefono1", "telefono", "celular"]);
   const iTel2 = idx(["telefono2"]);
-  const iSap = idx(["codigo_sap", "codigosap", "sap", "codigo_cliente_sap"]);
+  // BP Cliente ES el código SAP: un solo campo (codigo_sap).
+  const iSap = idx(["codigo_sap", "codigosap", "sap", "codigo_cliente_sap", "bp cliente", "bpcliente", "bp_cliente", "bp"]);
   const iCta = idx(["cuenta contrato", "cuentacontrato", "cuenta_contrato", "cta_contrato", "contrato"]);
-  const iBp = idx(["bp cliente", "bpcliente", "bp_cliente", "bp"]);
   const iLin = idx(["linea de credito", "linea_credito", "lineacredito", "linea credito"]);
   const iNse = idx(["nse"]);
   const iDir = idx(["direccion", "dirección"]);
   const iRef = idx(["referencia"]);
   const iDis = idx(["distrito"]);
   const iAmb = idx(["ambiente"]);
-  if (iNro < 0 || iNom < 0) {
-    return { filas: [], errores: ["Cabecera inválida: se requiere al menos DNI Cliente y Nombres y Apellidos (usa la plantilla oficial)"] };
+  if (iNro < 0) {
+    return { filas: [], errores: ["Cabecera inválida: se requiere la columna DNI Cliente (usa la plantilla oficial)"] };
   }
   if (todas.length - 1 > MAX_FILAS_CLIENTES) {
     return { filas: [], errores: [`Máximo ${MAX_FILAS_CLIENTES} filas por archivo`] };
   }
+  // Solo se exige DNI Cliente (identificador). La validación es del código
+  // SAP/BP: se informa, no se rechaza. Nombre vacío → "SIN NOMBRE".
   const filas: FilaClienteCSV[] = [];
   todas.slice(1).forEach((cols, k) => {
     const c = cols.map((x) => x.trim());
     const nro = c[iNro] ?? "";
     const nom = c[iNom] ?? "";
     if (!nro && !nom) return; // línea vacía
+    if (!nro) { errores.push(`Fila ${k + 2}: sin DNI Cliente (se omite)`); return; }
     const docUp = ((c[iDoc] ?? "").toUpperCase() || "DNI");
-    const tip = iTip >= 0
-      ? ((c[iTip] ?? "").toUpperCase() || (docUp === "RUC" ? "JURIDICA" : "NATURAL"))
-      : (docUp === "RUC" ? "JURIDICA" : "NATURAL");
-    if (!["NATURAL", "JURIDICA"].includes(tip)) {
-      errores.push(`Fila ${k + 2}: tipo_persona debe ser NATURAL o JURIDICA`);
-      return;
-    }
-    if (!nro) { errores.push(`Fila ${k + 2}: DNI Cliente obligatorio`); return; }
-    if (nom.length < 2) { errores.push(`Fila ${k + 2}: Nombres y Apellidos muy corto`); return; }
-    const cor = iCor >= 0 ? (c[iCor] ?? "") : "";
-    if (cor && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cor)) { errores.push(`Fila ${k + 2}: correo inválido`); return; }
+    const tip = (iTip >= 0 ? (c[iTip] ?? "").toUpperCase() : "") || (docUp === "RUC" ? "JURIDICA" : "NATURAL");
     let linea: number | null = null;
     if (iLin >= 0 && (c[iLin] ?? "") !== "") {
       const v = Number(String(c[iLin]).replace(/[^0-9.,-]/g, "").replace(",", "."));
@@ -1483,17 +1473,16 @@ function parseCSVClientes(csv: string): { filas: FilaClienteCSV[]; errores: stri
     }
     filas.push({
       fila: k + 2,
-      tipo_persona: tip,
+      tipo_persona: ["NATURAL", "JURIDICA"].includes(tip) ? tip : "NATURAL",
       tipo_doc: docUp,
       nro_doc: nro,
-      nombre_razon_social: nom,
+      nombre_razon_social: nom.length >= 2 ? nom : "SIN NOMBRE",
       contacto: iCon >= 0 ? (c[iCon] ?? "") : "",
-      correo: cor,
+      correo: iCor >= 0 ? (c[iCor] ?? "") : "",
       telefono: iTel >= 0 ? (c[iTel] ?? "") : "",
       codigo_sap: iSap >= 0 ? (c[iSap] ?? "") : "",
       cuenta_contrato: iCta >= 0 ? (c[iCta] ?? "") : "",
       telefono2: iTel2 >= 0 ? (c[iTel2] ?? "") : "",
-      bp_cliente: iBp >= 0 ? (c[iBp] ?? "") : "",
       linea_credito: linea,
       nse: iNse >= 0 ? (c[iNse] ?? "") : "",
       direccion: iDir >= 0 ? (c[iDir] ?? "") : "",
@@ -1570,20 +1559,19 @@ async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT
 
 /** Columnas Etapa 1 (migracion_03): se retiran si la BD aún no las tiene. */
 const COLUMNAS_CLI_ETAPA1 = [
-  "cuenta_contrato", "telefono2", "bp_cliente", "linea_credito",
+  "cuenta_contrato", "telefono2", "linea_credito",
   "nse", "direccion", "referencia", "distrito", "ambiente",
   "sap_validado",
 ] as const;
 
 function filaClienteEtapa1(args: {
-  cuenta_contrato?: string; telefono2?: string; bp_cliente?: string;
+  cuenta_contrato?: string; telefono2?: string;
   linea_credito?: number; nse?: string; direccion?: string;
   referencia?: string; distrito?: string; ambiente?: string;
 }): Record<string, unknown> {
   return {
     cuenta_contrato: args.cuenta_contrato || null,
     telefono2: args.telefono2 || null,
-    bp_cliente: args.bp_cliente || null,
     linea_credito: args.linea_credito ?? null,
     nse: args.nse || null,
     direccion: args.direccion || null,
@@ -1638,7 +1626,6 @@ async function hActualizarClienteSGT(args: z.infer<typeof EsquemaActualizarClien
   if (args.codigo_sap !== undefined) patch.codigo_sap = args.codigo_sap || null;
   if (args.cuenta_contrato !== undefined) patch.cuenta_contrato = args.cuenta_contrato || null;
   if (args.telefono2 !== undefined) patch.telefono2 = args.telefono2 || null;
-  if (args.bp_cliente !== undefined) patch.bp_cliente = args.bp_cliente || null;
   if (args.linea_credito !== undefined) patch.linea_credito = args.linea_credito ?? null;
   if (args.nse !== undefined) patch.nse = args.nse || null;
   if (args.direccion !== undefined) patch.direccion = args.direccion || null;
@@ -1706,6 +1693,8 @@ async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, 
       desde += 1000;
     }
   }
+  // Con validar_sap, los que traen BP/SAP quedan validados automáticamente.
+  const autoValidar = !!args.validar_sap;
   const armarFila = (f: FilaClienteCSV, id: string, conNuevas: boolean): Record<string, unknown> => {
     const base: Record<string, unknown> = {
       id,
@@ -1722,13 +1711,13 @@ async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, 
     if (conNuevas) {
       base.cuenta_contrato = f.cuenta_contrato || null;
       base.telefono2 = f.telefono2 || null;
-      base.bp_cliente = f.bp_cliente || null;
       base.linea_credito = f.linea_credito ?? null;
       base.nse = f.nse || null;
       base.direccion = f.direccion || null;
       base.referencia = f.referencia || null;
       base.distrito = f.distrito || null;
       base.ambiente = f.ambiente || null;
+      base.sap_validado = autoValidar && !!f.codigo_sap;
     }
     return base;
   };
