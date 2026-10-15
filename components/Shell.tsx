@@ -138,6 +138,21 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       {/* Header blanco */}
       <header className="bg-white dark:bg-slate-900 border-b border-slate-200 sticky top-0 z-30">
         <div className="flex items-center gap-3 px-4 lg:px-6 h-16 group/barra">
+          <Link href="/dashboard" className="flex items-center gap-2 shrink-0">
+            <LogoCalidda priority className="h-7 w-auto max-w-[110px] object-contain" />
+            <span className="leading-tight">
+              <span className="block text-sm font-extrabold text-slate-900 dark:text-white tracking-tight whitespace-nowrap">
+                Ambientes Cáliddos
+              </span>
+              <span className="block text-[10px] font-medium text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                Gestión comercial y financiamiento
+              </span>
+            </span>
+            <span className="hidden md:block h-8 w-px bg-slate-200 mx-2" />
+            <span className="hidden md:block text-sm font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap">
+              Cálidda · Gas Natural del Perú
+            </span>
+          </Link>
           <button
             onClick={alternarMenu}
             title={plegado ? "Desplegar menú" : "Plegar menú"}
@@ -146,9 +161,6 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           >
             <span aria-hidden className="text-sm font-bold">{plegado ? "→" : "←"}</span>
           </button>
-          <span className="hidden md:block text-sm font-semibold text-slate-600 dark:text-slate-300">
-            Cálidda · Gas Natural del Perú
-          </span>
           <div className="ml-auto flex items-center gap-3">
             <button
               onClick={alternarTema}
@@ -185,31 +197,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <div className="flex">
         {/* Sidebar */}
         <aside className={`hidden md:flex shrink-0 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 sticky top-16 min-h-[calc(100vh-4rem)] transition-all duration-200 ${plegado ? "w-[68px]" : "w-60"}`}>
-          {/* Marca + línea separatoria del mismo ancho que las opciones */}
-          <div className="px-3 pt-3">
-            <Link
-              href="/dashboard"
-              title="Ambientes Cáliddos"
-              className={`flex items-center gap-2.5 ${plegado ? "justify-center px-0 py-1" : "px-1"}`}
-            >
-              <LogoCalidda
-                priority
-                className={`${plegado ? "h-8 max-w-[44px]" : "h-9 w-auto max-w-full"} object-contain`}
-              />
-              {!plegado && (
-                <span className="leading-tight">
-                  <span className="block text-base font-extrabold text-slate-900 dark:text-white tracking-tight whitespace-nowrap">
-                    Ambientes Cáliddos
-                  </span>
-                  <span className="block text-[11px] font-medium text-slate-400 dark:text-slate-500 whitespace-nowrap">
-                    Gestión comercial y financiamiento
-                  </span>
-                </span>
-              )}
-            </Link>
-          </div>
-          <nav className="p-3 pt-2 space-y-1">
-            <div aria-hidden className="h-px bg-slate-200 dark:bg-slate-700 mb-2" />
+          <nav className="p-3 space-y-1">
             {visibles.map((it) => {
               const active = pathname === it.href || pathname?.startsWith(it.href + "/");
               return (
