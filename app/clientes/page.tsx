@@ -124,25 +124,25 @@ function NuevoClienteModal({ onClose, onGuardado }: { onClose: () => void; onGua
   const campo = (k: keyof FormCliente, etiqueta: string, ph = "", obligatorio = false) => (
     <div>
       <label className="label">{etiqueta}{obligatorio && " *"}</label>
-      <input className="input" placeholder={ph || etiqueta} value={f[k]} onChange={(e) => set(k, e.target.value)} />
+      <input className="input !py-1.5 text-sm" placeholder={ph || etiqueta} value={f[k]} onChange={(e) => set(k, e.target.value)} />
     </div>
   );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl w-full max-w-3xl shadow-xl my-6 overflow-hidden">
-        <div className="flex items-start justify-between px-6 py-4 border-b bg-slate-50">
+      <div className="bg-white rounded-2xl w-full max-w-xl shadow-xl my-6 overflow-hidden">
+        <div className="flex items-start justify-between px-4 py-3 border-b bg-slate-50">
           <div>
-            <h2 className="font-bold text-lg">Nuevo cliente</h2>
-            <p className="text-sm text-slate-500">Registra los datos principales. El código SAP puede informarse después.</p>
+            <h2 className="font-bold">Nuevo cliente</h2>
+            <p className="text-xs text-slate-500">Registra los datos principales. El código SAP puede informarse después.</p>
           </div>
-          <button className="btn-white !px-3" onClick={onClose}>✕</button>
+          <button className="btn-white !px-2 !py-1 text-sm" onClick={onClose}>✕</button>
         </div>
-        <div className="p-6 space-y-4">
-          <div className="grid md:grid-cols-2 gap-4">
+        <div className="p-4 space-y-3 text-sm">
+          <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="label">Tipo de persona *</label>
-              <select className="input" value={f.tipoPersona} onChange={(e) => { set("tipoPersona", e.target.value); set("tipoDoc", ""); }}>
+              <select className="input !py-1.5 text-sm" value={f.tipoPersona} onChange={(e) => { set("tipoPersona", e.target.value); set("tipoDoc", ""); }}>
                 <option value="">Selecciona un tipo</option>
                 <option value="NATURAL">Persona natural</option>
                 <option value="JURIDICA">Persona jurídica</option>
@@ -150,45 +150,45 @@ function NuevoClienteModal({ onClose, onGuardado }: { onClose: () => void; onGua
             </div>
             <div>
               <label className="label">Tipo de documento *</label>
-              <select className="input" value={f.tipoDoc} onChange={(e) => set("tipoDoc", e.target.value)}>
+              <select className="input !py-1.5 text-sm" value={f.tipoDoc} onChange={(e) => set("tipoDoc", e.target.value)}>
                 <option value="">Selecciona un documento</option>
                 {tiposDoc.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
           </div>
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-2">
             {campo("nroDoc", "Número de documento", "Ingresa el documento", true)}
             {campo("nombre", "Nombre / Razón social", "Nombres o razón social", true)}
           </div>
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-2">
             {campo("cuentaContrato", "Cuenta Contrato", "N° cuenta contrato")}
             {campo("bp", "BP Cliente", "Business partner")}
             {campo("sap", "Código de cliente SAP", "Posterior si deseas")}
           </div>
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-2">
             {campo("correo", "Correo", "correo@ejemplo.com")}
             {campo("telefono", "Teléfono 1", "999999999")}
             {campo("telefono2", "Teléfono 2", "999999999")}
           </div>
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-2">
             {campo("linea", "Línea de Crédito", "Ej. 4000")}
             {campo("nse", "NSE", "Ej. 5")}
             {campo("distrito", "Distrito", "")}
           </div>
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-2">
             {campo("direccion", "Dirección", "")}
             {campo("referencia", "Referencia", "")}
           </div>
           {campo("ambiente", "Ambiente", "Ej. Sala")}
-          <div className="rounded-xl border-l-4 border-l-amber-400 bg-amber-50 border border-amber-200 p-4">
-            <p className="font-bold text-sm">Datos del cliente</p>
-            <p className="text-xs text-slate-600 mt-1">El documento no puede repetirse. El cliente puede registrarse sin código SAP y quedará pendiente de revisión.</p>
+          <div className="rounded-xl border-l-4 border-l-amber-400 bg-amber-50 border border-amber-200 p-3">
+            <p className="font-bold text-[13px]">Datos del cliente</p>
+            <p className="text-[11px] text-slate-600 mt-0.5">El documento no puede repetirse. Sin código SAP quedará pendiente de revisión.</p>
           </div>
-          {msg && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
+          {msg && <p className="text-[13px] rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
         </div>
-        <div className="flex justify-end gap-2 px-6 py-4 border-t bg-slate-50">
-          <button className="btn-white" onClick={onClose}>Cancelar</button>
-          <button className="btn-green" onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Guardar cliente"}</button>
+        <div className="flex justify-end gap-2 px-4 py-3 border-t bg-slate-50">
+          <button className="btn-white !py-1.5 text-sm" onClick={onClose}>Cancelar</button>
+          <button className="btn-green !py-1.5 text-sm" onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Guardar cliente"}</button>
         </div>
       </div>
     </div>
@@ -262,19 +262,19 @@ function EditarClienteModal({ c, onClose, onGuardado }: { c: Cliente; onClose: (
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl w-full max-w-3xl shadow-xl my-6 overflow-hidden">
-        <div className="flex items-start justify-between px-6 py-4 border-b bg-slate-50">
+      <div className="bg-white rounded-2xl w-full max-w-xl shadow-xl my-6 overflow-hidden">
+        <div className="flex items-start justify-between px-4 py-3 border-b bg-slate-50">
           <div>
-            <h2 className="font-bold text-lg">Editar cliente · {String(c.id)}</h2>
-            <p className="text-sm text-slate-500">Actualiza cualquier dato del cliente.</p>
+            <h2 className="font-bold">Editar cliente · {String(c.id)}</h2>
+            <p className="text-xs text-slate-500">Actualiza cualquier dato del cliente.</p>
           </div>
-          <button className="btn-white !px-3" onClick={onClose}>✕</button>
+          <button className="btn-white !px-2 !py-1 text-sm" onClick={onClose}>✕</button>
         </div>
-        <div className="p-6 space-y-4">
-          <div className="grid md:grid-cols-2 gap-4">
+        <div className="p-4 space-y-3 text-sm">
+          <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="label">Tipo de persona</label>
-              <select className="input" value={f.tipoPersona} onChange={(e) => set("tipoPersona", e.target.value)}>
+              <select className="input !py-1.5 text-sm" value={f.tipoPersona} onChange={(e) => set("tipoPersona", e.target.value)}>
                 <option value="">— Sin cambio —</option>
                 <option value="NATURAL">Persona natural</option>
                 <option value="JURIDICA">Persona jurídica</option>
@@ -282,41 +282,41 @@ function EditarClienteModal({ c, onClose, onGuardado }: { c: Cliente; onClose: (
             </div>
             <div>
               <label className="label">Tipo de documento</label>
-              <select className="input" value={f.tipoDoc} onChange={(e) => set("tipoDoc", e.target.value)}>
+              <select className="input !py-1.5 text-sm" value={f.tipoDoc} onChange={(e) => set("tipoDoc", e.target.value)}>
                 <option value="">— Sin cambio —</option>
                 {["DNI", "CE", "PASAPORTE", "RUC", "OTRO"].map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
           </div>
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-2">
             {campo("nroDoc", "Número de documento")}
             {campo("nombre", "Nombre / Razón social")}
           </div>
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-2">
             {campo("cuentaContrato", "Cuenta Contrato")}
             {campo("bp", "BP Cliente")}
             {campo("sap", "Código de cliente SAP")}
           </div>
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-2">
             {campo("correo", "Correo")}
             {campo("telefono", "Teléfono 1")}
             {campo("telefono2", "Teléfono 2")}
           </div>
-          <div className="grid md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-2">
             {campo("linea", "Línea de Crédito")}
             {campo("nse", "NSE")}
             {campo("distrito", "Distrito")}
           </div>
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-2">
             {campo("direccion", "Dirección")}
             {campo("referencia", "Referencia")}
           </div>
           {campo("ambiente", "Ambiente")}
-          {msg && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
+          {msg && <p className="text-[13px] rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
         </div>
-        <div className="flex justify-end gap-2 px-6 py-4 border-t bg-slate-50">
-          <button className="btn-white" onClick={onClose}>Cancelar</button>
-          <button className="btn-green" onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Guardar cambios"}</button>
+        <div className="flex justify-end gap-2 px-4 py-3 border-t bg-slate-50">
+          <button className="btn-white !py-1.5 text-sm" onClick={onClose}>Cancelar</button>
+          <button className="btn-green !py-1.5 text-sm" onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Guardar cambios"}</button>
         </div>
       </div>
     </div>
