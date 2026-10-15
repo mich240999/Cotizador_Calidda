@@ -41,9 +41,9 @@ const CONSIDERACIONES = [
   "7. Si el importe total excede la línea de crédito aprobada por Cálidda, el usuario podrá abonar la diferencia como cuota inicial a Cálidda.",
 ];
 
-/** Pie del documento: contacto comercial. */
-const CONTACTO_PDF_TEL = "614 9000";
-const CONTACTO_PDF_EMAIL = "muebles@calidda.com.pe";
+/** Pie del documento: contacto comercial (banda destacada). */
+const CONTACTO_WHATSAPP = "926 982 647";
+const CONTACTO_FIJO = "01-614 9002";
 
 function teaADecimal(teaRaw: number, fallback = 0.4): number {
   if (!Number.isFinite(teaRaw)) return fallback;
@@ -555,19 +555,26 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     y += lo.length * 3.8;
   }
 
-  const ahora = new Date();
-  const fGen = `${String(ahora.getDate()).padStart(2, "0")}/${String(ahora.getMonth() + 1).padStart(2, "0")}/${ahora.getFullYear()} ${String(ahora.getHours()).padStart(2, "0")}:${String(ahora.getMinutes()).padStart(2, "0")}`;
+  const asesorTxt = d.asesor && d.asesor !== "—"
+    ? `tu asesor ${d.asesor.slice(0, 28)}`
+    : "tu asesor de venta";
+  const lineaContacto = `Comunícate con ${asesorTxt} · WhatsApp: ${CONTACTO_WHATSAPP} · ${CONTACTO_FIJO}`;
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
     doc.setPage(i);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
-    gris(110);
-    doc.text(
-      `Documento de Ambientes Cáliddos generado desde Cálidda 360 el ${fGen}. Contacto: ${CONTACTO_PDF_TEL} · ${CONTACTO_PDF_EMAIL}`,
-      W / 2, 288, { align: "center" }
-    );
-    doc.setFontSize(7);
-    doc.text(`Pág. ${i}/${n}`, W / 2, 292.5, { align: "center" });
+    // Banda moderna de contacto: fondo teal, texto blanco grande.
+    doc.setFillColor(...TEAL);
+    doc.roundedRect(ML, 280.5, ANCHO, 12, 2.5, 2.5, "F");
+    // Acento verde a la izquierda de la banda.
+    doc.setFillColor(...VERDE);
+    doc.rect(ML + 2.5, 280.5, 2.2, 12, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+    doc.text("¿Dudas o consultas sobre tu cotización?", W / 2, 285.2, { align: "center" });
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+    doc.text(lineaContacto, W / 2, 289.4, { align: "center" });
+    doc.setFontSize(7); gris(110);
+    doc.text(`Pág. ${i}/${n}`, W / 2, 294.8, { align: "center" });
     doc.setTextColor(0, 0, 0);
   }
   return doc;
