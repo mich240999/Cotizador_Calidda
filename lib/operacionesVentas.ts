@@ -324,8 +324,11 @@ const EsquemaCrearSolicitud = z.object({
   foto_espacio_url: z.string().trim().max(2000).optional().default(""),
   tea: z.coerce.number().min(0).max(100).optional().default(40),
   observaciones: z.string().trim().max(2000).optional().default(""),
-  adjunto_cotizacion_url: zUrlDoc.optional().default(""),
-  adjunto_dni_url: zUrlDoc.optional().default(""),
+  // Sin .default(""): zod ≥3.24 valida el default contra min() y rechaza
+  // aunque la clave venga omitida. Con .optional() solo, omitir pasa y un
+  // valor presente corto sigue rechazado.
+  adjunto_cotizacion_url: zUrlDoc.optional(),
+  adjunto_dni_url: zUrlDoc.optional(),
   // Etapa 3 — solicitud nacida de una cotización (PDF se regenera, no se sube).
   cotizacion_id: z.string().trim().uuid().optional().nullable(),
   anticipo: z.coerce.number().min(0).max(100_000_000).optional().default(0),

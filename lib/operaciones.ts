@@ -112,7 +112,7 @@ const EsquemaAdminActualizar = z.object({
 
 const EsquemaAdminCrear = z.object({
   email: z.string().trim().email().max(160),
-  nombre: z.string().trim().min(2).max(200).optional().default(""),
+  nombre: z.string().trim().min(2).max(200).optional(),
   rol: z.enum(["admin", "asesor", "oficina"]).default("asesor"),
   password: z.string().min(8).max(128).optional()
 });
