@@ -95,3 +95,27 @@ VALUES
    'A las {hora} del {fecha} hay {cantidad} pedidos pendientes de liquidar:\n{detalle}',
    true)
 ON CONFLICT (clave) DO NOTHING;
+
+-- ---------------------------------------------------------------- ETAPA 6
+-- Instalaciones y liquidación: 2 formas (anticipo con voucher, o acta con
+-- fotos). Al registrar pasa a pendiente_liquidar; al liquidar, liquidada.
+
+ALTER TABLE public.vta_instalaciones
+  ADD COLUMN IF NOT EXISTS tipo_liquidacion TEXT CHECK (tipo_liquidacion IS NULL OR tipo_liquidacion IN ('anticipo','acta')),
+  ADD COLUMN IF NOT EXISTS voucher_url TEXT,
+  ADD COLUMN IF NOT EXISTS foto_durante_url TEXT,
+  ADD COLUMN IF NOT EXISTS foto_dni_url TEXT,
+  ADD COLUMN IF NOT EXISTS foto_cliente_dni_url TEXT;
+
+ALTER TABLE public.vta_instalaciones DROP CONSTRAINT IF EXISTS vta_instalaciones_estado_check;
+ALTER TABLE public.vta_instalaciones
+  ADD CONSTRAINT vta_instalaciones_estado_check CHECK (estado IN (
+    'pendiente','registrada','validada_proveedor','observada','cerrada',
+    'pendiente_liquidar','liquidada'));
+
+ALTER TABLE public.vta_solicitudes_venta DROP CONSTRAINT IF EXISTS vta_solicitudes_venta_estado_check;
+ALTER TABLE public.vta_solicitudes_venta
+  ADD CONSTRAINT vta_solicitudes_venta_estado_check CHECK (estado IN (
+    'borrador','pendiente_aprobacion','observado','aprobada','generada',
+    'en_instalacion','instalada','validada_proveedor','cerrada','liquidada',
+    'pendiente_liquidar'));

@@ -161,6 +161,8 @@ export function BadgeEstadoVenta({ estado }: { estado: string }) {
     observado: "bg-orange-50 text-orange-700 border-orange-200",
     aprobada: "bg-green-50 text-green-700 border-green-200",
     generada: "bg-teal-50 text-teal-700 border-teal-200",
+    pendiente_liquidar: "bg-purple-50 text-purple-700 border-purple-200",
+    pendiente_instalar: "bg-slate-100 text-slate-500 border-slate-200",
     en_instalacion: "bg-blue-50 text-blue-700 border-blue-200",
     instalada: "bg-blue-50 text-blue-700 border-blue-200",
     validada_proveedor: "bg-teal-50 text-teal-700 border-teal-200",

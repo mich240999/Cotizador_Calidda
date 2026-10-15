@@ -426,73 +426,78 @@ async function hListarVentas(args: z.infer<typeof EsquemaListarVentas>, ctx: Ope
     const { data, error, count } = await q.range(desde, desde + args.pageSize - 1);
     if (error) throw new Error(error.message);
     const rows = ((data ?? []) as Fila[]);
-    const nombres = await resolverNombres(ctx, rows);
-    // Cotización origen (código) por solicitud.
-    const idsCot = [...new Set(rows.map((r) => String(r.cotizacion_id ?? "")).filter(Boolean))];
-    const mCot = new Map<string, { codigo: string; cuenta_contrato: string | null }>();
-    if (idsCot.length) {
-      try {
-        const { data: cots } = await ctx.service.from("cotizaciones").select("id,codigo,cuenta_contrato").in("id", idsCot);
-        for (const c of ((cots ?? []) as Fila[])) {
-          mCot.set(String(c.id), { codigo: String(c.codigo ?? ""), cuenta_contrato: (c.cuenta_contrato ?? null) as string | null });
-        }
-      } catch { /* sin cotizaciones vinculadas */ }
-    }
-    // Ítems de la página: total y primer material (nombre).
-    const idsSol = rows.map((r) => String(r.id));
-    const mTot = new Map<string, number>();
-    const mMat = new Map<string, string>();
-    if (idsSol.length) {
-      try {
-        const { data: its } = await ctx.service.from(T_ITEM).select("solicitud_id,subtotal,id_material").in("solicitud_id", idsSol).order("id", { ascending: true }).limit(2000);
-        const porSol = new Map<string, Fila[]>();
-        for (const it of ((its ?? []) as Fila[])) {
-          const k = String(it.solicitud_id);
-          if (!porSol.has(k)) porSol.set(k, []);
-          porSol.get(k)!.push(it);
-        }
-        const idsMat = [...new Set([...porSol.values()].flat().map((it) => String(it.id_material ?? "")).filter(Boolean))];
-        const mNom = new Map<string, string>();
-        if (idsMat.length) {
-          try {
-            const { data: mats } = await ctx.service.from("mae_materiales").select("id,nombre").in("id", idsMat);
-            for (const m of ((mats ?? []) as Fila[])) mNom.set(String(m.id), String(m.nombre ?? ""));
-          } catch { /* sin maestro */ }
-        }
-        for (const [k, lista] of porSol) {
-          mTot.set(k, Math.round(lista.reduce((a, it) => a + (Number(it.subtotal ?? 0) || 0), 0) * 100) / 100);
-          const primero = lista[0];
-          const nMat = mNom.get(String(primero?.id_material ?? ""));
-          mMat.set(k, nMat || (lista.length > 1 ? `${lista.length} materiales` : "—"));
-        }
-      } catch { /* sin ítems */ }
-    }
-    const enriquecidas = rows.map((r) => {
-      const n = nombres.get(String(r.id)) ?? { cliente: null, documento: null, proveedor: null, asesor: null, creado_por: null, cuenta_contrato: null, ambiente: null };
-      const cot = mCot.get(String(r.cotizacion_id ?? ""));
-      const totalItems = mTot.get(String(r.id)) ?? 0;
-      const anticipo = Math.max(Number(r.anticipo ?? 0) || 0, 0);
-      return {
-        ...r,
-        cliente_nombre: n.cliente,
-        cliente_documento: n.documento,
-        proveedor_nombre: n.proveedor,
-        asesor_nombre: (r.asesor_nombre ?? null) || n.asesor,
-        creado_por_nombre: n.creado_por,
-        cuenta_contrato: (r.cuenta_contrato ?? null) || cot?.cuenta_contrato || n.cuenta_contrato,
-        ambiente: (r.ambiente ?? null) || n.ambiente,
-        cotizacion_codigo: cot?.codigo || null,
-        monto_total: totalItems,
-        monto_financiado: r.monto_financiado != null && Number(r.monto_financiado) > 0
-          ? Number(r.monto_financiado)
-          : Math.max(Math.round((totalItems - anticipo) * 100) / 100, 0),
-        material_nombre: mMat.get(String(r.id)) ?? "—",
-      };
-    });
+    const enriquecidas = await enriquecerSolicitudes(ctx, rows);
     return { rows: enriquecidas, total: count ?? rows.length, page: args.page, pageSize: args.pageSize };
   } catch (e) {
     exigirTabla(e);
   }
+}
+
+/** Enriquece filas de solicitudes para las tablas (mismos 13 campos en
+ *  solicitudes e instalaciones): nombres, cotización, montos, material.
+ */
+async function enriquecerSolicitudes(ctx: OperacionContext, rows: Fila[]): Promise<Fila[]> {
+  const nombres = await resolverNombres(ctx, rows);
+  const idsCot = [...new Set(rows.map((r) => String(r.cotizacion_id ?? "")).filter(Boolean))];
+  const mCot = new Map<string, { codigo: string; cuenta_contrato: string | null }>();
+  if (idsCot.length) {
+    try {
+      const { data: cots } = await ctx.service.from("cotizaciones").select("id,codigo,cuenta_contrato").in("id", idsCot);
+      for (const c of ((cots ?? []) as Fila[])) {
+        mCot.set(String(c.id), { codigo: String(c.codigo ?? ""), cuenta_contrato: (c.cuenta_contrato ?? null) as string | null });
+      }
+    } catch { /* sin cotizaciones vinculadas */ }
+  }
+  const idsSol = rows.map((r) => String(r.id));
+  const mTot = new Map<string, number>();
+  const mMat = new Map<string, string>();
+  if (idsSol.length) {
+    try {
+      const { data: its } = await ctx.service.from(T_ITEM).select("solicitud_id,subtotal,id_material").in("solicitud_id", idsSol).order("id", { ascending: true }).limit(2000);
+      const porSol = new Map<string, Fila[]>();
+      for (const it of ((its ?? []) as Fila[])) {
+        const k = String(it.solicitud_id);
+        if (!porSol.has(k)) porSol.set(k, []);
+        porSol.get(k)!.push(it);
+      }
+      const idsMat = [...new Set([...porSol.values()].flat().map((it) => String(it.id_material ?? "")).filter(Boolean))];
+      const mNom = new Map<string, string>();
+      if (idsMat.length) {
+        try {
+          const { data: mats } = await ctx.service.from("mae_materiales").select("id,nombre").in("id", idsMat);
+          for (const m of ((mats ?? []) as Fila[])) mNom.set(String(m.id), String(m.nombre ?? ""));
+        } catch { /* sin maestro */ }
+      }
+      for (const [k, lista] of porSol) {
+        mTot.set(k, Math.round(lista.reduce((a, it) => a + (Number(it.subtotal ?? 0) || 0), 0) * 100) / 100);
+        const primero = lista[0];
+        const nMat = mNom.get(String(primero?.id_material ?? ""));
+        mMat.set(k, nMat || (lista.length > 1 ? `${lista.length} materiales` : "—"));
+      }
+    } catch { /* sin ítems */ }
+  }
+  return rows.map((r) => {
+    const n = nombres.get(String(r.id)) ?? { cliente: null, documento: null, proveedor: null, asesor: null, creado_por: null, cuenta_contrato: null, ambiente: null };
+    const cot = mCot.get(String(r.cotizacion_id ?? ""));
+    const totalItems = mTot.get(String(r.id)) ?? 0;
+    const anticipo = Math.max(Number(r.anticipo ?? 0) || 0, 0);
+    return {
+      ...r,
+      cliente_nombre: n.cliente,
+      cliente_documento: n.documento,
+      proveedor_nombre: n.proveedor,
+      asesor_nombre: (r.asesor_nombre ?? null) || n.asesor,
+      creado_por_nombre: n.creado_por,
+      cuenta_contrato: (r.cuenta_contrato ?? null) || cot?.cuenta_contrato || n.cuenta_contrato,
+      ambiente: (r.ambiente ?? null) || n.ambiente,
+      cotizacion_codigo: cot?.codigo || null,
+      monto_total: totalItems,
+      monto_financiado: r.monto_financiado != null && Number(r.monto_financiado) > 0
+        ? Number(r.monto_financiado)
+        : Math.max(Math.round((totalItems - anticipo) * 100) / 100, 0),
+      material_nombre: mMat.get(String(r.id)) ?? "—",
+    };
+  });
 }
 
 /** Resuelve un cliente a mae_clientes. Si viene de la tabla base, lo migra solo.
@@ -1513,6 +1518,188 @@ async function hCorteEnviar(args: z.infer<typeof EsquemaEnviarCorte>, ctx: Opera
   }
 }
 
+// ---------------------------------------------------------------- Etapa 6: instalaciones y liquidación
+
+const ESTADOS_INSTALABLE = ["generada", "aprobada", "en_instalacion", "instalada", "observada", "validada_proveedor"];
+
+const EsquemaListarInstalaciones = z.object({
+  q: z.string().trim().max(120).optional().default(""),
+  estado_sol: z.string().trim().max(40).optional().default(""),
+  estado_inst: z.string().trim().max(40).optional().default(""),
+  desde: z.string().trim().max(10).optional().default(""),
+  hasta: z.string().trim().max(10).optional().default(""),
+  limit: zLimit,
+  page: zPage,
+  pageSize: zPageSize,
+});
+
+const zUrlDocOpcional = z.string().trim().max(2000).optional().default("");
+
+const EsquemaRegistrarLiquidacion = z.object({
+  solicitud_id: z.string().trim().min(1).max(20),
+  tipo: z.enum(["anticipo", "acta"]),
+  voucher_url: zUrlDocOpcional,
+  foto_antes_url: zUrlDocOpcional,
+  foto_durante_url: zUrlDocOpcional,
+  foto_despues_url: zUrlDocOpcional,
+  foto_dni_url: zUrlDocOpcional,
+  foto_cliente_dni_url: zUrlDocOpcional,
+  acta_url: zUrlDocOpcional,
+  boleta_url: zUrlDocOpcional,
+});
+
+const EsquemaLiquidar = z.object({
+  solicitud_id: z.string().trim().min(1).max(20),
+});
+
+/** Instalaciones: solicitudes post-PV con su instalación (cada proveedor ve las suyas). */
+async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalaciones>, ctx: OperacionContext) {
+  try {
+    const desde = (args.page - 1) * args.pageSize;
+    let q = ctx.service.from(T_SOL).select("*", { count: "exact" }).order("created_at", { ascending: false });
+    const sc = alcanceVentas(ctx);
+    if (!sc.todo) {
+      if (sc.proveedor) q = q.or(`id_proveedor.eq.${sc.proveedor},created_by.eq.${ctx.sesion.userId}`);
+      else q = q.eq("created_by", ctx.sesion.userId);
+    }
+    q = q.in("estado", ["generada", "aprobada", "en_instalacion", "instalada", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"]);
+    if (args.estado_sol) q = q.eq("estado", args.estado_sol.toLowerCase());
+    if (args.desde) q = q.gte("created_at", `${args.desde}T00:00:00`);
+    if (args.hasta) q = q.lte("created_at", `${args.hasta}T23:59:59`);
+    if (args.q) {
+      const s = args.q.replace(/[%(),]/g, "");
+      q = q.or(`id.ilike.%${s}%,id_cliente.ilike.%${s}%,id_proveedor.ilike.%${s}%,observaciones.ilike.%${s}%,numero_pedido.ilike.%${s}%`);
+    }
+    const { data, error, count } = await q.range(desde, desde + args.pageSize - 1);
+    if (error) throw new Error(error.message);
+    let rows = ((data ?? []) as Fila[]);
+    // Instalación por solicitud (izquierda: sin fila = pendiente de instalar).
+    const mIns = new Map<string, Fila>();
+    if (rows.length) {
+      try {
+        const { data: inss } = await ctx.service.from(T_INS)
+          .select("*").in("solicitud_id", rows.map((r) => String(r.id)));
+        for (const ins of ((inss ?? []) as Fila[])) mIns.set(String(ins.solicitud_id), ins);
+      } catch { /* sin tabla */ }
+    }
+    if (args.estado_inst) {
+      const e = args.estado_inst.toLowerCase();
+      rows = rows.filter((r) => {
+        const ins = mIns.get(String(r.id));
+        return e === "pendiente_instalar" ? !ins || String(ins.estado ?? "") === "pendiente" : String(ins?.estado ?? "") === e;
+      });
+    }
+    const enriquecidas = await enriquecerSolicitudes(ctx, rows);
+    return {
+      rows: enriquecidas.map((r) => {
+        const ins = mIns.get(String(r.id));
+        return {
+          ...r,
+          instalacion_estado: ins ? String(ins.estado ?? "") : "pendiente_instalar",
+          instalacion_tipo: ins?.tipo_liquidacion ?? null,
+          instalacion: ins ?? null,
+        };
+      }),
+      total: count ?? rows.length, page: args.page, pageSize: args.pageSize,
+    };
+  } catch (e) {
+    exigirTabla(e);
+  }
+}
+
+/** Proveedor registra 1 de 2 formas de solicitud de liquidación → pendiente_liquidar. */
+async function hRegistrarLiquidacion(args: z.infer<typeof EsquemaRegistrarLiquidacion>, ctx: OperacionContext) {
+  try {
+    const { data: sol, error: eSol } = await ctx.service.from(T_SOL).select("*").eq("id", args.solicitud_id).maybeSingle();
+    if (eSol) throw new Error(eSol.message);
+    if (!sol) lanzar(404, `Solicitud no encontrada: ${args.solicitud_id}`);
+    const s = sol as Fila;
+    const est = String(s.estado ?? "").toLowerCase();
+    if (![...ESTADOS_INSTALABLE, "pendiente_liquidar"].includes(est)) {
+      lanzar(422, `La solicitud debe tener PV generado para registrar liquidación (está '${est}')`);
+    }
+    if (["liquidada", "cerrada"].includes(est)) lanzar(422, "La venta ya está liquidada o cerrada");
+    // Solo el proveedor dueño (o admin).
+    const sc = alcanceVentas(ctx);
+    if (!sc.todo && sc.proveedor && String(s.id_proveedor ?? "") !== sc.proveedor) {
+      lanzar(403, "Solo el proveedor de la venta puede registrar su liquidación");
+    }
+    const U = (v: string | undefined) => String(v ?? "").trim();
+    let fila: Fila;
+    if (args.tipo === "anticipo") {
+      if (!U(args.voucher_url)) lanzar(422, "Sube el voucher del anticipo (PDF o foto)");
+      fila = { solicitud_id: args.solicitud_id, tipo_liquidacion: "anticipo", voucher_url: U(args.voucher_url), estado: "pendiente_liquidar" };
+    } else {
+      const faltan: string[] = [];
+      if (!U(args.foto_antes_url)) faltan.push("foto del antes");
+      if (!U(args.foto_durante_url)) faltan.push("foto del durante");
+      if (!U(args.foto_despues_url)) faltan.push("foto del después");
+      if (!U(args.foto_dni_url)) faltan.push("foto del DNI");
+      if (!U(args.foto_cliente_dni_url)) faltan.push("foto del cliente con su DNI");
+      if (!U(args.acta_url)) faltan.push("acta de conformidad");
+      if (!U(args.boleta_url)) faltan.push("boleta de venta");
+      if (faltan.length) lanzar(422, `Faltan evidencias del acta: ${faltan.join(", ")}`);
+      fila = {
+        solicitud_id: args.solicitud_id, tipo_liquidacion: "acta",
+        foto_antes_url: U(args.foto_antes_url), foto_durante_url: U(args.foto_durante_url),
+        foto_despues_url: U(args.foto_despues_url), foto_dni_url: U(args.foto_dni_url),
+        foto_cliente_dni_url: U(args.foto_cliente_dni_url), acta_url: U(args.acta_url),
+        boleta_url: U(args.boleta_url), estado: "pendiente_liquidar",
+      };
+    }
+    // Upsert por solicitud (tolerante a columnas/estados nuevos sin migración).
+    let ins = await ctx.service.from(T_INS).upsert(fila, { onConflict: "solicitud_id" }).select().single();
+    if (ins.error && /column|schema cache|check|constraint|violates/i.test(ins.error.message)) {
+      const base: Fila = {
+        solicitud_id: args.solicitud_id,
+        foto_antes_url: U(args.foto_antes_url) || U(args.voucher_url),
+        foto_despues_url: U(args.foto_despues_url) || U(args.voucher_url),
+        boleta_url: U(args.boleta_url) || U(args.voucher_url),
+        acta_url: U(args.acta_url) || U(args.voucher_url),
+        estado: "registrada",
+      };
+      ins = await ctx.service.from(T_INS).upsert(base, { onConflict: "solicitud_id" }).select().single();
+      if (ins.error) throw new Error(ins.error.message);
+      const u2 = await ctx.service.from(T_SOL).update({ estado: "instalada" }).eq("id", args.solicitud_id);
+      if (u2.error) throw new Error(u2.error.message);
+      return { instalacion: ins.data, parcial: true };
+    }
+    const upd = await ctx.service.from(T_SOL).update({ estado: "pendiente_liquidar" }).eq("id", args.solicitud_id);
+    if (upd.error) throw new Error(upd.error.message);
+    return { instalacion: ins.data, parcial: false };
+  } catch (e) {
+    exigirTabla(e);
+  }
+}
+
+/** Stephany liquida (ya lo hizo en SAP): verifica evidencias y cierra → liquidada. */
+async function hLiquidarVenta(args: z.infer<typeof EsquemaLiquidar>, ctx: OperacionContext) {
+  try {
+    const { data: ins, error: eIns } = await ctx.service.from(T_INS).select("*").eq("solicitud_id", args.solicitud_id).maybeSingle();
+    if (eIns) throw new Error(eIns.message);
+    if (!ins) lanzar(422, "La venta no tiene liquidación registrada por el proveedor");
+    const f = ins as Fila;
+    if (String(f.estado ?? "") !== "pendiente_liquidar") {
+      lanzar(422, `Solo se liquida desde 'pendiente de liquidar' (está '${f.estado ?? ""}')`);
+    }
+    // Verifica evidencias completas antes de liquidar.
+    const tiene = (v: unknown) => String(v ?? "").trim().length > 0;
+    if (String(f.tipo_liquidacion ?? "") === "anticipo") {
+      if (!tiene(f.voucher_url)) lanzar(422, "Falta el voucher del anticipo");
+    } else {
+      const faltan = ["foto_antes_url", "foto_durante_url", "foto_despues_url", "foto_dni_url", "foto_cliente_dni_url", "acta_url", "boleta_url"].filter((k) => !tiene(f[k]));
+      if (faltan.length) lanzar(422, `Evidencias incompletas: faltan ${faltan.length} archivo(s)`);
+    }
+    const u1 = await ctx.service.from(T_INS).update({ estado: "liquidada" }).eq("solicitud_id", args.solicitud_id);
+    if (u1.error) throw new Error(u1.error.message);
+    const u2 = await ctx.service.from(T_SOL).update({ estado: "liquidada" }).eq("id", args.solicitud_id);
+    if (u2.error) throw new Error(u2.error.message);
+    return { ok: true };
+  } catch (e) {
+    exigirTabla(e);
+  }
+}
+
 async function hActualizarTea(args: z.infer<typeof EsquemaTea>, ctx: OperacionContext) {
   try {
     const { data, error } = await ctx.service
@@ -1550,6 +1737,9 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   getVenta: { descripcion: "Ventas: cabecera + items + abonos + instalación", roles: TODOS, schema: EsquemaGetVenta, handler: hGetVenta },
   listarInstalacionesPendientes: { descripcion: "Ventas: historial de instalaciones del proveedor", roles: TODOS, schema: EsquemaQInstalaciones, handler: hListarInstalacionesPendientes },
   actualizarTeaVenta: { descripcion: "Ventas: actualiza TEA de la solicitud", roles: SOLO_ADMIN, schema: EsquemaTea, handler: hActualizarTea },
+  listarInstalaciones: { descripcion: "Instalaciones: solicitudes post-PV con su instalación (scope proveedor)", roles: TODOS, schema: EsquemaListarInstalaciones, handler: hListarInstalaciones },
+  registrarLiquidacion: { descripcion: "Instalaciones: proveedor registra anticipo o acta → pendiente_liquidar", roles: OPERATIVO, schema: EsquemaRegistrarLiquidacion, handler: hRegistrarLiquidacion },
+  liquidarVenta: { descripcion: "Instalaciones: liquida tras verificar evidencias → liquidada", roles: SOLO_ADMIN, schema: EsquemaLiquidar, handler: hLiquidarVenta },
   buscarCotizacionesParaVenta: { descripcion: "Ventas: busca cotizaciones por DNI/nombre/cta-cto/código para generar solicitud", roles: TODOS, schema: EsquemaBuscarCotizaciones, handler: hBuscarCotizacionesParaVenta },
   obtenerCotizacionParaVenta: { descripcion: "Ventas: payload de cotización para prellenar la solicitud", roles: OPERATIVO, schema: EsquemaCotizacionParaVenta, handler: hObtenerCotizacionParaVenta },
 };
