@@ -255,25 +255,28 @@ export default function CotizacionDetallePage({
               <div className="card p-5">
                 <h2 className="font-semibold mb-2">Totales</h2>
                 {(() => {
-                  const total = Number(cot.total ?? cot.subtotal ?? 0);
+                  const importe = Number(cot.total ?? cot.subtotal ?? 0);
                   const adelanto = Number(cot.cuota_inicial ?? cot.cuotaInicial ?? 0);
-                  const valorFinanciar = Number(cot.capital ?? cot.capital_financiado ?? Math.max(total - adelanto, 0));
+                  const descuento = Number(cot.descuento ?? 0);
+                  const total = Math.max(Math.round((importe - adelanto) * 100) / 100, 0);
                   return (
                     <dl className="text-sm space-y-1">
                       <div className="flex justify-between">
-                        <dt className="text-slate-500">Subtotal (importe)</dt>
-                        <dd>{formatoMoneda(total)}</dd>
+                        <dt className="text-slate-500">Subtotal (importe productos)</dt>
+                        <dd>{formatoMoneda(importe)}</dd>
                       </div>
+                      {descuento > 0 && (
+                        <div className="flex justify-between">
+                          <dt className="text-slate-500">Descuento</dt>
+                          <dd>{formatoMoneda(descuento)}</dd>
+                        </div>
+                      )}
                       <div className="flex justify-between">
                         <dt className="text-slate-500">Adelanto (abono)</dt>
                         <dd>{formatoMoneda(adelanto)}</dd>
                       </div>
-                      <div className="flex justify-between">
-                        <dt className="text-slate-500">Valor a financiar</dt>
-                        <dd>{formatoMoneda(valorFinanciar)}</dd>
-                      </div>
                       <div className="flex justify-between text-lg border-t pt-2">
-                        <dt className="font-bold">Total</dt>
+                        <dt className="font-bold">Total (valor a financiar)</dt>
                         <dd className="font-bold">{formatoMoneda(total)}</dd>
                       </div>
                     </dl>

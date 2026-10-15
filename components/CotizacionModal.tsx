@@ -340,13 +340,14 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
             <h3 className="font-bold">Resumen de importes</h3>
             <p className="text-xs text-slate-400 mb-3">Revisa los importes calculados antes de definir el financiamiento.</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[["Subtotal", subtotal], ["Descuento", descuento], ["Total", total], ["Valor a financiar", capital]].map(([label, v]) => (
+              {[["Subtotal", subtotal], ["Descuento", descuento], ["Adelanto", inicial], ["Total (valor a financiar)", capital]].map(([label, v]) => (
                 <div key={label as string} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
                   <p className="text-[11px] text-slate-400">{label}</p>
                   <p className="font-extrabold">{fmtMiles(v as number)}</p>
                 </div>
               ))}
             </div>
+            <p className="text-[11px] text-slate-400 mt-2">Sin fila IGV: el IGV va incluido en las cuotas del financiamiento.</p>
           </section>
 
           <section className="card !shadow-none p-5">

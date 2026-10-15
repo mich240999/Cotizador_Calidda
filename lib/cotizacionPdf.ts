@@ -388,21 +388,21 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     for (let i = 1; i < cx.length - 1; i++) doc.line(cx[i], y0, cx[i], y);
   }
   y += 6;
-  // Subtotal (importe) / Descuento (solo si hay) / Total (= importe) /
-  // Adelanto (abono) / Valor a financiar (= Total − Adelanto).
+  // Solo: Subtotal (importe productos) / Descuento (solo si hay) /
+  // Adelanto (abono) / Total (= valor a financiar = importe − adelanto).
+  // Sin fila IGV: el IGV va incluido en las cuotas del financiamiento.
   const descPos = d.descuento > 0 ? d.descuento : 0;
   const adelanto = Math.max(Number(d.cuotaInicial || 0), 0);
-  const valorFinanciar = Math.max(Math.round((d.total - adelanto) * 100) / 100, 0);
+  const totalFinanciar = Math.max(Math.round((d.total - adelanto) * 100) / 100, 0);
   doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
-  doc.text("Subtotal (importe):", MR - 52, y); doc.text(fmt(d.total), MR, y, { align: "right" }); y += 4.5;
+  doc.text("Subtotal (importe productos):", MR - 62, y); doc.text(fmt(d.total), MR, y, { align: "right" }); y += 4.5;
   if (descPos > 0) {
-    doc.text("Descuento:", MR - 52, y); doc.text(fmt(descPos), MR, y, { align: "right" }); y += 4.5;
+    doc.text("Descuento:", MR - 62, y); doc.text(fmt(descPos), MR, y, { align: "right" }); y += 4.5;
   }
-  doc.text("Adelanto (abono):", MR - 52, y); doc.text(fmt(adelanto), MR, y, { align: "right" }); y += 4.5;
-  doc.text("Valor a financiar:", MR - 52, y); doc.text(fmt(valorFinanciar), MR, y, { align: "right" }); y += 4.5;
-  doc.setDrawColor(...VERDE); doc.setLineWidth(0.5); doc.line(MR - 62, y, MR, y); y += 4.5;
+  doc.text("Adelanto (abono):", MR - 62, y); doc.text(fmt(adelanto), MR, y, { align: "right" }); y += 4.5;
+  doc.setDrawColor(...VERDE); doc.setLineWidth(0.5); doc.line(MR - 72, y, MR, y); y += 4.5;
   doc.setFont("helvetica", "bold"); doc.setFontSize(10);
-  doc.text("Total:", MR - 52, y); doc.text(fmt(d.total), MR, y, { align: "right" });
+  doc.text("Total (valor a financiar):", MR - 62, y); doc.text(fmt(totalFinanciar), MR, y, { align: "right" });
   doc.setFontSize(8.5);
   y += 12;
 
@@ -411,11 +411,11 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
   y = tituloSeccion("FINANCIAMIENTO", y);
   const boxW = ANCHO / 5;
   const boxes: [string, string][] = [
-    ["CUOTA INICIAL", fmt(d.cuotaInicial)],
-    ["CAPITAL", fmt(d.capital)],
+    ["ADELANTO", fmt(d.cuotaInicial)],
+    ["VALOR A FINANCIAR", fmt(d.capital)],
     ["TEA", `${(d.tea * 100).toFixed(2)}%`],
     ["PLAZO", `${d.plazo} cuotas`],
-    ["CUOTA MENSUAL", fmt(d.cuotaMensual)],
+    ["CUOTA MENSUAL*", fmt(d.cuotaMensual)],
   ];
   const yBox = y;
   doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
@@ -469,6 +469,8 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     }
   }
   y = headY + 24;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(7); gris(110);
+  doc.text("* Cuota mensual con IGV del interés incluido (TEM × 1.18).", ML, y - 6);
 
   // ---- CONSIDERACIONES en caja + banda amarilla ----
   if (y > 225) { doc.addPage(); y = 18; }
