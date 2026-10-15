@@ -539,20 +539,20 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     y = yDet + alto + 7;
   }
 
-  // ---- CONSIDERACIONES: si entra en el espacio en blanco, sigue en la página.
-  // Letra normal (misma que el resto del cuerpo) y con aire entre líneas.
+  // ---- CONSIDERACIONES: ocupa el espacio en blanco; lo que no alcance
+  // fluye a la hoja 2. Letra normal y con aire entre líneas.
   doc.setFont("helvetica", "normal"); doc.setFontSize(8);
   const lineasCons = CONSIDERACIONES.map((c) => doc.splitTextToSize(c, ANCHO) as string[]);
-  const nLineasCons = lineasCons.reduce((a, ls) => a + ls.length, 0);
-  const altoCons = 5 + nLineasCons * 4.0 + CONSIDERACIONES.length * 1.2 + 6 + 12;
-  if (y + altoCons > 278) { doc.addPage(); y = 18; }
+  if (y + 14 > 278) { doc.addPage(); y = 18; }
   y = tituloSeccion("CONSIDERACIONES", y);
   doc.setFont("helvetica", "normal"); doc.setFontSize(8);
   for (const ls of lineasCons) {
-    if (y + ls.length * 4.0 > 258) { doc.addPage(); y = 18; doc.setFont("helvetica", "normal"); doc.setFontSize(8); }
+    if (y + ls.length * 4.0 > 272) { doc.addPage(); y = 18; doc.setFont("helvetica", "normal"); doc.setFontSize(8); }
     doc.text(ls, ML, y);
     y += ls.length * 4.0 + 1.2;
   }
+  // Banda amarilla: si no entra en lo que queda, va a la hoja 2.
+  if (y + 14 > 278) { doc.addPage(); y = 18; }
   y += 6;
   doc.setFillColor(...AMARILLO);
   doc.rect(ML, y - 4, ANCHO, 8, "F");
@@ -566,7 +566,7 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     y += 2;
     doc.setFont("helvetica", "normal"); doc.setFontSize(8);
     const lo = doc.splitTextToSize(`Observaciones: ${d.observaciones}`, ANCHO) as string[];
-    if (y + lo.length * 3.8 > 280) { doc.addPage(); y = 18; }
+    if (y + lo.length * 3.8 > 272) { doc.addPage(); y = 18; doc.setFont("helvetica", "normal"); doc.setFontSize(8); }
     doc.text(lo, ML, y);
     y += lo.length * 3.8;
   }
