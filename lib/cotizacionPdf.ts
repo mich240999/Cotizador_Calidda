@@ -181,10 +181,11 @@ async function obtenerDatosLegacy(service: SupabaseClient, id: string): Promise<
     const cant = Number(it.cantidad ?? 0), punit = Number(it.precio_unit ?? 0);
     const dscto = Number(it.descuento_pct ?? 0);
     const neto = Number(it.total_linea ?? cant * punit * (1 - dscto / 100));
+    const snap = String((it as Record<string, unknown>).descripcion ?? "").trim();
     const matMae = it.material_id ? mae.get(String(it.material_id)) : undefined;
-    const mat = it.materiales
+    const mat = snap || (it.materiales
       ? `${it.materiales?.codigo ?? ""} ${it.materiales?.nombre ?? "Ítem"}`.trim()
-      : (matMae || `Ítem ${it.material_id ?? ""}`.trim() || "Ítem");
+      : (matMae || `Ítem ${it.material_id ?? ""}`.trim() || "Ítem"));
     return { idx: i + 1, material: mat, cant, punit, dscto, neto };
   });
   const bruto = items.reduce((a, it) => a + it.cant * it.punit, 0);

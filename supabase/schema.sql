@@ -132,6 +132,8 @@ CREATE TABLE IF NOT EXISTS public.cotizacion_items (
   precio_unit   NUMERIC(12,2) NOT NULL CHECK (precio_unit >= 0),
   descuento_pct NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (descuento_pct >= 0 AND descuento_pct <= 100),
   total_linea   NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (total_linea >= 0),
+  descripcion   TEXT NOT NULL DEFAULT '',
+  material_codigo TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 COMMENT ON TABLE public.cotizacion_items IS 'total_linea=cantidad*precio_unit*(1-descuento/100) vía trigger';

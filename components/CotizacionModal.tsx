@@ -179,12 +179,17 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     }
     setGuardando(true);
     try {
-      const items = mat.map((f) => ({
-        material_id: f.material_id,
-        cantidad: f.cant,
-        precio_unit: f.precio,
-        descuento_pct: Math.min(100, Math.max(0, f.dsctoPct)),
-      }));
+      const items = mat.map((f) => {
+        const m = materiales.find((x) => String(x.id) === f.material_id);
+        return {
+          material_id: f.material_id,
+          codigo: m ? codMat(m) : "",
+          descripcion: `${f.nombre}${f.descripcion ? ` — ${f.descripcion}` : ""}`.slice(0, 300),
+          cantidad: f.cant,
+          precio_unit: f.precio,
+          descuento_pct: Math.min(100, Math.max(0, f.dsctoPct)),
+        };
+      });
       let creada: unknown = null;
       try {
         creada = await apiOperacion("crearCotizacionSGT", {

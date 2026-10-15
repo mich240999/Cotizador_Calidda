@@ -252,16 +252,26 @@ export async function nombresMaterialesMAE(
   return map;
 }
 
-/** Completa `materiales` (join null) con el nombre del maestro SGT. */
+/** Completa `materiales` (join null): primero usa el snapshot `descripcion`
+ *  guardado al crear; si no hay, resuelve contra el maestro SGT por id.
+ */
 export async function completarNombresItems(
   service: { from(t: string): any },
   items: Record<string, any>[]
 ): Promise<Record<string, any>[]> {
-  const faltantes = (items ?? []).filter((it) => !it.materiales && it.material_id);
-  if (faltantes.length === 0) return items ?? [];
+  const lista = items ?? [];
+  const conSnap = lista.map((it) => {
+    const desc = String(it.descripcion ?? "").trim();
+    if (!it.materiales && desc) {
+      return { ...it, materiales: { codigo: String(it.material_codigo ?? ""), nombre: desc } };
+    }
+    return it;
+  });
+  const faltantes = conSnap.filter((it) => !it.materiales && it.material_id);
+  if (faltantes.length === 0) return conSnap;
   const mae = await nombresMaterialesMAE(service, faltantes.map((it) => String(it.material_id)));
-  if (mae.size === 0) return items ?? [];
-  return (items ?? []).map((it) =>
+  if (mae.size === 0) return conSnap;
+  return conSnap.map((it) =>
     !it.materiales && it.material_id && mae.has(String(it.material_id))
       ? { ...it, materiales: mae.get(String(it.material_id)) }
       : it

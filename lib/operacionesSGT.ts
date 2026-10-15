@@ -191,6 +191,7 @@ const EsquemaSimular = z.object({
 const EsquemaItemSGT = z.object({
   material_id: z.string().trim().min(1).max(120).optional(),
   codigo: z.string().trim().max(60).optional(),
+  descripcion: z.string().trim().max(300).optional().default(""),
   cantidad: z.coerce.number().min(0.01).max(100_000),
   precio_unit: z.coerce.number().min(0).max(10_000_000).optional(),
   descuento_pct: z.coerce.number().min(0).max(100).optional().default(0)
@@ -1090,20 +1091,40 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
   const tea = teaADecimal(args.tea);
   // Resolver precios (si no viene precio_unit, usar catálogo).
   let subtotal = 0, descuento = 0;
-  const itemsResueltos: { material_id: string | null; cantidad: number; precio_unit: number; descuento_pct: number; total_linea: number }[] = [];
+  const itemsResueltos: { material_id: string | null; cantidad: number; precio_unit: number; descuento_pct: number; total_linea: number; descripcion: string; material_codigo: string | null }[] = [];
   for (const it of args.items) {
     let precio = it.precio_unit;
     let materialId: string | null = null;
-    if (precio == null || it.codigo || it.material_id) {
-      const ref = it.material_id ?? it.codigo;
-      if (ref) {
-        const { data } = await ctx.service.from("materiales").select("id,precio_unit").or(`id.eq.${ref},codigo.eq.${ref}`).maybeSingle();
-        if (data) {
-          materialId = (data as { id: string }).id;
-          precio ??= Number((data as { precio_unit: number }).precio_unit);
-        } else if (/^[0-9a-f-]{36}$/i.test(String(ref))) {
-          materialId = String(ref);
-        }
+    let snapDesc = String(it.descripcion ?? "");
+    let snapCod: string | null = it.codigo ?? null;
+    const ref = it.material_id ?? it.codigo;
+    if (ref) {
+      const esUuid = /^[0-9a-f-]{36}$/i.test(String(ref));
+      if (precio == null || it.codigo || it.material_id) {
+        try {
+          const { data } = await ctx.service.from("materiales").select("id,precio_unit").or(`id.eq.${ref},codigo.eq.${ref}`).maybeSingle();
+          if (data) {
+            materialId = (data as { id: string }).id;
+            precio ??= Number((data as { precio_unit: number }).precio_unit);
+          } else if (esUuid) {
+            materialId = String(ref);
+          }
+        } catch { /* best-effort */ }
+      }
+      // Respaldo SGT: snapshot del nombre desde mae_materiales (ids tipo MAT-00004,
+      // que no caben en material_id UUID). Si la tabla no existe, se omite.
+      if (!snapDesc && !esUuid) {
+        try {
+          const { data: mae } = await ctx.service.from("mae_materiales")
+            .select("id,nombre,descripcion,codigo_tmp,codigo_sap").or(`id.eq.${ref},codigo_sap.eq.${ref},codigo_tmp.eq.${ref}`).maybeSingle();
+          const m = mae as Record<string, any> | null;
+          if (m) {
+            const cod = String(m.codigo_tmp ?? m.codigo_sap ?? m.id ?? "");
+            const base = cod ? `${cod} ${String(m.nombre ?? "")}`.trim() : String(m.nombre ?? "");
+            snapDesc = m.descripcion ? `${base} — ${String(m.descripcion)}` : base;
+            snapCod ??= cod || null;
+          }
+        } catch { /* tabla SGT aún no migrada */ }
       }
     }
     if (precio == null || !Number.isFinite(precio)) throw new Error(`Precio no resoluble para ítem ${it.codigo ?? it.material_id ?? "?"}`);
@@ -1111,7 +1132,7 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
     const bruto = it.cantidad * precio;
     const neto = Math.round(bruto * (1 - dscto / 100) * 100) / 100;
     subtotal += bruto; descuento += bruto - neto;
-    itemsResueltos.push({ material_id: materialId, cantidad: it.cantidad, precio_unit: precio, descuento_pct: dscto, total_linea: neto });
+    itemsResueltos.push({ material_id: materialId, cantidad: it.cantidad, precio_unit: precio, descuento_pct: dscto, total_linea: neto, descripcion: snapDesc.slice(0, 300), material_codigo: snapCod });
   }
   subtotal = Math.round(subtotal * 100) / 100;
   descuento = Math.round(descuento * 100) / 100;
@@ -1157,9 +1178,14 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
     }
   }
   const cotId = cab!.id;
-  const { error: eItems } = await ctx.service.from("cotizacion_items").insert(
-    itemsResueltos.map((it) => ({ cotizacion_id: cotId, ...it }))
-  );
+  // Insert de ítems con snapshot (descripcion/material_codigo). Si la
+  // migración aún no se aplicó en la BD, reintenta sin esas columnas.
+  const filasItems = itemsResueltos.map((it) => ({ cotizacion_id: cotId, ...it }));
+  let eItems = (await ctx.service.from("cotizacion_items").insert(filasItems)).error;
+  if (eItems && /column|schema cache/i.test(eItems.message)) {
+    const sinSnap = filasItems.map(({ descripcion, material_codigo, ...resto }) => resto);
+    eItems = (await ctx.service.from("cotizacion_items").insert(sinSnap)).error;
+  }
   if (eItems) throw new Error(eItems.message);
   // Guarda simulación (best-effort, tablas opcionales).
   for (const t of ["cotizacion_simulaciones", "cotizacion_financiamiento"]) {
