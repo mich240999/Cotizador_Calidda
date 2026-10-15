@@ -499,7 +499,7 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
       doc.setTextColor(0, 0, 0);
     }
   }
-  y = headY + 20;
+  y = headY + 21;
   doc.setFont("helvetica", "normal"); doc.setFontSize(7); gris(110);
   doc.text("* Cuota mensual con IGV del interés incluido (TEM × 1.18).", ML, y - 5);
 
@@ -511,7 +511,7 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
       : DETALLES_LABELS.map(({ etiqueta }) => ({ etiqueta, valor: "—" }));
     if (y > 225) { doc.addPage(); y = 18; }
     y = tituloSeccion("DETALLES DEL MUEBLE", y);
-    const hFila = 6;
+    const hFila = 6.5;
     const alto = detMueble.length * hFila;
     if (y + alto > 258) { doc.addPage(); y = 18; }
     const yDet = y;
@@ -528,20 +528,23 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
       doc.text(String(t.valor).slice(0, 60), ML + colLab + 2, yy + 4.5);
     });
     doc.setTextColor(0, 0, 0);
-    y = yDet + alto + 6;
+    doc.setFont("helvetica", "normal");
+    y = yDet + alto + 7;
   }
 
   // ---- CONSIDERACIONES: si entra en el espacio en blanco, sigue en la página.
+  // Letra normal (misma que el resto del cuerpo) y con aire entre líneas.
   doc.setFont("helvetica", "normal"); doc.setFontSize(8);
   const lineasCons = CONSIDERACIONES.map((c) => doc.splitTextToSize(c, ANCHO) as string[]);
   const nLineasCons = lineasCons.reduce((a, ls) => a + ls.length, 0);
-  const altoCons = 5 + nLineasCons * 3.8 + CONSIDERACIONES.length * 1 + 6 + 12;
+  const altoCons = 5 + nLineasCons * 4.0 + CONSIDERACIONES.length * 1.2 + 6 + 12;
   if (y + altoCons > 278) { doc.addPage(); y = 18; }
   y = tituloSeccion("CONSIDERACIONES", y);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8);
   for (const ls of lineasCons) {
-    if (y + ls.length * 3.8 > 258) { doc.addPage(); y = 18; }
+    if (y + ls.length * 4.0 > 258) { doc.addPage(); y = 18; doc.setFont("helvetica", "normal"); doc.setFontSize(8); }
     doc.text(ls, ML, y);
-    y += ls.length * 3.8 + 1;
+    y += ls.length * 4.0 + 1.2;
   }
   y += 6;
   doc.setFillColor(...AMARILLO);
