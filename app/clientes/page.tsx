@@ -5,7 +5,10 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
-import { AccActivar, AccDesactivar, AccVer } from "@/components/Accion";
+import { AccActivar, AccDesactivar, AccEditar, AccVer } from "@/components/Accion";
+
+// Cabeceras exactas del formato Airtable "Leads-Base" (58 columnas).
+const AIRTABLE_HEADERS = ["DNI", "Tipo de Documento", "DNI Cliente", "Nombres y Apellidos", "Teléfono1", "Teléfono2", "Correo electrónico", "Canal Generador Lead", "Fecha Ingreso de Lead", "Fecha Registro", "Creado por", "BP Cliente", "Cuenta Contrato", "Linea de Credito", "NSE", "Dirección", "Referencia", "Distrito", "Etapa", "TIPO DE CLIENTE", "Estado Lead", "Sub Estado Lead", "Asesor Asignado", "Fecha Visita Técnica", "Horario Visita Técnica", "Ambiente", "Proveedor Asignado", "Importe", "Fecha de instalación", "Comentarios", "Imagen Ambiente", "Técnico Asignado", "MICROALIADO", "TIPO DE PV", "FECHA VENTA (SAP)", "PRECIO FINAN.", "PEDIDO FINAN.", "ORDEN FINAN.", "PRECIO ABONO", "PEDIDO ABONO", "ORDEN ABONO", "ESTADO DE ABONO", "FECHA DE ABONO", "FEE", "FEE (S/.)", "STATUS ANTICIPO", "25 % ANTICIPO", "PENDIENTE DE PAGO", "FECHA DE PAGO CALIDDA", "FECHA DE PAGO MICROALIADO", "INCENTIVO ASESOR", "FECHA DE PAGO INCENTIVOS", "LISTOS PARA PROGRAMACIÓN", "CANAL DE VENTA", "TIPO DE ANTICIPO", "Revisión", "GRABACIÓN DE VENTA", "CYBER"];
 
 type Cliente = {
   id: string;
@@ -20,6 +23,15 @@ type Cliente = {
   email?: string | null;
   telefono?: string | null;
   codigo_sap?: string | null;
+  cuenta_contrato?: string | null;
+  telefono2?: string | null;
+  bp_cliente?: string | null;
+  linea_credito?: number | string | null;
+  nse?: string | null;
+  direccion?: string | null;
+  referencia?: string | null;
+  distrito?: string | null;
+  ambiente?: string | null;
   revision_label?: string | null;
   estado?: string | null;
 };
@@ -41,44 +53,62 @@ function normRespuesta(r: unknown): { rows: Cliente[]; total: number } {
   return { rows: [], total: 0 };
 }
 
+type FormCliente = {
+  tipoPersona: string; tipoDoc: string; nroDoc: string; nombre: string;
+  correo: string; telefono: string; telefono2: string; sap: string;
+  cuentaContrato: string; bp: string; linea: string; nse: string;
+  direccion: string; referencia: string; distrito: string; ambiente: string;
+};
+
+const FORM_VACIO: FormCliente = {
+  tipoPersona: "", tipoDoc: "", nroDoc: "", nombre: "", correo: "",
+  telefono: "", telefono2: "", sap: "", cuentaContrato: "", bp: "",
+  linea: "", nse: "", direccion: "", referencia: "", distrito: "", ambiente: "",
+};
+
 function NuevoClienteModal({ onClose, onGuardado }: { onClose: () => void; onGuardado: () => void }) {
-  const [tipoPersona, setTipoPersona] = useState("");
-  const [tipoDoc, setTipoDoc] = useState("");
-  const [nroDoc, setNroDoc] = useState("");
-  const [nombre, setNombre] = useState("");
-  const [correo, setCorreo] = useState("");
-  const [telefono, setTelefono] = useState("");
-  const [sap, setSap] = useState("");
+  const [f, setF] = useState<FormCliente>({ ...FORM_VACIO });
   const [msg, setMsg] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  const set = (k: keyof FormCliente, v: string) => setF((p) => ({ ...p, [k]: v }));
 
-  const tiposDoc = tipoPersona === "JURIDICA" ? ["RUC"] : ["DNI", "CE", "PASAPORTE", "RUC", "OTRO"];
+  const tiposDoc = f.tipoPersona === "JURIDICA" ? ["RUC"] : ["DNI", "CE", "PASAPORTE", "RUC", "OTRO"];
 
   const guardar = async () => {
     setMsg(null);
-    if (!tipoPersona) { setMsg("Selecciona el tipo de persona."); return; }
-    if (!tipoDoc) { setMsg("Selecciona el tipo de documento."); return; }
-    if (!nroDoc.trim()) { setMsg("Ingresa el número de documento."); return; }
-    if (nombre.trim().length < 2) { setMsg("Ingresa el nombre o razón social."); return; }
-    if (correo.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo.trim())) { setMsg("Correo inválido."); return; }
+    if (!f.tipoPersona) { setMsg("Selecciona el tipo de persona."); return; }
+    if (!f.tipoDoc) { setMsg("Selecciona el tipo de documento."); return; }
+    if (!f.nroDoc.trim()) { setMsg("Ingresa el número de documento."); return; }
+    if (f.nombre.trim().length < 2) { setMsg("Ingresa el nombre o razón social."); return; }
+    if (f.correo.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.correo.trim())) { setMsg("Correo inválido."); return; }
     setGuardando(true);
     try {
+      const lineaNum = f.linea.trim() === "" ? undefined : Number(String(f.linea).replace(",", "."));
       try {
         await apiOperacion("crearClienteSGT", {
-          tipo_persona: tipoPersona,
-          tipo_doc: tipoDoc,
-          nro_doc: nroDoc.trim(),
-          nombre_razon_social: nombre.trim(),
-          correo: correo.trim(),
-          telefono: telefono.trim(),
-          codigo_sap: sap.trim(),
+          tipo_persona: f.tipoPersona,
+          tipo_doc: f.tipoDoc,
+          nro_doc: f.nroDoc.trim(),
+          nombre_razon_social: f.nombre.trim(),
+          correo: f.correo.trim(),
+          telefono: f.telefono.trim(),
+          telefono2: f.telefono2.trim(),
+          codigo_sap: f.sap.trim(),
+          cuenta_contrato: f.cuentaContrato.trim(),
+          bp_cliente: f.bp.trim(),
+          ...(lineaNum !== undefined && Number.isFinite(lineaNum) ? { linea_credito: lineaNum } : {}),
+          nse: f.nse.trim(),
+          direccion: f.direccion.trim(),
+          referencia: f.referencia.trim(),
+          distrito: f.distrito.trim(),
+          ambiente: f.ambiente.trim(),
         });
       } catch {
         await apiOperacion("crearCliente", {
-          nombres: nombre.trim(),
-          dni: nroDoc.trim(),
-          telefono: telefono.trim(),
-          email: correo.trim(),
+          nombres: f.nombre.trim(),
+          dni: f.nroDoc.trim(),
+          telefono: f.telefono.trim(),
+          email: f.correo.trim(),
         });
       }
       onGuardado();
@@ -90,9 +120,16 @@ function NuevoClienteModal({ onClose, onGuardado }: { onClose: () => void; onGua
     }
   };
 
+  const campo = (k: keyof FormCliente, etiqueta: string, ph = "", obligatorio = false) => (
+    <div>
+      <label className="label">{etiqueta}{obligatorio && " *"}</label>
+      <input className="input" placeholder={ph || etiqueta} value={f[k]} onChange={(e) => set(k, e.target.value)} />
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl my-6 overflow-hidden">
+      <div className="bg-white rounded-2xl w-full max-w-3xl shadow-xl my-6 overflow-hidden">
         <div className="flex items-start justify-between px-6 py-4 border-b bg-slate-50">
           <div>
             <h2 className="font-bold text-lg">Nuevo cliente</h2>
@@ -104,7 +141,7 @@ function NuevoClienteModal({ onClose, onGuardado }: { onClose: () => void; onGua
           <div className="grid md:grid-cols-2 gap-4">
             <div>
               <label className="label">Tipo de persona *</label>
-              <select className="input" value={tipoPersona} onChange={(e) => { setTipoPersona(e.target.value); setTipoDoc(""); }}>
+              <select className="input" value={f.tipoPersona} onChange={(e) => { set("tipoPersona", e.target.value); set("tipoDoc", ""); }}>
                 <option value="">Selecciona un tipo</option>
                 <option value="NATURAL">Persona natural</option>
                 <option value="JURIDICA">Persona jurídica</option>
@@ -112,43 +149,39 @@ function NuevoClienteModal({ onClose, onGuardado }: { onClose: () => void; onGua
             </div>
             <div>
               <label className="label">Tipo de documento *</label>
-              <select className="input" value={tipoDoc} onChange={(e) => setTipoDoc(e.target.value)}>
+              <select className="input" value={f.tipoDoc} onChange={(e) => set("tipoDoc", e.target.value)}>
                 <option value="">Selecciona un documento</option>
                 {tiposDoc.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
           </div>
           <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <label className="label">Número de documento *</label>
-              <input className="input" placeholder="Ingresa el documento" value={nroDoc} onChange={(e) => setNroDoc(e.target.value)} />
-              <p className="text-[11px] text-slate-400 mt-1">Selecciona primero el tipo de documento.</p>
-            </div>
-            <div>
-              <label className="label">Nombre / Razón social *</label>
-              <input className="input" placeholder="Nombres o razón social" value={nombre} onChange={(e) => setNombre(e.target.value)} />
-            </div>
+            {campo("nroDoc", "Número de documento", "Ingresa el documento", true)}
+            {campo("nombre", "Nombre / Razón social", "Nombres o razón social", true)}
+          </div>
+          <div className="grid md:grid-cols-3 gap-4">
+            {campo("cuentaContrato", "Cuenta Contrato", "N° cuenta contrato")}
+            {campo("bp", "BP Cliente", "Business partner")}
+            {campo("sap", "Código de cliente SAP", "Posterior si deseas")}
+          </div>
+          <div className="grid md:grid-cols-3 gap-4">
+            {campo("correo", "Correo", "correo@ejemplo.com")}
+            {campo("telefono", "Teléfono 1", "999999999")}
+            {campo("telefono2", "Teléfono 2", "999999999")}
+          </div>
+          <div className="grid md:grid-cols-3 gap-4">
+            {campo("linea", "Línea de Crédito", "Ej. 4000")}
+            {campo("nse", "NSE", "Ej. 5")}
+            {campo("distrito", "Distrito", "")}
           </div>
           <div className="grid md:grid-cols-2 gap-4">
-            <div>
-              <label className="label">Correo</label>
-              <input className="input" placeholder="correo@ejemplo.com" value={correo} onChange={(e) => setCorreo(e.target.value)} />
-              <p className="text-[11px] text-slate-400 mt-1">Opcional.</p>
-            </div>
-            <div>
-              <label className="label">Teléfono</label>
-              <input className="input" placeholder="999999999" value={telefono} onChange={(e) => setTelefono(e.target.value)} />
-              <p className="text-[11px] text-slate-400 mt-1">Opcional. Puede comenzar con +.</p>
-            </div>
+            {campo("direccion", "Dirección", "")}
+            {campo("referencia", "Referencia", "")}
           </div>
-          <div>
-            <label className="label">Código de cliente SAP</label>
-            <input className="input" placeholder="Puede registrarse posteriormente" value={sap} onChange={(e) => setSap(e.target.value)} />
-            <p className="text-[11px] text-slate-400 mt-1">Opcional al crear. No valida automáticamente al cliente.</p>
-          </div>
+          {campo("ambiente", "Ambiente", "Ej. Sala")}
           <div className="rounded-xl border-l-4 border-l-amber-400 bg-amber-50 border border-amber-200 p-4">
             <p className="font-bold text-sm">Datos del cliente</p>
-            <p className="text-xs text-slate-600 mt-1">El documento no puede repetirse. El cliente puede registrarse sin código SAP y quedará pendiente de revisión. Las direcciones se registrarán posteriormente en cuentas de contrato.</p>
+            <p className="text-xs text-slate-600 mt-1">El documento no puede repetirse. El cliente puede registrarse sin código SAP y quedará pendiente de revisión.</p>
           </div>
           {msg && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
         </div>
@@ -161,15 +194,152 @@ function NuevoClienteModal({ onClose, onGuardado }: { onClose: () => void; onGua
   );
 }
 
+function EditarClienteModal({ c, onClose, onGuardado }: { c: Cliente; onClose: () => void; onGuardado: () => void }) {
+  const [f, setF] = useState<FormCliente>({
+    tipoPersona: String(c.tipo_persona ?? ""),
+    tipoDoc: String(c.tipo_doc ?? ""),
+    nroDoc: String(c.nro_doc ?? ""),
+    nombre: String(c.nombre_razon_social ?? c.nombres ?? c.nombre ?? ""),
+    correo: String(c.correo ?? c.email ?? ""),
+    telefono: String(c.telefono ?? ""),
+    telefono2: String(c.telefono2 ?? ""),
+    sap: String(c.codigo_sap ?? ""),
+    cuentaContrato: String(c.cuenta_contrato ?? ""),
+    bp: String(c.bp_cliente ?? ""),
+    linea: c.linea_credito != null ? String(c.linea_credito) : "",
+    nse: String(c.nse ?? ""),
+    direccion: String(c.direccion ?? ""),
+    referencia: String(c.referencia ?? ""),
+    distrito: String(c.distrito ?? ""),
+    ambiente: String(c.ambiente ?? ""),
+  });
+  const [msg, setMsg] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const set = (k: keyof FormCliente, v: string) => setF((p) => ({ ...p, [k]: v }));
+
+  const guardar = async () => {
+    setMsg(null);
+    if (f.nombre.trim().length < 2) { setMsg("Ingresa el nombre o razón social."); return; }
+    if (f.correo.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.correo.trim())) { setMsg("Correo inválido."); return; }
+    setGuardando(true);
+    try {
+      const lineaNum = f.linea.trim() === "" ? undefined : Number(String(f.linea).replace(",", "."));
+      await apiOperacion("actualizarClienteSGT", {
+        id: String(c.id),
+        ...(f.tipoPersona ? { tipo_persona: f.tipoPersona } : {}),
+        ...(f.tipoDoc ? { tipo_doc: f.tipoDoc } : {}),
+        ...(f.nroDoc.trim() ? { nro_doc: f.nroDoc.trim() } : {}),
+        nombre_razon_social: f.nombre.trim(),
+        correo: f.correo.trim(),
+        telefono: f.telefono.trim(),
+        telefono2: f.telefono2.trim(),
+        codigo_sap: f.sap.trim(),
+        cuenta_contrato: f.cuentaContrato.trim(),
+        bp_cliente: f.bp.trim(),
+        ...(lineaNum !== undefined && Number.isFinite(lineaNum) ? { linea_credito: lineaNum } : {}),
+        nse: f.nse.trim(),
+        direccion: f.direccion.trim(),
+        referencia: f.referencia.trim(),
+        distrito: f.distrito.trim(),
+        ambiente: f.ambiente.trim(),
+      });
+      onGuardado();
+      onClose();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "No se pudo guardar");
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const campo = (k: keyof FormCliente, etiqueta: string, ph = "") => (
+    <div>
+      <label className="label">{etiqueta}</label>
+      <input className="input" placeholder={ph || etiqueta} value={f[k]} onChange={(e) => set(k, e.target.value)} />
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-3xl shadow-xl my-6 overflow-hidden">
+        <div className="flex items-start justify-between px-6 py-4 border-b bg-slate-50">
+          <div>
+            <h2 className="font-bold text-lg">Editar cliente · {String(c.id)}</h2>
+            <p className="text-sm text-slate-500">Actualiza cualquier dato del cliente.</p>
+          </div>
+          <button className="btn-white !px-3" onClick={onClose}>✕</button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="label">Tipo de persona</label>
+              <select className="input" value={f.tipoPersona} onChange={(e) => set("tipoPersona", e.target.value)}>
+                <option value="">— Sin cambio —</option>
+                <option value="NATURAL">Persona natural</option>
+                <option value="JURIDICA">Persona jurídica</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Tipo de documento</label>
+              <select className="input" value={f.tipoDoc} onChange={(e) => set("tipoDoc", e.target.value)}>
+                <option value="">— Sin cambio —</option>
+                {["DNI", "CE", "PASAPORTE", "RUC", "OTRO"].map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            {campo("nroDoc", "Número de documento")}
+            {campo("nombre", "Nombre / Razón social")}
+          </div>
+          <div className="grid md:grid-cols-3 gap-4">
+            {campo("cuentaContrato", "Cuenta Contrato")}
+            {campo("bp", "BP Cliente")}
+            {campo("sap", "Código de cliente SAP")}
+          </div>
+          <div className="grid md:grid-cols-3 gap-4">
+            {campo("correo", "Correo")}
+            {campo("telefono", "Teléfono 1")}
+            {campo("telefono2", "Teléfono 2")}
+          </div>
+          <div className="grid md:grid-cols-3 gap-4">
+            {campo("linea", "Línea de Crédito")}
+            {campo("nse", "NSE")}
+            {campo("distrito", "Distrito")}
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            {campo("direccion", "Dirección")}
+            {campo("referencia", "Referencia")}
+          </div>
+          {campo("ambiente", "Ambiente")}
+          {msg && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t bg-slate-50">
+          <button className="btn-white" onClick={onClose}>Cancelar</button>
+          <button className="btn-green" onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Guardar cambios"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function VisualizarModal({ c, onClose }: { c: Cliente; onClose: () => void }) {
   const filas: [string, string][] = [
     ["ID", String(c.id)],
     ["Tipo de persona", String(c.tipo_persona ?? "—")],
     ["Documento", `${tipoDocDe(c)} ${docDe(c)}`],
     ["Cliente", nombreDe(c)],
+    ["Cuenta Contrato", String(c.cuenta_contrato ?? "—")],
+    ["BP Cliente", String(c.bp_cliente ?? "—")],
     ["Contacto", String(c.contacto ?? "—")],
     ["Correo", correoDe(c) || "—"],
-    ["Teléfono", String(c.telefono ?? "—")],
+    ["Teléfono 1", String(c.telefono ?? "—")],
+    ["Teléfono 2", String(c.telefono2 ?? "—")],
+    ["Línea de Crédito", c.linea_credito != null ? String(c.linea_credito) : "—"],
+    ["NSE", String(c.nse ?? "—")],
+    ["Dirección", String(c.direccion ?? "—")],
+    ["Referencia", String(c.referencia ?? "—")],
+    ["Distrito", String(c.distrito ?? "—")],
+    ["Ambiente", String(c.ambiente ?? "—")],
     ["Código SAP", String(c.codigo_sap ?? "—")],
     ["Revisión", revisionDe(c)],
     ["Estado", String(c.estado ?? "—")],
@@ -200,25 +370,47 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
   const [resultado, setResultado] = useState<string | null>(null);
   const [trabajando, setTrabajando] = useState(false);
 
+  // Plantilla formato Airtable "Leads-Base" (58 columnas): el archivo se sube
+  // tal cual; el sistema usa DNI Cliente, Nombres y Apellidos, teléfonos,
+  // correo, BP, Cuenta Contrato, Línea de Crédito, NSE, dirección,
+  // referencia, distrito y ambiente. Solo esas dos primeras son obligatorias.
+  const ejemploAirtable = (): string[] => {
+    const fila = new Array(AIRTABLE_HEADERS.length).fill("");
+    const poner = (h: string, v: string) => { const i = AIRTABLE_HEADERS.indexOf(h); if (i >= 0) fila[i] = v; };
+    poner("Tipo de Documento", "DNI");
+    poner("DNI Cliente", "12345678");
+    poner("Nombres y Apellidos", "JUAN PEREZ");
+    poner("Teléfono1", "999888777");
+    poner("Teléfono2", "999888776");
+    poner("Correo electrónico", "juan@ejemplo.com");
+    poner("BP Cliente", "5003205181");
+    poner("Cuenta Contrato", "5696624");
+    poner("Linea de Credito", "4000");
+    poner("NSE", "5");
+    poner("Dirección", "Jr. Las Flores 456");
+    poner("Referencia", "Frente al parque");
+    poner("Distrito", "Rimac");
+    poner("Ambiente", "Sala");
+    return fila;
+  };
+
   const descargarCSV = () => {
-    const csv = "tipo_persona;tipo_documento;numero_documento;nombre_razon_social;contacto;correo;telefono;codigo_sap\nNATURAL;DNI;12345678;JUAN PEREZ;Juan Perez;juan@ejemplo.com;999888777;\n";
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const esc = (v: string) => /[";\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+    const csv = `${AIRTABLE_HEADERS.map(esc).join(";")}\n${ejemploAirtable().map(esc).join(";")}\n`;
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = "plantilla_clientes.csv"; a.click();
+    a.href = url; a.download = "plantilla_clientes_airtable.csv"; a.click();
     URL.revokeObjectURL(url);
   };
 
   const descargarXLSX = async () => {
     const XLSX = await import("xlsx");
-    const ws = XLSX.utils.aoa_to_sheet([
-      ["tipo_persona", "tipo_documento", "numero_documento", "nombre_razon_social", "contacto", "correo", "telefono", "codigo_sap"],
-      ["NATURAL", "DNI", "12345678", "JUAN PEREZ", "Juan Perez", "juan@ejemplo.com", "999888777", ""],
-    ]);
-    ws["!cols"] = [{ wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 28 }, { wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 14 }];
+    const ws = XLSX.utils.aoa_to_sheet([AIRTABLE_HEADERS, ejemploAirtable()]);
+    ws["!cols"] = AIRTABLE_HEADERS.map(() => ({ wch: 20 }));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Clientes");
-    XLSX.writeFile(wb, "plantilla_clientes.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, "Leads-Base");
+    XLSX.writeFile(wb, "plantilla_clientes_airtable.xlsx");
   };
 
   const leerArchivo = async (f: File) => {
@@ -292,7 +484,7 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <p className="font-bold text-sm">1. Preparar archivo</p>
-                <p className="text-xs text-slate-500">Usa la plantilla oficial y conserva las cabeceras sin cambios. Se admiten hasta 500 filas por archivo.</p>
+                <p className="text-xs text-slate-500">Usa la plantilla oficial formato Airtable (Leads-Base) y conserva las cabeceras sin cambios. Se admiten hasta 20,000 filas por archivo. Obligatorios: DNI Cliente y Nombres y Apellidos.</p>
               </div>
               <div className="flex gap-2">
                 <button className="btn-white !text-xs" onClick={descargarCSV}>Plantilla CSV</button>
@@ -351,6 +543,7 @@ export default function ClientesPage() {
   const [showNuevo, setShowNuevo] = useState(false);
   const [showCarga, setShowCarga] = useState(false);
   const [ver, setVer] = useState<Cliente | null>(null);
+  const [editar, setEditar] = useState<Cliente | null>(null);
 
   const cargar = async (p = page, ps = pageSize) => {
     setLoading(true);
@@ -425,7 +618,7 @@ export default function ClientesPage() {
       <div className="card p-4 mt-4 flex flex-wrap gap-3 items-end">
         <div className="flex-1 min-w-[200px]">
           <label className="label">Buscar cliente</label>
-          <input className="input" placeholder="Documento, nombre, razón social" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && buscar()} />
+          <input className="input" placeholder="Documento, nombre, cuenta contrato (exacto o parcial)" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && buscar()} />
         </div>
         <div>
           <label className="label">Tipo de persona</label>
@@ -484,7 +677,7 @@ export default function ClientesPage() {
           <div className="p-4"><EmptyState titulo="Sin clientes" detalle="No hay clientes con esos filtros. Crea uno o usa carga masiva." /></div>
         ) : (
           <div className="overflow-x-auto"><table className="tabla">
-            <thead><tr><th>ID</th><th>DOCUMENTO</th><th>CLIENTE</th><th>CONTACTO</th><th>CÓDIGO SAP</th><th>REVISIÓN</th><th>ESTADO</th><th>ACCIONES</th></tr></thead>
+            <thead><tr><th>ID</th><th>DOCUMENTO</th><th>CLIENTE</th><th>CTA. CONTRATO</th><th>CONTACTO</th><th>DISTRITO</th><th>CÓDIGO SAP</th><th>REVISIÓN</th><th>ESTADO</th><th>ACCIONES</th></tr></thead>
             <tbody>
               {rows.map((c) => {
                 const activo = String(c.estado ?? "").toUpperCase() === "ACTIVO";
@@ -494,7 +687,9 @@ export default function ClientesPage() {
                     <td className="font-mono text-xs break-all">{String(c.id)}</td>
                     <td><p className="font-bold">{docDe(c)}</p><p className="text-[11px] text-slate-400">{tipoDocDe(c)}</p></td>
                     <td><p className="font-bold uppercase">{nombreDe(c)}</p><p className="text-[11px] text-slate-400 uppercase">{c.contacto || ""}</p></td>
-                    <td><p>{c.telefono || "—"}</p><p className="text-[11px] text-slate-400">{correoDe(c) || "Sin correo"}</p></td>
+                    <td className="font-bold">{c.cuenta_contrato || "—"}</td>
+                    <td><p>{[c.telefono, c.telefono2].filter(Boolean).join(" · ") || "—"}</p><p className="text-[11px] text-slate-400">{correoDe(c) || "Sin correo"}</p></td>
+                    <td>{c.distrito || "—"}</td>
                     <td><p className="font-bold">{c.codigo_sap || "—"}</p><p className="text-[11px] text-slate-400">{c.codigo_sap ? "Registrado" : "Pendiente"}</p></td>
                     <td>
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${rev === "Validado" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
@@ -509,6 +704,7 @@ export default function ClientesPage() {
                     <td className="whitespace-nowrap">
                       <div className="flex gap-1.5">
                         <AccVer title="Visualizar cliente" onClick={() => setVer(c)} />
+                        <AccEditar title="Editar cliente" onClick={() => setEditar(c)} />
                         {activo
                           ? <AccDesactivar title="Inactivar cliente" onClick={() => cambiarEstado(c)} />
                           : <AccActivar title="Activar cliente" onClick={() => cambiarEstado(c)} />}
@@ -530,6 +726,7 @@ export default function ClientesPage() {
       {showNuevo && <NuevoClienteModal onClose={() => setShowNuevo(false)} onGuardado={() => { setPage(1); cargar(1, pageSize); }} />}
       {showCarga && <CargaMasivaModal onClose={() => setShowCarga(false)} onProcesado={() => { setPage(1); cargar(1, pageSize); }} />}
       {ver && <VisualizarModal c={ver} onClose={() => setVer(null)} />}
+      {editar && <EditarClienteModal c={editar} onClose={() => setEditar(null)} onGuardado={() => cargar(page, pageSize)} />}
     </Shell></AuthGate>
   );
 }

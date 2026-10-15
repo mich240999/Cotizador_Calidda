@@ -1276,16 +1276,38 @@ const EsquemaCrearClienteSGT = z.object({
   contacto: z.string().trim().max(300).optional().default(""),
   correo: z.string().trim().email().max(160).optional().or(z.literal("")).default(""),
   telefono: z.string().trim().max(30).optional().default(""),
-  codigo_sap: z.string().trim().max(30).optional().default("")
+  codigo_sap: z.string().trim().max(30).optional().default(""),
+  // Etapa 1 — campos Airtable (migracion_03).
+  cuenta_contrato: z.string().trim().max(30).optional().default(""),
+  telefono2: z.string().trim().max(30).optional().default(""),
+  bp_cliente: z.string().trim().max(30).optional().default(""),
+  linea_credito: z.coerce.number().min(0).max(100_000_000).optional(),
+  nse: z.string().trim().max(10).optional().default(""),
+  direccion: z.string().trim().max(300).optional().default(""),
+  referencia: z.string().trim().max(300).optional().default(""),
+  distrito: z.string().trim().max(120).optional().default(""),
+  ambiente: z.string().trim().max(120).optional().default("")
 });
 
 const EsquemaActualizarClienteSGT = z.object({
   id: z.string().trim().min(1).max(20),
+  tipo_persona: z.enum(["NATURAL", "JURIDICA"]).optional(),
+  tipo_doc: z.string().trim().min(1).max(20).optional(),
+  nro_doc: z.string().trim().min(1).max(20).optional(),
   nombre_razon_social: z.string().trim().min(2).max(300).optional(),
   contacto: z.string().trim().max(300).optional(),
   correo: z.string().trim().email().max(160).optional().or(z.literal("")),
   telefono: z.string().trim().max(30).optional(),
   codigo_sap: z.string().trim().max(30).optional(),
+  cuenta_contrato: z.string().trim().max(30).optional(),
+  telefono2: z.string().trim().max(30).optional(),
+  bp_cliente: z.string().trim().max(30).optional(),
+  linea_credito: z.coerce.number().min(0).max(100_000_000).optional(),
+  nse: z.string().trim().max(10).optional(),
+  direccion: z.string().trim().max(300).optional(),
+  referencia: z.string().trim().max(300).optional(),
+  distrito: z.string().trim().max(120).optional(),
+  ambiente: z.string().trim().max(120).optional(),
   estado: z.enum(["ACTIVO", "INACTIVO"]).optional()
 });
 
@@ -1310,14 +1332,58 @@ interface FilaClienteCSV {
   correo: string;
   telefono: string;
   codigo_sap: string;
+  cuenta_contrato: string;
+  telefono2: string;
+  bp_cliente: string;
+  linea_credito: number | null;
+  nse: string;
+  direccion: string;
+  referencia: string;
+  distrito: string;
+  ambiente: string;
+}
+
+const MAX_FILAS_CLIENTES = 20000;
+
+/** Normaliza cabecera: minúsculas, sin tildes, espacios→uno. */
+function normCabeza(h: string): string {
+  return (h ?? "").trim().toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+/** Parte CSV/XLSX respetando comillas (celdas multilínea del Airtable). */
+function partirCSV(texto: string, sep: string): string[][] {
+  const filas: string[][] = [];
+  let fila: string[] = [];
+  let campo = "";
+  let entre = false;
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto[i];
+    if (entre) {
+      if (ch === '"') {
+        if (texto[i + 1] === '"') { campo += '"'; i++; }
+        else entre = false;
+      } else campo += ch;
+    } else if (ch === '"') entre = true;
+    else if (ch === sep) { fila.push(campo); campo = ""; }
+    else if (ch === "\n") { fila.push(campo); campo = ""; filas.push(fila); fila = []; }
+    else if (ch === "\r") { /* se ignora, sigue \n */ }
+    else campo += ch;
+  }
+  fila.push(campo);
+  filas.push(fila);
+  return filas.filter((f) => f.some((x) => x.trim() !== ""));
 }
 
 function parseCSVClientes(csv: string): { filas: FilaClienteCSV[]; errores: string[] } {
-  const lineas = csv.replace(/^\uFEFF/, "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const limpio = csv.replace(/^\uFEFF/, "");
   const errores: string[] = [];
-  if (lineas.length < 2) return { filas: [], errores: ["Archivo vacío o sin filas de datos"] };
-  const sep = (lineas[0].match(/;/g) ?? []).length >= (lineas[0].match(/,/g) ?? []).length ? ";" : ",";
-  const head = lineas[0].split(sep).map((h) => h.trim().toLowerCase());
+  const primera = limpio.split(/\r?\n/, 1)[0] ?? "";
+  const sep = (primera.match(/;/g) ?? []).length >= (primera.match(/,/g) ?? []).length ? ";" : ",";
+  const todas = partirCSV(limpio, sep);
+  if (todas.length < 2) return { filas: [], errores: ["Archivo vacío o sin filas de datos"] };
+  const head = todas[0].map(normCabeza);
   const idx = (nombres: string[]) => {
     for (const n of nombres) {
       const i = head.indexOf(n);
@@ -1326,60 +1392,99 @@ function parseCSVClientes(csv: string): { filas: FilaClienteCSV[]; errores: stri
     return -1;
   };
   const iTip = idx(["tipo_persona", "tipopersona", "tipo"]);
-  const iDoc = idx(["tipo_documento", "tipodocumento", "tipo_doc", "documento_tipo"]);
-  const iNro = idx(["numero_documento", "numerodocumento", "nro_doc", "nrodoc", "documento", "dni"]);
-  const iNom = idx(["nombre_razon_social", "nombre", "razon_social", "razonsocial", "cliente"]);
+  // Formato Airtable "Leads-Base": Tipo de Documento / DNI Cliente / Nombres y Apellidos…
+  const iDoc = idx(["tipo de documento", "tipo_documento", "tipodocumento", "tipo_doc", "documento_tipo"]);
+  const iNro = idx(["dni cliente", "dnicliente", "numero_documento", "numerodocumento", "nro_doc", "nrodoc", "documento", "dni"]);
+  const iNom = idx(["nombres y apellidos", "nombre_razon_social", "nombre", "razon_social", "razonsocial", "cliente"]);
   const iCon = idx(["contacto", "nombre_contacto"]);
-  const iCor = idx(["correo", "email", "mail"]);
-  const iTel = idx(["telefono", "teléfono", "celular"]);
+  const iCor = idx(["correo electronico", "correo", "email", "mail"]);
+  const iTel = idx(["telefono1", "telefono", "celular"]);
+  const iTel2 = idx(["telefono2"]);
   const iSap = idx(["codigo_sap", "codigosap", "sap", "codigo_cliente_sap"]);
+  const iCta = idx(["cuenta contrato", "cuentacontrato", "cuenta_contrato", "cta_contrato", "contrato"]);
+  const iBp = idx(["bp cliente", "bpcliente", "bp_cliente", "bp"]);
+  const iLin = idx(["linea de credito", "linea_credito", "lineacredito", "linea credito"]);
+  const iNse = idx(["nse"]);
+  const iDir = idx(["direccion", "dirección"]);
+  const iRef = idx(["referencia"]);
+  const iDis = idx(["distrito"]);
+  const iAmb = idx(["ambiente"]);
   if (iNro < 0 || iNom < 0) {
-    return { filas: [], errores: ["Cabecera inválida: se requiere al menos numero_documento y nombre_razon_social (usa la plantilla oficial)"] };
+    return { filas: [], errores: ["Cabecera inválida: se requiere al menos DNI Cliente y Nombres y Apellidos (usa la plantilla oficial)"] };
   }
-  if (lineas.length - 1 > 500) {
-    return { filas: [], errores: ["Máximo 500 filas por archivo"] };
+  if (todas.length - 1 > MAX_FILAS_CLIENTES) {
+    return { filas: [], errores: [`Máximo ${MAX_FILAS_CLIENTES} filas por archivo`] };
   }
   const filas: FilaClienteCSV[] = [];
-  lineas.slice(1).forEach((ln, k) => {
-    const c = ln.split(sep).map((x) => x.trim());
+  todas.slice(1).forEach((cols, k) => {
+    const c = cols.map((x) => x.trim());
     const nro = c[iNro] ?? "";
     const nom = c[iNom] ?? "";
     if (!nro && !nom) return; // línea vacía
-    const tip = (c[iTip] ?? "").toUpperCase() || "NATURAL";
+    const docUp = ((c[iDoc] ?? "").toUpperCase() || "DNI");
+    const tip = iTip >= 0
+      ? ((c[iTip] ?? "").toUpperCase() || (docUp === "RUC" ? "JURIDICA" : "NATURAL"))
+      : (docUp === "RUC" ? "JURIDICA" : "NATURAL");
     if (!["NATURAL", "JURIDICA"].includes(tip)) {
       errores.push(`Fila ${k + 2}: tipo_persona debe ser NATURAL o JURIDICA`);
       return;
     }
-    if (!nro) { errores.push(`Fila ${k + 2}: numero_documento obligatorio`); return; }
-    if (nom.length < 2) { errores.push(`Fila ${k + 2}: nombre_razon_social muy corto`); return; }
-    const cor = c[iCor] ?? "";
+    if (!nro) { errores.push(`Fila ${k + 2}: DNI Cliente obligatorio`); return; }
+    if (nom.length < 2) { errores.push(`Fila ${k + 2}: Nombres y Apellidos muy corto`); return; }
+    const cor = iCor >= 0 ? (c[iCor] ?? "") : "";
     if (cor && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cor)) { errores.push(`Fila ${k + 2}: correo inválido`); return; }
+    let linea: number | null = null;
+    if (iLin >= 0 && (c[iLin] ?? "") !== "") {
+      const v = Number(String(c[iLin]).replace(/[^0-9.,-]/g, "").replace(",", "."));
+      if (Number.isFinite(v) && v >= 0) linea = Math.round(v * 100) / 100;
+    }
     filas.push({
       fila: k + 2,
       tipo_persona: tip,
-      tipo_doc: c[iDoc] || "DNI",
+      tipo_doc: docUp,
       nro_doc: nro,
       nombre_razon_social: nom,
-      contacto: c[iCon] ?? "",
+      contacto: iCon >= 0 ? (c[iCon] ?? "") : "",
       correo: cor,
-      telefono: c[iTel] ?? "",
-      codigo_sap: c[iSap] ?? ""
+      telefono: iTel >= 0 ? (c[iTel] ?? "") : "",
+      codigo_sap: iSap >= 0 ? (c[iSap] ?? "") : "",
+      cuenta_contrato: iCta >= 0 ? (c[iCta] ?? "") : "",
+      telefono2: iTel2 >= 0 ? (c[iTel2] ?? "") : "",
+      bp_cliente: iBp >= 0 ? (c[iBp] ?? "") : "",
+      linea_credito: linea,
+      nse: iNse >= 0 ? (c[iNse] ?? "") : "",
+      direccion: iDir >= 0 ? (c[iDir] ?? "") : "",
+      referencia: iRef >= 0 ? (c[iRef] ?? "") : "",
+      distrito: iDis >= 0 ? (c[iDis] ?? "") : "",
+      ambiente: iAmb >= 0 ? (c[iAmb] ?? "") : ""
     });
   });
   return { filas, errores };
 }
 
 async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT>, ctx: OperacionContext) {
-  try {
+  // Búsqueda exacta o por coincidencia: ilike cubre ambos casos.
+  const orConCta = (qq: string) =>
+    `nombre_razon_social.ilike.%${qq}%,nro_doc.ilike.%${qq}%,codigo_sap.ilike.%${qq}%,contacto.ilike.%${qq}%,cuenta_contrato.ilike.%${qq}%`;
+  const orSinCta = (qq: string) =>
+    `nombre_razon_social.ilike.%${qq}%,nro_doc.ilike.%${qq}%,codigo_sap.ilike.%${qq}%,contacto.ilike.%${qq}%`;
+  const armarQuery = (conCta: boolean) => {
     const desde = (args.page - 1) * args.pageSize;
-    let q = ctx.service.from("mae_clientes").select("*", { count: "exact" }).order("created_at", { ascending: false });
-    if (args.q) q = q.or(`nombre_razon_social.ilike.%${args.q}%,nro_doc.ilike.%${args.q}%,codigo_sap.ilike.%${args.q}%,contacto.ilike.%${args.q}%`);
-    if (args.tipo_persona) q = q.eq("tipo_persona", args.tipo_persona.toUpperCase());
-    if (args.tipo_doc) q = q.eq("tipo_doc", args.tipo_doc.toUpperCase());
-    if (args.estado) q = q.eq("estado", args.estado.toUpperCase());
-    if (args.revision === "Validado") q = q.not("codigo_sap", "is", null).neq("codigo_sap", "");
-    if (args.revision === "Pendiente") q = q.or("codigo_sap.is.null,codigo_sap.eq.");
-    const { data, error, count } = await q.range(desde, desde + args.pageSize - 1);
+    let qq = ctx.service.from("mae_clientes").select("*", { count: "exact" }).order("created_at", { ascending: false });
+    if (args.q) qq = qq.or(conCta ? orConCta(args.q) : orSinCta(args.q));
+    if (args.tipo_persona) qq = qq.eq("tipo_persona", args.tipo_persona.toUpperCase());
+    if (args.tipo_doc) qq = qq.eq("tipo_doc", args.tipo_doc.toUpperCase());
+    if (args.estado) qq = qq.eq("estado", args.estado.toUpperCase());
+    if (args.revision === "Validado") qq = qq.not("codigo_sap", "is", null).neq("codigo_sap", "");
+    if (args.revision === "Pendiente") qq = qq.or("codigo_sap.is.null,codigo_sap.eq.");
+    return qq.range(desde, desde + args.pageSize - 1);
+  };
+  try {
+    let { data, error, count } = await armarQuery(true);
+    if (error && /column .*cuenta_contrato|cuenta_contrato.*column|column .*does not exist/i.test(error.message)) {
+      // BD sin migración 03: busca sin cuenta contrato.
+      ({ data, error, count } = await armarQuery(false));
+    }
     if (error) throw new Error(error.message);
     const rows = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
       ...r,
@@ -1407,10 +1512,34 @@ async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT
   }
 }
 
+/** Columnas Etapa 1 (migracion_03): se retiran si la BD aún no las tiene. */
+const COLUMNAS_CLI_ETAPA1 = [
+  "cuenta_contrato", "telefono2", "bp_cliente", "linea_credito",
+  "nse", "direccion", "referencia", "distrito", "ambiente",
+] as const;
+
+function filaClienteEtapa1(args: {
+  cuenta_contrato?: string; telefono2?: string; bp_cliente?: string;
+  linea_credito?: number; nse?: string; direccion?: string;
+  referencia?: string; distrito?: string; ambiente?: string;
+}): Record<string, unknown> {
+  return {
+    cuenta_contrato: args.cuenta_contrato || null,
+    telefono2: args.telefono2 || null,
+    bp_cliente: args.bp_cliente || null,
+    linea_credito: args.linea_credito ?? null,
+    nse: args.nse || null,
+    direccion: args.direccion || null,
+    referencia: args.referencia || null,
+    distrito: args.distrito || null,
+    ambiente: args.ambiente || null,
+  };
+}
+
 async function hCrearClienteSGT(args: z.infer<typeof EsquemaCrearClienteSGT>, ctx: OperacionContext) {
   const { data: ex } = await ctx.service.from("mae_clientes").select("id").limit(500);
   const id = siguienteId("CLI", ((ex ?? []) as { id?: string }[]).map((r) => r.id), 6);
-  const { data, error } = await ctx.service.from("mae_clientes").insert({
+  const base = {
     id,
     tipo_persona: args.tipo_persona,
     tipo_doc: args.tipo_doc.toUpperCase(),
@@ -1421,7 +1550,15 @@ async function hCrearClienteSGT(args: z.infer<typeof EsquemaCrearClienteSGT>, ct
     telefono: args.telefono || null,
     codigo_sap: args.codigo_sap || null,
     estado: "ACTIVO"
-  }).select().single();
+  };
+  let payload: Record<string, unknown> = { ...base, ...filaClienteEtapa1(args) };
+  let ins = await ctx.service.from("mae_clientes").insert(payload).select().single();
+  if (ins.error && /column|schema cache/i.test(ins.error.message)) {
+    // BD sin migración 03: reintenta sin las columnas nuevas.
+    for (const k of COLUMNAS_CLI_ETAPA1) delete payload[k];
+    ins = await ctx.service.from("mae_clientes").insert(payload).select().single();
+  }
+  const { data, error } = ins;
   if (error) {
     if (/duplicate|unique|llave duplicada/i.test(error.message)) {
       const e = new Error(`Documento ya registrado: ${args.tipo_doc} ${args.nro_doc}`) as Error & { status?: number };
@@ -1434,14 +1571,32 @@ async function hCrearClienteSGT(args: z.infer<typeof EsquemaCrearClienteSGT>, ct
 
 async function hActualizarClienteSGT(args: z.infer<typeof EsquemaActualizarClienteSGT>, ctx: OperacionContext) {
   const patch: Record<string, unknown> = {};
+  if (args.tipo_persona !== undefined) patch.tipo_persona = args.tipo_persona;
+  if (args.tipo_doc !== undefined) patch.tipo_doc = args.tipo_doc.toUpperCase();
+  if (args.nro_doc !== undefined) patch.nro_doc = args.nro_doc;
   if (args.nombre_razon_social !== undefined) patch.nombre_razon_social = args.nombre_razon_social;
   if (args.contacto !== undefined) patch.contacto = args.contacto || null;
   if (args.correo !== undefined) patch.correo = args.correo || null;
   if (args.telefono !== undefined) patch.telefono = args.telefono || null;
   if (args.codigo_sap !== undefined) patch.codigo_sap = args.codigo_sap || null;
+  if (args.cuenta_contrato !== undefined) patch.cuenta_contrato = args.cuenta_contrato || null;
+  if (args.telefono2 !== undefined) patch.telefono2 = args.telefono2 || null;
+  if (args.bp_cliente !== undefined) patch.bp_cliente = args.bp_cliente || null;
+  if (args.linea_credito !== undefined) patch.linea_credito = args.linea_credito ?? null;
+  if (args.nse !== undefined) patch.nse = args.nse || null;
+  if (args.direccion !== undefined) patch.direccion = args.direccion || null;
+  if (args.referencia !== undefined) patch.referencia = args.referencia || null;
+  if (args.distrito !== undefined) patch.distrito = args.distrito || null;
+  if (args.ambiente !== undefined) patch.ambiente = args.ambiente || null;
   if (args.estado !== undefined) patch.estado = args.estado;
   if (Object.keys(patch).length === 0) throw new Error("Nada que actualizar");
-  const { data, error } = await ctx.service.from("mae_clientes").update(patch).eq("id", args.id).select().single();
+  let upd = await ctx.service.from("mae_clientes").update(patch).eq("id", args.id).select().single();
+  if (upd.error && /column|schema cache/i.test(upd.error.message)) {
+    for (const k of COLUMNAS_CLI_ETAPA1) delete patch[k];
+    if (Object.keys(patch).length === 0) throw new Error("Nada que actualizar (falta migración 03)");
+    upd = await ctx.service.from("mae_clientes").update(patch).eq("id", args.id).select().single();
+  }
+  const { data, error } = upd;
   if (error) {
     if (/duplicate|unique|llave duplicada/i.test(error.message)) {
       const e = new Error("Código SAP ya asignado a otro cliente") as Error & { status?: number };
@@ -1461,28 +1616,76 @@ async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, 
   const { filas, errores } = parseCSVClientes(args.csv);
   let insertadas = 0;
   const duenos: string[] = [...errores];
-  const { data: ex } = await ctx.service.from("mae_clientes").select("id").limit(2000);
-  let corr = ((ex ?? []) as { id?: string }[]).map((r) => r.id);
-  for (const f of filas) {
-    try {
+  // IDs existentes en una sola lectura (paginada) para no chocar correlativos.
+  let corr: (string | undefined)[] = [];
+  {
+    let desde = 0;
+    for (;;) {
+      const { data } = await ctx.service.from("mae_clientes").select("id").range(desde, desde + 999);
+      const ids = ((data ?? []) as { id?: string }[]).map((r) => r.id);
+      corr = [...corr, ...ids];
+      if (ids.length < 1000) break;
+      desde += 1000;
+    }
+  }
+  const armarFila = (f: FilaClienteCSV, id: string, conNuevas: boolean): Record<string, unknown> => {
+    const base: Record<string, unknown> = {
+      id,
+      tipo_persona: f.tipo_persona,
+      tipo_doc: f.tipo_doc.toUpperCase(),
+      nro_doc: f.nro_doc,
+      nombre_razon_social: f.nombre_razon_social,
+      contacto: f.contacto || null,
+      correo: f.correo || null,
+      telefono: f.telefono || null,
+      codigo_sap: f.codigo_sap || null,
+      estado: "ACTIVO"
+    };
+    if (conNuevas) {
+      base.cuenta_contrato = f.cuenta_contrato || null;
+      base.telefono2 = f.telefono2 || null;
+      base.bp_cliente = f.bp_cliente || null;
+      base.linea_credito = f.linea_credito ?? null;
+      base.nse = f.nse || null;
+      base.direccion = f.direccion || null;
+      base.referencia = f.referencia || null;
+      base.distrito = f.distrito || null;
+      base.ambiente = f.ambiente || null;
+    }
+    return base;
+  };
+  // Inserción por lotes (rápida para archivos grandes como el Airtable).
+  const LOTE = 500;
+  let sinNuevas = false;
+  for (let i = 0; i < filas.length; i += LOTE) {
+    const trozo = filas.slice(i, i + LOTE);
+    const lote: { f: FilaClienteCSV; id: string; fila: Record<string, unknown> }[] = [];
+    for (const f of trozo) {
       const id = siguienteId("CLI", corr, 6);
-      const { error } = await ctx.service.from("mae_clientes").insert({
-        id,
-        tipo_persona: f.tipo_persona,
-        tipo_doc: f.tipo_doc.toUpperCase(),
-        nro_doc: f.nro_doc,
-        nombre_razon_social: f.nombre_razon_social,
-        contacto: f.contacto || null,
-        correo: f.correo || null,
-        telefono: f.telefono || null,
-        codigo_sap: f.codigo_sap || null,
-        estado: "ACTIVO"
-      });
-      if (error) throw new Error(error.message);
       corr = [...corr, id];
-      insertadas++;
-    } catch (e) {
-      duenos.push(`Fila ${f.fila}: ${(e as Error).message}`);
+      lote.push({ f, id, fila: armarFila(f, id, !sinNuevas) });
+    }
+    const { error } = await ctx.service.from("mae_clientes").insert(lote.map((l) => l.fila));
+    if (!error) {
+      insertadas += lote.length;
+      continue;
+    }
+    if (!sinNuevas && /column|schema cache/i.test(error.message)) {
+      // BD sin migración 03: reintenta el lote sin columnas nuevas.
+      sinNuevas = true;
+      const { error: e2 } = await ctx.service.from("mae_clientes")
+        .insert(lote.map((l) => armarFila(l.f, l.id, false)));
+      if (!e2) {
+        insertadas += lote.length;
+        continue;
+      }
+    }
+    // El lote falló por datos: fila por fila para reportar cada error.
+    for (const l of lote) {
+      const { error: eF } = await ctx.service.from("mae_clientes")
+        .insert(armarFila(l.f, l.id, !sinNuevas));
+      if (eF) duenos.push(`Fila ${l.f.fila}: ${eF.message}`);
+      else insertadas++;
     }
   }
   return {

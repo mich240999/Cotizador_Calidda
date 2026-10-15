@@ -1,0 +1,26 @@
+-- =====================================================================
+-- Migración 03 — Flujo de ventas por etapas (CONSOLIDADA).
+-- Ejecutar en el SQL Editor de Supabase UNA SOLA VEZ al final del proyecto.
+-- Secciones por etapa; todo con IF NOT EXISTS (seguro re-ejecutar).
+-- =====================================================================
+
+-- ---------------------------------------------------------------- ETAPA 1
+-- Clientes formato Airtable: cuenta contrato + campos del Leads-Base.
+-- Columnas usadas del XLSX: DNI Cliente, Nombres y Apellidos, Teléfono1,
+-- Teléfono2, Correo electrónico, BP Cliente, Cuenta Contrato, Linea de
+-- Credito, NSE, Dirección, Referencia, Distrito, Ambiente.
+-- (El archivo se sube tal cual con sus 58 columnas; el resto se ignora.)
+
+ALTER TABLE public.mae_clientes
+  ADD COLUMN IF NOT EXISTS cuenta_contrato TEXT,
+  ADD COLUMN IF NOT EXISTS telefono2 TEXT,
+  ADD COLUMN IF NOT EXISTS bp_cliente TEXT,
+  ADD COLUMN IF NOT EXISTS linea_credito NUMERIC(12,2),
+  ADD COLUMN IF NOT EXISTS nse TEXT,
+  ADD COLUMN IF NOT EXISTS direccion TEXT,
+  ADD COLUMN IF NOT EXISTS referencia TEXT,
+  ADD COLUMN IF NOT EXISTS distrito TEXT,
+  ADD COLUMN IF NOT EXISTS ambiente TEXT;
+
+CREATE INDEX IF NOT EXISTS ix_mae_clientes_cta
+  ON public.mae_clientes(cuenta_contrato);
