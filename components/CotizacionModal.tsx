@@ -236,7 +236,12 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
           observaciones: obs,
           detalles,
         });
-      } catch {
+      } catch (eSgt) {
+        // El flujo legacy solo acepta UUIDs: con IDs del maestro SGT (CLI…,
+        // MAT-…) fallaría con "Invalid uuid" ocultando el error real.
+        const esUuid = (v: string) => /^[0-9a-f-]{36}$/i.test(String(v ?? ""));
+        const usaSGT = !esUuid(clienteId) || items.some((f) => f.material_id && !esUuid(f.material_id));
+        if (usaSGT) throw eSgt;
         creada = await apiOperacion("crearCotizacion", {
           cliente_id: clienteId,
           items,
