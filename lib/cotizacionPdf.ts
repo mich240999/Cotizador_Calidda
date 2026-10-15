@@ -132,6 +132,8 @@ async function obtenerDatosSGT(service: SupabaseClient, numero: string): Promise
   else if (capital > 0) cuotaMensual = cuotaFrancesaConIgv(capital, tea, plazo);
 
   const docCli = [cliR.tipo_doc, cliR.nro_doc].filter(Boolean).join(" ") || "—";
+  const ctaSgt = String(cliR.cuenta_contrato ?? (c as Record<string, unknown>).cuenta_contrato ?? "").trim();
+  const docCliCta = ctaSgt ? `${docCli} · Cta. Cto. ${ctaSgt}` : docCli;
   const parsed = extraerDetalles(String(c.observaciones ?? ""));
 
   return {
@@ -142,7 +144,7 @@ async function obtenerDatosSGT(service: SupabaseClient, numero: string): Promise
     detalles: parsed.detalles,
     subtotal, descuento, total,
     clienteNombre: String(cliR.nombre_razon_social ?? "—"),
-    clienteDoc: docCli || "—",
+    clienteDoc: docCliCta || "—",
     clienteEmail: String(cliR.correo ?? "—"),
     clienteTel: String(cliR.telefono ?? "—"),
     clienteContacto: String(cliR.contacto ?? ""),
@@ -221,6 +223,8 @@ async function obtenerDatosLegacy(service: SupabaseClient, id: string): Promise<
       break;
     }
   }
+  const ctaLeg = String(c.cuenta_contrato ?? "").trim();
+  const docLeg = String(cli.dni ?? cli.documento ?? "—");
   const parsedLeg = extraerDetalles(String(c.observaciones ?? ""));
   return {
     codigo: String(c.codigo ?? id.slice(0, 8)),
@@ -230,7 +234,7 @@ async function obtenerDatosLegacy(service: SupabaseClient, id: string): Promise<
     detalles: parsedLeg.detalles,
     subtotal, descuento, total,
     clienteNombre: String(cli.nombres ?? "—"),
-    clienteDoc: String(cli.dni ?? cli.documento ?? "—"),
+    clienteDoc: ctaLeg ? `${docLeg} · Cta. Cto. ${ctaLeg}` : docLeg,
     clienteEmail: String(cli.email ?? "—"),
     clienteTel: String(cli.telefono ?? "—"),
     proveedor: String(c.proveedor ?? cli.proveedor ?? "—"),

@@ -43,6 +43,7 @@ type Cotizacion = {
   cuotaInicial?: number;
   capital?: number;
   capital_financiado?: number;
+  cuenta_contrato?: string | null;
   observaciones?: string | null;
   created_at?: string;
   cliente_id?: string;
@@ -184,6 +185,7 @@ export default function CotizacionDetallePage({
   const nombreCliente =
     cot?.clientes?.nombre ?? cot?.clientes?.nombres ?? "—";
   const docCliente = cot?.clientes?.documento ?? cot?.clientes?.dni ?? "—";
+  const ctaContrato = String(cot?.cuenta_contrato ?? "").trim();
 
   const lineaImporte = (it: Item) => {
     if (it.total_linea != null) return Number(it.total_linea);
@@ -249,6 +251,9 @@ export default function CotizacionDetallePage({
                   {docCliente !== "—" ? `Doc ${docCliente} · ` : ""}
                   {cot.clientes?.telefono ?? ""}
                 </p>
+                {ctaContrato && (
+                  <p className="text-sm font-bold text-emerald-700">Cta. Contrato: {ctaContrato}</p>
+                )}
                 <p className="text-sm text-slate-600">{cot.clientes?.direccion ?? ""}</p>
                 <p className="text-sm text-slate-600">{cot.clientes?.email ?? ""}</p>
                 <p className="mt-3 text-xs text-slate-400">

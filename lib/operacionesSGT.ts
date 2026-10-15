@@ -206,7 +206,9 @@ const EsquemaDetalleMueble = z.object({
   vidrios: z.string().trim().min(1).max(120),
 });
 const EsquemaCrearCotSGT = z.object({
-  cliente_id: z.string().uuid(),
+  // UUID legacy o id del maestro SGT (CLI…): los SGT se espejan a legacy.
+  cliente_id: z.string().trim().min(1).max(120),
+  cuenta_contrato: z.string().trim().max(30).optional().default(""),
   items: z.array(EsquemaItemSGT).min(1).max(200),
   cuota_inicial: z.coerce.number().min(0).max(100_000_000).optional().default(0),
   tea: z.coerce.number().min(0).max(100).optional().default(40),
@@ -1097,8 +1099,43 @@ async function hSimularFinanciamiento(args: z.infer<typeof EsquemaSimular>, _ctx
   return { capital, cuota_inicial: args.cuota_inicial ?? 0, tea, tem, plazo, cuota_mensual: cuota, tabla };
 }
 
+/** Resuelve el cliente a UUID legacy. Si es id SGT (CLI…), lo espeja a
+ *  `clientes` (find-or-create por dni/nombre) y devuelve su cuenta contrato.
+ *  Así las cotizaciones de clientes Airtable guardan el FK válido.
+ */
+async function resolverClienteCotizacion(
+  ctx: OperacionContext,
+  clienteId: string
+): Promise<{ clienteUuid: string; cuentaContrato: string }> {
+  if (/^[0-9a-f-]{36}$/i.test(clienteId)) return { clienteUuid: clienteId, cuentaContrato: "" };
+  const { data: mae } = await ctx.service.from("mae_clientes").select("*").eq("id", clienteId).maybeSingle();
+  const m = (mae ?? {}) as Record<string, any>;
+  if (!mae) throw new Error(`Cliente no encontrado: ${clienteId}`);
+  const dni = String(m.nro_doc ?? "").trim();
+  const nom = String(m.nombre_razon_social ?? "").trim();
+  if (dni) {
+    const { data: ex } = await ctx.service.from("clientes").select("id").eq("dni", dni).limit(1).maybeSingle();
+    if (ex) return { clienteUuid: (ex as { id: string }).id, cuentaContrato: String(m.cuenta_contrato ?? "") };
+  } else if (nom) {
+    const { data: ex } = await ctx.service.from("clientes").select("id").eq("nombres", nom).limit(1).maybeSingle();
+    if (ex) return { clienteUuid: (ex as { id: string }).id, cuentaContrato: String(m.cuenta_contrato ?? "") };
+  }
+  const { data: nuevo, error } = await ctx.service.from("clientes").insert({
+    nombres: nom || "SIN NOMBRE",
+    dni: dni || null,
+    telefono: String(m.telefono ?? m.telefono2 ?? "") || null,
+    email: String(m.correo ?? "") || null,
+    direccion: String(m.direccion ?? "") || null,
+    distrito: String(m.distrito ?? "") || null,
+  }).select("id").single();
+  if (error || !nuevo) throw new Error(error?.message ?? "No se pudo espejar el cliente");
+  return { clienteUuid: (nuevo as { id: string }).id, cuentaContrato: String(m.cuenta_contrato ?? "") };
+}
+
 async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx: OperacionContext) {
   const tea = teaADecimal(args.tea);
+  const cli = await resolverClienteCotizacion(ctx, args.cliente_id);
+  const cuentaContrato = String(args.cuenta_contrato ?? "").trim() || cli.cuentaContrato;
   // Resolver precios (si no viene precio_unit, usar catálogo).
   let subtotal = 0, descuento = 0;
   const itemsResueltos: { material_id: string | null; cantidad: number; precio_unit: number; descuento_pct: number; total_linea: number; descripcion: string; material_codigo: string | null }[] = [];
@@ -1162,7 +1199,8 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
   // Insert cabecera: intenta con columnas SGT; si no existen, inserta base.
   const extra = {
     codigo: numero,
-    cliente_id: args.cliente_id,
+    cliente_id: cli.clienteUuid,
+    cuenta_contrato: cuentaContrato || null,
     estado: "BORRADOR",
     observaciones: observacionesFinal,
     validez_dias: args.validez_dias ?? 15,

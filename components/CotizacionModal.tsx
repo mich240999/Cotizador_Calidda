@@ -22,7 +22,7 @@ function cuotaMensual(capital: number, n: number) {
   return Math.round(((capital * i) / (1 - Math.pow(1 + i, -n)) + Number.EPSILON) * 100) / 100;
 }
 
-type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; email?: string; correo?: string; telefono?: string };
+type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; email?: string; correo?: string; telefono?: string; cuenta_contrato?: string };
 type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string };
 type UsuarioSGT = { id: string | number; nombre: string; telefono?: string; rol?: string; rol_codigo?: string };
 type Material = { id: string; codigo?: string; codigo_tmp?: string; nombre: string; descripcion?: string; precio_unit?: number; precio_vigente?: number };
@@ -225,6 +225,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       try {
         creada = await apiOperacion("crearCotizacionSGT", {
           cliente_id: clienteId,
+          cuenta_contrato: clienteSel?.cuenta_contrato ?? "",
           items,
           cuota_inicial: inicial,
           tea: 40,
@@ -327,6 +328,9 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                   <p className="text-xs text-slate-500">
                     {[docCliente(clienteSel), mailCliente(clienteSel), clienteSel.telefono].filter(Boolean).join(" · ") || "Sin datos de contacto"}
                   </p>
+                  {clienteSel.cuenta_contrato && (
+                    <p className="text-xs font-bold text-emerald-700 mt-1">Cta. Contrato: {clienteSel.cuenta_contrato}</p>
+                  )}
                 </div>
               )}
             </div>

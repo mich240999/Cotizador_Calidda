@@ -24,3 +24,13 @@ ALTER TABLE public.mae_clientes
 
 CREATE INDEX IF NOT EXISTS ix_mae_clientes_cta
   ON public.mae_clientes(cuenta_contrato);
+
+-- ---------------------------------------------------------------- ETAPA 2
+-- Cuenta contrato como dato identificativo de la cotización.
+-- Se copia al crear (snapshot); si viene vacía se jala del maestro.
+
+ALTER TABLE public.cotizaciones
+  ADD COLUMN IF NOT EXISTS cuenta_contrato TEXT;
+
+CREATE INDEX IF NOT EXISTS ix_cotizaciones_cta
+  ON public.cotizaciones(cuenta_contrato);
