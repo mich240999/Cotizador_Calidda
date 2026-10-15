@@ -224,16 +224,61 @@ async function hCambiarEstado(args: z.infer<typeof EsquemaCambiarEstado>, ctx: O
   return data;
 }
 
+/** Nombres del maestro SGT (mae_materiales) por id, para ítems cuyo
+ *  material_id no existe en la tabla legacy `materiales` (join null).
+ *  Retorna mapa id → { codigo, nombre }. Si la tabla no existe, mapa vacío.
+ */
+export async function nombresMaterialesMAE(
+  service: { from(t: string): any },
+  ids: (string | null | undefined)[]
+): Promise<Map<string, { codigo: string; nombre: string }>> {
+  const map = new Map<string, { codigo: string; nombre: string }>();
+  const limpios = [...new Set((ids ?? []).filter((x): x is string => !!x))];
+  if (limpios.length === 0) return map;
+  try {
+    const { data, error } = await service.from("mae_materiales")
+      .select("id,nombre,descripcion,codigo_tmp,codigo_sap").in("id", limpios);
+    if (error || !data) return map;
+    for (const m of (data as Record<string, any>[])) {
+      const cod = String(m.codigo_tmp ?? m.codigo_sap ?? "");
+      const nom = String(m.nombre ?? "");
+      const desc = String(m.descripcion ?? "");
+      map.set(String(m.id), {
+        codigo: cod,
+        nombre: desc ? `${nom} — ${desc}`.trim() : nom,
+      });
+    }
+  } catch { /* tabla SGT aún no migrada: se omite el respaldo */ }
+  return map;
+}
+
+/** Completa `materiales` (join null) con el nombre del maestro SGT. */
+export async function completarNombresItems(
+  service: { from(t: string): any },
+  items: Record<string, any>[]
+): Promise<Record<string, any>[]> {
+  const faltantes = (items ?? []).filter((it) => !it.materiales && it.material_id);
+  if (faltantes.length === 0) return items ?? [];
+  const mae = await nombresMaterialesMAE(service, faltantes.map((it) => String(it.material_id)));
+  if (mae.size === 0) return items ?? [];
+  return (items ?? []).map((it) =>
+    !it.materiales && it.material_id && mae.has(String(it.material_id))
+      ? { ...it, materiales: mae.get(String(it.material_id)) }
+      : it
+  );
+}
+
 /** Retorna payload listo para PDF con items + cliente. */
 async function hGenerarPDF(args: z.infer<typeof EsquemaGenerarPDF>, ctx: OperacionContext) {
   const { data: cot, error } = await ctx.service.from("cotizaciones").select("*, clientes(*)").eq("id", args.cotizacion_id).single();
   if (error || !cot) throw new Error("Cotización no encontrada");
-  const { data: items } = await ctx.service
+  const { data: itemsRaw } = await ctx.service
     .from("cotizacion_items")
     .select("*, materiales(codigo,nombre,unidad)")
     .eq("cotizacion_id", args.cotizacion_id);
+  const items = await completarNombresItems(ctx.service, ((itemsRaw ?? []) as Record<string, any>[]));
   const c = cot as { id: string; codigo?: string };
-  return { cotizacion: { ...cot, items: items ?? [] }, cliente: (cot as { clientes?: unknown }).clientes ?? null, items: items ?? [], filename: `cotizacion-${c.codigo ?? c.id.slice(0, 8)}.pdf` };
+  return { cotizacion: { ...cot, items }, cliente: (cot as { clientes?: unknown }).clientes ?? null, items, filename: `cotizacion-${c.codigo ?? c.id.slice(0, 8)}.pdf` };
 }
 
 async function hEnviarCorreo(args: z.infer<typeof EsquemaEnviarCorreo>, _ctx: OperacionContext) {

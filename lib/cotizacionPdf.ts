@@ -149,6 +149,25 @@ async function obtenerDatosSGT(service: SupabaseClient, numero: string): Promise
   };
 }
 
+/** Completa el nombre desde el maestro SGT cuando el join legacy viene null. */
+async function nombresMaePdf(service: SupabaseClient, ids: string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const limpios = [...new Set(ids.filter(Boolean))];
+  if (limpios.length === 0) return map;
+  try {
+    const { data, error } = await service.from("mae_materiales")
+      .select("id,nombre,descripcion,codigo_tmp,codigo_sap").in("id", limpios);
+    if (error || !data) return map;
+    for (const m of (data as Record<string, any>[])) {
+      const cod = String(m.codigo_tmp ?? m.codigo_sap ?? "");
+      const base = cod ? `${cod} ${String(m.nombre ?? "")}`.trim() : String(m.nombre ?? "");
+      const desc = String(m.descripcion ?? "");
+      map.set(String(m.id), desc ? `${base} — ${desc}` : base);
+    }
+  } catch { /* sin maestro SGT: se mantiene el nombre legacy */ }
+  return map;
+}
+
 async function obtenerDatosLegacy(service: SupabaseClient, id: string): Promise<DatosPdf> {
   const { data: cotRaw, error } = await service.from("cotizaciones").select("*, clientes(*)").eq("id", id).single();
   if (error || !cotRaw) throw new Error("Cotización no encontrada");
@@ -156,11 +175,16 @@ async function obtenerDatosLegacy(service: SupabaseClient, id: string): Promise<
   const cli = (c.clientes ?? {}) as Record<string, any>;
   const { data: itemsRaw } = await service.from("cotizacion_items")
     .select("*, materiales(codigo,nombre,unidad)").eq("cotizacion_id", id);
-  const items = ((itemsRaw ?? []) as ItemPdf[]).map((it, i) => {
+  const crudos = ((itemsRaw ?? []) as (ItemPdf & { material_id?: string | null })[]);
+  const mae = await nombresMaePdf(service, crudos.filter((it) => !it.materiales && it.material_id).map((it) => String(it.material_id)));
+  const items = crudos.map((it, i) => {
     const cant = Number(it.cantidad ?? 0), punit = Number(it.precio_unit ?? 0);
     const dscto = Number(it.descuento_pct ?? 0);
     const neto = Number(it.total_linea ?? cant * punit * (1 - dscto / 100));
-    const mat = `${it.materiales?.codigo ?? ""} ${it.materiales?.nombre ?? "Ítem"}`.trim();
+    const matMae = it.material_id ? mae.get(String(it.material_id)) : undefined;
+    const mat = it.materiales
+      ? `${it.materiales?.codigo ?? ""} ${it.materiales?.nombre ?? "Ítem"}`.trim()
+      : (matMae || `Ítem ${it.material_id ?? ""}`.trim() || "Ítem");
     return { idx: i + 1, material: mat, cant, punit, dscto, neto };
   });
   const bruto = items.reduce((a, it) => a + it.cant * it.punit, 0);

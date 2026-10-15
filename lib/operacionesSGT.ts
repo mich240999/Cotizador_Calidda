@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { RolUsuario } from "./auth";
 import type { OperacionContext } from "./operaciones";
+import { completarNombresItems } from "./operaciones";
 import { cuotaFrancesaConIgv, tablaSimulacion, temConIgv, PLAZOS_SIMULACION } from "./financiamiento";
 
 /**
@@ -1186,8 +1187,9 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
 async function hRegenerarPDF(args: z.infer<typeof EsquemaRegenerar>, ctx: OperacionContext) {
   const { data: cot, error } = await ctx.service.from("cotizaciones").select("*, clientes(*)").eq("id", args.cotizacion_id).single();
   if (error || !cot) throw new Error("Cotización no encontrada");
-  const { data: items } = await ctx.service.from("cotizacion_items")
+  const { data: itemsRaw } = await ctx.service.from("cotizacion_items")
     .select("*, materiales(codigo,nombre,unidad)").eq("cotizacion_id", args.cotizacion_id);
+  const items = await completarNombresItems(ctx.service, ((itemsRaw ?? []) as Record<string, any>[]));
   const c = cot as Record<string, unknown>;
   const capital = Number(c.capital ?? c.total ?? 0);
   const teaRaw = Number(c.tea ?? 0.40);
