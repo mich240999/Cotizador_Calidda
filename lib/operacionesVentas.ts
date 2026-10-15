@@ -1297,8 +1297,56 @@ async function hBuscarCotizacionesParaVenta(args: z.infer<typeof EsquemaBuscarCo
   }
 }
 
+/** Visibilidad en solicitudes: la cotización de un proveedor solo la ven su
+ *  asesor de venta, su jefe directo (supervisor) y los admin. Devuelve null
+ *  = sin filtro (admin o alcance GLOBAL).
+ */
+async function filtroVisibilidadCotizacion(
+  ctx: OperacionContext
+): Promise<null | ((c: Fila) => boolean)> {
+  if (esAdmin(ctx) || ctx.sesion.alcance === "GLOBAL") return null;
+  const userId = String(ctx.sesion.userId ?? "");
+  const norm = (s: unknown) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  try {
+    const email = String(ctx.sesion.email ?? "").toLowerCase().trim();
+    let yo: { id: string; nombre: string } | null = null;
+    const segPorNombre = new Map<string, string>();
+    try {
+      const { data: usuarios } = await ctx.service.from("seg_usuarios").select("id,nombre,correo").limit(2000);
+      for (const u of ((usuarios ?? []) as Record<string, any>[])) {
+        segPorNombre.set(norm(u.nombre), String(u.id));
+        if (email && String(u.correo ?? "").toLowerCase().trim() === email) {
+          yo = { id: String(u.id), nombre: String(u.nombre ?? "") };
+        }
+      }
+    } catch { /* sin maestro de usuarios */ }
+    const supervisados = new Set<string>();
+    if (yo) {
+      try {
+        const { data: asg } = await ctx.service.from("seg_asignaciones_asesores").select("id_asesor").eq("id_supervisor", yo.id);
+        for (const a of ((asg ?? []) as Record<string, any>[])) {
+          if (a.id_asesor) supervisados.add(String(a.id_asesor));
+        }
+      } catch { /* sin asignaciones */ }
+    }
+    const miNombre = yo ? norm(yo.nombre) : "";
+    return (c: Fila) => {
+      if (userId && String(c.created_by ?? "") === userId) return true; // propia
+      const idAsesorCot = segPorNombre.get(norm(c.asesor));
+      if (miNombre && norm(c.asesor) === miNombre) return true; // soy su asesor
+      if (idAsesorCot && supervisados.has(idAsesorCot)) return true; // soy su supervisor
+      return false;
+    };
+  } catch {
+    // Sin datos para filtrar: solo lo propio.
+    return (c: Fila) => (userId ? String(c.created_by ?? "") === userId : false);
+  }
+}
+
 async function anotarConSolicitud(ctx: OperacionContext, cots: Fila[]): Promise<Fila[]> {
-  const ids = cots.map((c) => String(c.id)).filter(Boolean);
+  const ver = await filtroVisibilidadCotizacion(ctx);
+  const visibles = ver ? cots.filter(ver) : cots;
+  const ids = visibles.map((c) => String(c.id)).filter(Boolean);
   const mSol = new Map<string, string>();
   if (ids.length) {
     try {
@@ -1310,7 +1358,7 @@ async function anotarConSolicitud(ctx: OperacionContext, cots: Fila[]): Promise<
   }
   // Solo cotizaciones SIN solicitud: las que ya tienen no vuelven a salir
   // ni permiten crear otra.
-  return cots.filter((c) => !mSol.has(String(c.id))).map((c) => {
+  return visibles.filter((c) => !mSol.has(String(c.id))).map((c) => {
     const cli = (c.clientes ?? {}) as Record<string, any>;
     return {
       id: c.id,
@@ -1338,6 +1386,8 @@ async function hObtenerCotizacionParaVenta(args: z.infer<typeof EsquemaCotizacio
     const { data: cot, error } = await ctx.service.from("cotizaciones").select("*, clientes(*)").eq("id", args.cotizacion_id).single();
     if (error || !cot) lanzar(404, "Cotización no encontrada");
     const c = cot as Record<string, any>;
+    const ver = await filtroVisibilidadCotizacion(ctx);
+    if (ver && !ver(c)) lanzar(403, "Sin permiso: la cotización pertenece a otro asesor");
     const cli = ((c as { clientes?: unknown }).clientes ?? {}) as Record<string, any>;
     // Cuenta contrato y ambiente: de la cotización o del maestro por documento.
     let cuentaContrato = String(c.cuenta_contrato ?? "").trim();
