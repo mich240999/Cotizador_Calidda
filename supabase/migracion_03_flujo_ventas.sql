@@ -34,3 +34,21 @@ ALTER TABLE public.cotizaciones
 
 CREATE INDEX IF NOT EXISTS ix_cotizaciones_cta
   ON public.cotizaciones(cuenta_contrato);
+
+-- ---------------------------------------------------------------- ETAPA 3
+-- Solicitudes de venta nacidas de una cotización.
+-- cotizacion_id: cotización origen (PDF se regenera, no se almacena).
+-- asesor_nombre: snapshot del asesor de la cotización.
+-- anticipo: cuota inicial que venía en la cotización.
+-- monto_financiado: total − anticipo. nro_cuotas: plazo elegido.
+
+ALTER TABLE public.vta_solicitudes_venta
+  ADD COLUMN IF NOT EXISTS cotizacion_id UUID REFERENCES public.cotizaciones(id),
+  ADD COLUMN IF NOT EXISTS asesor_nombre TEXT,
+  ADD COLUMN IF NOT EXISTS anticipo NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS monto_financiado NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS nro_cuotas INT,
+  ADD COLUMN IF NOT EXISTS ambiente TEXT;
+
+CREATE INDEX IF NOT EXISTS ix_vta_sol_cot
+  ON public.vta_solicitudes_venta(cotizacion_id);

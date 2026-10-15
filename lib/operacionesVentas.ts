@@ -143,12 +143,12 @@ type Fila = Record<string, any>;
 async function resolverNombres(
   ctx: OperacionContext,
   filas: Fila[]
-): Promise<Map<string, { cliente: string | null; documento: string | null; proveedor: string | null; asesor: string | null; creado_por: string | null }>> {
+): Promise<Map<string, { cliente: string | null; documento: string | null; proveedor: string | null; asesor: string | null; creado_por: string | null; cuenta_contrato: string | null; ambiente: string | null }>> {
   const idsCli = [...new Set(filas.map((r) => String(r.id_cliente ?? "")).filter(Boolean))];
   const idsProv = [...new Set(filas.map((r) => String(r.id_proveedor ?? "")).filter(Boolean))];
   const idsAse = [...new Set(filas.map((r) => String(r.id_asesor ?? "")).filter(Boolean))];
   const idsCreador = [...new Set(filas.map((r) => String(r.created_by ?? "")).filter(Boolean))];
-  const out = new Map<string, { cliente: string | null; documento: string | null; proveedor: string | null; asesor: string | null; creado_por: string | null }>();
+  const out = new Map<string, { cliente: string | null; documento: string | null; proveedor: string | null; asesor: string | null; creado_por: string | null; cuenta_contrato: string | null; ambiente: string | null }>();
   const svc = ctx.service as unknown as { from(t: string): any };
 
   async function buscarEn(tablas: string[], ids: string[], cols: string): Promise<Fila[]> {
@@ -166,7 +166,7 @@ async function resolverNombres(
 
   const [cliMae, cliBase] = idsCli.length
     ? await Promise.all([
-        buscarEn(["mae_clientes"], idsCli, "id,nombre_razon_social,nro_doc").catch(() => [] as Fila[]),
+        buscarEn(["mae_clientes"], idsCli, "id,nombre_razon_social,nro_doc,cuenta_contrato,ambiente,telefono,correo").catch(() => [] as Fila[]),
         buscarEn(["clientes"], idsCli, "id,nombres,dni").catch(() => [] as Fila[]),
       ])
     : [[], []];
@@ -204,6 +204,8 @@ async function resolverNombres(
       proveedor: (p?.nombre_comercial ?? p?.razon_social ?? p?.interlocutor ?? p?.nombre ?? null) as string | null,
       asesor: (a?.nombre ?? null) as string | null,
       creado_por: (cr?.nombre ?? null) as string | null,
+      cuenta_contrato: (c?.cuenta_contrato ?? null) as string | null,
+      ambiente: (c?.ambiente ?? null) as string | null,
     });
   }
   return out;
@@ -299,16 +301,22 @@ const EsquemaCrearSolicitud = z.object({
   id_proveedor: z.string().trim().min(1).max(60).optional().nullable(),
   canal: z.enum(["proveedor", "microaliado", "contratista"]),
   es_microaliado: z.coerce.boolean().optional().default(false),
-  visita_estado: z.enum(["visitado", "agendado"]),
+  visita_estado: z.enum(["visitado", "agendado"]).optional().default("visitado"),
   pago_modo: z.string().trim().min(1).max(60),
   proyecto_financiado: z.coerce.boolean().optional().default(true),
   id_asesor: z.string().trim().max(20).optional().nullable(),
+  asesor: z.string().trim().max(200).optional().default(""),
   asesor_telefono: z.string().trim().max(30).optional().default(""),
   foto_espacio_url: z.string().trim().max(2000).optional().default(""),
   tea: z.coerce.number().min(0).max(100).optional().default(40),
   observaciones: z.string().trim().max(2000).optional().default(""),
-  adjunto_cotizacion_url: zUrlDoc,
-  adjunto_dni_url: zUrlDoc,
+  adjunto_cotizacion_url: zUrlDoc.optional().default(""),
+  adjunto_dni_url: zUrlDoc.optional().default(""),
+  // Etapa 3 — solicitud nacida de una cotización (PDF se regenera, no se sube).
+  cotizacion_id: z.string().trim().uuid().optional().nullable(),
+  anticipo: z.coerce.number().min(0).max(100_000_000).optional().default(0),
+  ambiente: z.string().trim().max(120).optional().default(""),
+  nro_cuotas: z.coerce.number().int().min(1).max(360).optional().nullable(),
   items: z.array(EsquemaItemVenta).min(1).max(200),
 });
 
@@ -376,6 +384,18 @@ const EsquemaTea = z.object({
   tea: z.coerce.number().min(0).max(100),
 });
 
+const EsquemaBuscarCotizaciones = z.object({
+  q: z.string().trim().max(120).optional().default(""),
+  estado: z.string().trim().max(40).optional().default(""),
+  desde: z.string().trim().max(10).optional().default(""),
+  hasta: z.string().trim().max(10).optional().default(""),
+  limit: zLimit,
+});
+
+const EsquemaCotizacionParaVenta = z.object({
+  cotizacion_id: z.string().trim().uuid(),
+});
+
 // ---------------------------------------------------------------- handlers
 
 async function hListarVentas(args: z.infer<typeof EsquemaListarVentas>, ctx: OperacionContext) {
@@ -397,9 +417,67 @@ async function hListarVentas(args: z.infer<typeof EsquemaListarVentas>, ctx: Ope
     if (error) throw new Error(error.message);
     const rows = ((data ?? []) as Fila[]);
     const nombres = await resolverNombres(ctx, rows);
+    // Cotización origen (código) por solicitud.
+    const idsCot = [...new Set(rows.map((r) => String(r.cotizacion_id ?? "")).filter(Boolean))];
+    const mCot = new Map<string, { codigo: string; cuenta_contrato: string | null }>();
+    if (idsCot.length) {
+      try {
+        const { data: cots } = await ctx.service.from("cotizaciones").select("id,codigo,cuenta_contrato").in("id", idsCot);
+        for (const c of ((cots ?? []) as Fila[])) {
+          mCot.set(String(c.id), { codigo: String(c.codigo ?? ""), cuenta_contrato: (c.cuenta_contrato ?? null) as string | null });
+        }
+      } catch { /* sin cotizaciones vinculadas */ }
+    }
+    // Ítems de la página: total y primer material (nombre).
+    const idsSol = rows.map((r) => String(r.id));
+    const mTot = new Map<string, number>();
+    const mMat = new Map<string, string>();
+    if (idsSol.length) {
+      try {
+        const { data: its } = await ctx.service.from(T_ITEM).select("solicitud_id,subtotal,id_material").in("solicitud_id", idsSol).order("id", { ascending: true }).limit(2000);
+        const porSol = new Map<string, Fila[]>();
+        for (const it of ((its ?? []) as Fila[])) {
+          const k = String(it.solicitud_id);
+          if (!porSol.has(k)) porSol.set(k, []);
+          porSol.get(k)!.push(it);
+        }
+        const idsMat = [...new Set([...porSol.values()].flat().map((it) => String(it.id_material ?? "")).filter(Boolean))];
+        const mNom = new Map<string, string>();
+        if (idsMat.length) {
+          try {
+            const { data: mats } = await ctx.service.from("mae_materiales").select("id,nombre").in("id", idsMat);
+            for (const m of ((mats ?? []) as Fila[])) mNom.set(String(m.id), String(m.nombre ?? ""));
+          } catch { /* sin maestro */ }
+        }
+        for (const [k, lista] of porSol) {
+          mTot.set(k, Math.round(lista.reduce((a, it) => a + (Number(it.subtotal ?? 0) || 0), 0) * 100) / 100);
+          const primero = lista[0];
+          const nMat = mNom.get(String(primero?.id_material ?? ""));
+          mMat.set(k, nMat || (lista.length > 1 ? `${lista.length} materiales` : "—"));
+        }
+      } catch { /* sin ítems */ }
+    }
     const enriquecidas = rows.map((r) => {
-      const n = nombres.get(String(r.id)) ?? { cliente: null, documento: null, proveedor: null, asesor: null, creado_por: null };
-      return { ...r, cliente_nombre: n.cliente, cliente_documento: n.documento, proveedor_nombre: n.proveedor, asesor_nombre: n.asesor, creado_por_nombre: n.creado_por };
+      const n = nombres.get(String(r.id)) ?? { cliente: null, documento: null, proveedor: null, asesor: null, creado_por: null, cuenta_contrato: null, ambiente: null };
+      const cot = mCot.get(String(r.cotizacion_id ?? ""));
+      const totalItems = mTot.get(String(r.id)) ?? 0;
+      const anticipo = Math.max(Number(r.anticipo ?? 0) || 0, 0);
+      return {
+        ...r,
+        cliente_nombre: n.cliente,
+        cliente_documento: n.documento,
+        proveedor_nombre: n.proveedor,
+        asesor_nombre: (r.asesor_nombre ?? null) || n.asesor,
+        creado_por_nombre: n.creado_por,
+        cuenta_contrato: (r.cuenta_contrato ?? null) || cot?.cuenta_contrato || n.cuenta_contrato,
+        ambiente: (r.ambiente ?? null) || n.ambiente,
+        cotizacion_codigo: cot?.codigo || null,
+        monto_total: totalItems,
+        monto_financiado: r.monto_financiado != null && Number(r.monto_financiado) > 0
+          ? Number(r.monto_financiado)
+          : Math.max(Math.round((totalItems - anticipo) * 100) / 100, 0),
+        material_nombre: mMat.get(String(r.id)) ?? "—",
+      };
     });
     return { rows: enriquecidas, total: count ?? rows.length, page: args.page, pageSize: args.pageSize };
   } catch (e) {
@@ -500,11 +578,33 @@ async function resolverMaterialSGT(ctx: OperacionContext, id: string): Promise<s
   return nuevo;
 }
 
+/** Columnas Etapa 3 en vta_solicitudes_venta (migracion_03). */
+const COLUMNAS_VTA_ETAPA3 = [
+  "cotizacion_id", "asesor_nombre", "anticipo",
+  "monto_financiado", "nro_cuotas", "ambiente",
+] as const;
+
+/** Resuelve id de asesor en seg_usuarios por nombre (asesor de la cotización). */
+async function resolverAsesorPorNombre(ctx: OperacionContext, nombre: string): Promise<string | null> {
+  const n = String(nombre ?? "").trim();
+  if (!n) return null;
+  try {
+    const { data } = await ctx.service.from("seg_usuarios").select("id,nombre").ilike("nombre", `%${n}%`).limit(5);
+    const lista = ((data ?? []) as { id: string; nombre?: string }[]);
+    const exacto = lista.find((u) => String(u.nombre ?? "").trim().toLowerCase() === n.toLowerCase());
+    return String((exacto ?? lista[0])?.id ?? "") || null;
+  } catch {
+    return null;
+  }
+}
+
 async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx: OperacionContext) {
   // Solo admin puede usar TEA distinta de 40.
   if (!esAdmin(ctx) && Number(args.tea) !== 40) lanzar(403, "Solo el rol admin puede registrar una TEA distinta de 40");
-  // Adjuntos obligatorios (zod ya exige min 8; doble chequeo para mensaje claro).
-  if (!args.adjunto_cotizacion_url || !args.adjunto_dni_url) lanzar(400, "adjunto_cotizacion_url y adjunto_dni_url son obligatorios");
+  // Adjuntos obligatorios solo en flujo manual; con cotización el PDF se regenera.
+  if (!args.cotizacion_id && (!args.adjunto_cotizacion_url || !args.adjunto_dni_url)) {
+    lanzar(400, "adjunto_cotizacion_url y adjunto_dni_url son obligatorios");
+  }
   // Subtotal por ítem = cant*precio − dscto.
   const items = args.items.map((it) => {
     const bruto = red2(it.cantidad * it.precio_unit);
@@ -515,10 +615,18 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
   // FKs: resuelven al maestro SGT (migran desde tablas base si hace falta).
   const idClienteSGT = await resolverClienteSGT(ctx, args.id_cliente);
   const idProveedorSGT = args.id_proveedor ? await resolverProveedorSGT(ctx, args.id_proveedor) : null;
-  if (args.id_asesor) {
-    const { data: ase } = await ctx.service.from("seg_usuarios").select("id").eq("id", args.id_asesor).maybeSingle();
+  let idAsesor: string | null = args.id_asesor || null;
+  let asesorNombre = String(args.asesor ?? "").trim();
+  if (idAsesor) {
+    const { data: ase } = await ctx.service.from("seg_usuarios").select("id,nombre").eq("id", idAsesor).maybeSingle();
     if (!ase) lanzar(422, `Asesor no encontrado: ${args.id_asesor}`);
+    if (!asesorNombre) asesorNombre = String((ase as { nombre?: string })?.nombre ?? "");
+  } else if (asesorNombre) {
+    // Mismo asesor de la cotización: se busca su ficha por nombre.
+    idAsesor = await resolverAsesorPorNombre(ctx, asesorNombre);
   }
+  const anticipo = Math.max(Number(args.anticipo ?? 0) || 0, 0);
+  const montoFinanciado = Math.max(red2(total - anticipo), 0);
   for (const it of items) {
     it.id_material = await resolverMaterialSGT(ctx, it.id_material);
   }
@@ -526,29 +634,40 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
     const { data: prev, error: ePrev } = await ctx.service.from(T_SOL).select("id").limit(5000);
     if (ePrev) throw new Error(ePrev.message);
     const id = siguienteVTA(((prev ?? []) as { id?: string }[]).map((r) => r.id));
-    const { data: cab, error: eCab } = await ctx.service
-      .from(T_SOL)
-      .insert({
-        id,
-        id_cliente: idClienteSGT,
-        id_proveedor: idProveedorSGT,
-        canal: args.canal,
-        es_microaliado: args.es_microaliado ?? false,
-        visita_estado: args.visita_estado,
-        pago_modo: args.pago_modo,
-        proyecto_financiado: args.proyecto_financiado ?? true,
-        id_asesor: args.id_asesor || null,
-        asesor_telefono: args.asesor_telefono || null,
-        foto_espacio_url: args.foto_espacio_url || null,
-        tea: args.tea ?? 40,
-        observaciones: args.observaciones || "",
-        adjunto_cotizacion_url: args.adjunto_cotizacion_url,
-        adjunto_dni_url: args.adjunto_dni_url,
-        estado: "borrador",
-        created_by: ctx.sesion.userId,
-      })
-      .select()
-      .single();
+    const baseSol: Record<string, unknown> = {
+      id,
+      id_cliente: idClienteSGT,
+      id_proveedor: idProveedorSGT,
+      canal: args.canal,
+      es_microaliado: args.es_microaliado ?? false,
+      visita_estado: args.visita_estado ?? "visitado",
+      pago_modo: args.pago_modo,
+      proyecto_financiado: args.proyecto_financiado ?? true,
+      id_asesor: idAsesor,
+      asesor_telefono: args.asesor_telefono || null,
+      foto_espacio_url: args.foto_espacio_url || null,
+      tea: args.tea ?? 40,
+      observaciones: args.observaciones || "",
+      adjunto_cotizacion_url: args.adjunto_cotizacion_url || null,
+      adjunto_dni_url: args.adjunto_dni_url || null,
+      estado: "borrador",
+      created_by: ctx.sesion.userId,
+    };
+    const filaSol: Record<string, unknown> = {
+      ...baseSol,
+      cotizacion_id: args.cotizacion_id || null,
+      asesor_nombre: asesorNombre || null,
+      anticipo,
+      monto_financiado: montoFinanciado,
+      nro_cuotas: args.nro_cuotas ?? null,
+      ambiente: args.ambiente || null,
+    };
+    let insCab = await ctx.service.from(T_SOL).insert(filaSol).select().single();
+    if (insCab.error && /column|schema cache/i.test(insCab.error.message)) {
+      // BD sin migración 03: reintenta sin las columnas nuevas.
+      insCab = await ctx.service.from(T_SOL).insert(baseSol).select().single();
+    }
+    const { data: cab, error: eCab } = insCab;
     if (eCab || !cab) {
       const m = eCab?.message ?? "No se pudo crear la solicitud de venta";
       if (/foreign key|llave foránea|violates foreign/i.test(m)) {
@@ -1038,6 +1157,162 @@ async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionCo
   }
 }
 
+/** Buscador de cotizaciones para generar solicitudes (DNI, nombre, cuenta contrato o código; exacta o parcial). */
+async function hBuscarCotizacionesParaVenta(args: z.infer<typeof EsquemaBuscarCotizaciones>, ctx: OperacionContext) {
+  try {
+    const s = String(args.q ?? "").replace(/[%(),]/g, "").trim();
+    // Clientes legacy que coinciden (nombre o documento).
+    let idsCli: string[] = [];
+    if (s) {
+      try {
+        const { data: clis } = await ctx.service.from("clientes").select("id")
+          .or(`nombres.ilike.%${s}%,dni.ilike.%${s}%`).limit(200);
+        idsCli = ((clis ?? []) as { id: string }[]).map((c) => String(c.id));
+      } catch { /* sin tabla base */ }
+    }
+    let q = ctx.service.from("cotizaciones").select("*, clientes(id,nombres,dni,email,telefono)").order("created_at", { ascending: false }).limit(args.limit || 100);
+    if (args.estado) q = q.eq("estado", String(args.estado).toUpperCase());
+    if (args.desde) q = q.gte("created_at", `${args.desde}T00:00:00`);
+    if (args.hasta) q = q.lte("created_at", `${args.hasta}T23:59:59`);
+    if (s) {
+      const partes = [`codigo.ilike.%${s}%`, `cuenta_contrato.ilike.%${s}%`, `asesor.ilike.%${s}%`];
+      if (idsCli.length) partes.push(`cliente_id.in.(${idsCli.map((x) => `"${x}"`).join(",")})`);
+      q = q.or(partes.join(","));
+    }
+    const { data, error } = await q;
+    if (error) {
+      // BD sin columna cuenta_contrato/asesor: reintenta búsqueda básica.
+      if (s && /column|schema cache/i.test(error.message)) {
+        let q2 = ctx.service.from("cotizaciones").select("*, clientes(id,nombres,dni,email,telefono)").order("created_at", { ascending: false }).limit(args.limit || 100);
+        if (args.estado) q2 = q2.eq("estado", String(args.estado).toUpperCase());
+        if (args.desde) q2 = q2.gte("created_at", `${args.desde}T00:00:00`);
+        if (args.hasta) q2 = q2.lte("created_at", `${args.hasta}T23:59:59`);
+        const partes2 = [`codigo.ilike.%${s}%`];
+        if (idsCli.length) partes2.push(`cliente_id.in.(${idsCli.map((x) => `"${x}"`).join(",")})`);
+        q2 = q2.or(partes2.join(","));
+        const r2 = await q2;
+        if (r2.error) throw new Error(r2.error.message);
+        return anotarConSolicitud(ctx, ((r2.data ?? []) as Fila[]));
+      }
+      throw new Error(error.message);
+    }
+    return anotarConSolicitud(ctx, ((data ?? []) as Fila[]));
+  } catch (e) {
+    exigirTabla(e);
+  }
+}
+
+async function anotarConSolicitud(ctx: OperacionContext, cots: Fila[]): Promise<Fila[]> {
+  const ids = cots.map((c) => String(c.id)).filter(Boolean);
+  const mSol = new Map<string, string>();
+  if (ids.length) {
+    try {
+      const { data } = await ctx.service.from(T_SOL).select("id,cotizacion_id").in("cotizacion_id", ids);
+      for (const s of ((data ?? []) as Fila[])) {
+        if (s.cotizacion_id) mSol.set(String(s.cotizacion_id), String(s.id));
+      }
+    } catch { /* sin columna/tabla: ninguna marcada */ }
+  }
+  return cots.map((c) => {
+    const cli = (c.clientes ?? {}) as Record<string, any>;
+    return {
+      id: c.id,
+      codigo: c.codigo,
+      created_at: c.created_at,
+      estado: c.estado,
+      total: c.total,
+      subtotal: c.subtotal,
+      asesor: c.asesor ?? null,
+      asesor_telefono: c.asesor_telefono ?? null,
+      proveedor: c.proveedor ?? null,
+      cuenta_contrato: c.cuenta_contrato ?? null,
+      cliente_nombre: cli.nombres ?? null,
+      cliente_doc: cli.dni ?? null,
+      cliente_email: cli.email ?? null,
+      cliente_telefono: cli.telefono ?? null,
+      solicitud_id: mSol.get(String(c.id)) ?? null,
+    };
+  });
+}
+
+/** Payload completo de una cotización para prellenar la solicitud de venta. */
+async function hObtenerCotizacionParaVenta(args: z.infer<typeof EsquemaCotizacionParaVenta>, ctx: OperacionContext) {
+  try {
+    const { data: cot, error } = await ctx.service.from("cotizaciones").select("*, clientes(*)").eq("id", args.cotizacion_id).single();
+    if (error || !cot) lanzar(404, "Cotización no encontrada");
+    const c = cot as Record<string, any>;
+    const cli = ((c as { clientes?: unknown }).clientes ?? {}) as Record<string, any>;
+    // Cuenta contrato y ambiente: de la cotización o del maestro por documento.
+    let cuentaContrato = String(c.cuenta_contrato ?? "").trim();
+    let ambiente = "";
+    if (!cuentaContrato || !ambiente) {
+      try {
+        const dni = String(cli.dni ?? cli.documento ?? "").trim();
+        if (dni) {
+          const { data: mae } = await ctx.service.from("mae_clientes").select("cuenta_contrato,ambiente").eq("nro_doc", dni).limit(1).maybeSingle();
+          const m = (mae ?? {}) as Record<string, any>;
+          if (!cuentaContrato) cuentaContrato = String(m.cuenta_contrato ?? "");
+          ambiente = String(m.ambiente ?? "");
+        }
+      } catch { /* sin maestro */ }
+    }
+    const { data: itemsRaw } = await ctx.service.from("cotizacion_items")
+      .select("*, materiales(codigo,nombre,unidad)").eq("cotizacion_id", args.cotizacion_id);
+    let items = ((itemsRaw ?? []) as Record<string, any>[]);
+    try {
+      const { completarNombresItems } = await import("./operaciones");
+      items = await completarNombresItems(ctx.service, items);
+    } catch { /* sin respaldo */ }
+    const lineas = items.map((it) => {
+      const cant = Number(it.cantidad ?? 0);
+      const punit = Number(it.precio_unit ?? 0);
+      const dscto = Number(it.descuento_pct ?? 0);
+      const mat = it.descripcion
+        ? String(it.descripcion)
+        : `${it.materiales?.codigo ?? ""} ${it.materiales?.nombre ?? "Ítem"}`.trim();
+      return {
+        descripcion: mat,
+        material_codigo: String(it.material_codigo ?? it.materiales?.codigo ?? ""),
+        cantidad: cant,
+        precio_unit: punit,
+        descuento_pct: dscto,
+      };
+    });
+    const importeNeto = Math.round(lineas.reduce((a, it) => a + it.cantidad * it.precio_unit * (1 - it.descuento_pct / 100), 0) * 100) / 100;
+    const cuotaInicial = Math.max(Number(c.cuota_inicial ?? 0) || 0, 0);
+    return {
+      cotizacion: {
+        id: c.id,
+        codigo: c.codigo,
+        created_at: c.created_at,
+        estado: c.estado,
+        cuenta_contrato: cuentaContrato || null,
+      },
+      cliente: {
+        id: c.cliente_id,
+        nombres: String(cli.nombres ?? cli.nombre ?? "—"),
+        doc: String(cli.dni ?? cli.documento ?? ""),
+        email: String(cli.email ?? ""),
+        telefono: String(cli.telefono ?? ""),
+        cuenta_contrato: cuentaContrato || null,
+        ambiente,
+      },
+      items: lineas,
+      financiamiento: {
+        cuota_inicial: cuotaInicial,
+        capital: Math.max(Math.round((importeNeto - cuotaInicial) * 100) / 100, 0),
+        plazo: Number(c.plazo ?? 9) || 9,
+        tea: Number(c.tea ?? 0.40) > 1 ? Number(c.tea) / 100 : (Number(c.tea ?? 0.40) || 0.40),
+      },
+      proveedor: String(c.proveedor ?? ""),
+      asesor: String(c.asesor ?? ""),
+      asesor_telefono: String(c.asesor_telefono ?? ""),
+    };
+  } catch (e) {
+    exigirTabla(e);
+  }
+}
+
 async function hActualizarTea(args: z.infer<typeof EsquemaTea>, ctx: OperacionContext) {
   try {
     const { data, error } = await ctx.service
@@ -1071,6 +1346,8 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   getVenta: { descripcion: "Ventas: cabecera + items + abonos + instalación", roles: TODOS, schema: EsquemaGetVenta, handler: hGetVenta },
   listarInstalacionesPendientes: { descripcion: "Ventas: historial de instalaciones del proveedor", roles: TODOS, schema: EsquemaQInstalaciones, handler: hListarInstalacionesPendientes },
   actualizarTeaVenta: { descripcion: "Ventas: actualiza TEA de la solicitud", roles: SOLO_ADMIN, schema: EsquemaTea, handler: hActualizarTea },
+  buscarCotizacionesParaVenta: { descripcion: "Ventas: busca cotizaciones por DNI/nombre/cta-cto/código para generar solicitud", roles: TODOS, schema: EsquemaBuscarCotizaciones, handler: hBuscarCotizacionesParaVenta },
+  obtenerCotizacionParaVenta: { descripcion: "Ventas: payload de cotización para prellenar la solicitud", roles: OPERATIVO, schema: EsquemaCotizacionParaVenta, handler: hObtenerCotizacionParaVenta },
 };
 
 /** Reglas del módulo (para el coordinador/UI): roles, TEA, adjuntos, aprobaciones y alcance. */
