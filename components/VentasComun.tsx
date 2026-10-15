@@ -127,6 +127,7 @@ export const ESTADOS_VENTA = [
   "pendiente_aprobacion",
   "observado",
   "aprobada",
+  "generada",
   "en_instalacion",
   "instalada",
   "validada_proveedor",
@@ -159,6 +160,7 @@ export function BadgeEstadoVenta({ estado }: { estado: string }) {
     pendiente_aprobacion: "bg-amber-50 text-amber-700 border-amber-200",
     observado: "bg-orange-50 text-orange-700 border-orange-200",
     aprobada: "bg-green-50 text-green-700 border-green-200",
+    generada: "bg-teal-50 text-teal-700 border-teal-200",
     en_instalacion: "bg-blue-50 text-blue-700 border-blue-200",
     instalada: "bg-blue-50 text-blue-700 border-blue-200",
     validada_proveedor: "bg-teal-50 text-teal-700 border-teal-200",
@@ -173,14 +175,14 @@ export function BadgeEstadoVenta({ estado }: { estado: string }) {
   );
 }
 
-const ETAPAS = ["BORRADOR", "PENDIENTE APROBACIÓN", "APROBADA", "EN INSTALACIÓN", "LIQUIDADA"] as const;
+const ETAPAS = ["BORRADOR", "GENERADA", "APROBADA", "EN INSTALACIÓN", "LIQUIDADA"] as const;
 
 function etapaIndex(estado: string): number {
   const n = String(estado ?? "").toLowerCase();
   if (n === "cerrada" || n === "liquidada") return 4;
   if (["en_instalacion", "instalada", "validada_proveedor"].includes(n)) return 3;
   if (n === "aprobada") return 2;
-  if (["pendiente_aprobacion", "observado"].includes(n)) return 1;
+  if (["generada", "pendiente_aprobacion", "observado"].includes(n)) return 1;
   return 0;
 }
 

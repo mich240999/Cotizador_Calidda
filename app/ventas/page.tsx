@@ -5,7 +5,7 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
-import { AccAbrir, AccValidar } from "@/components/Accion";
+import { AccAbrir, AccAprobar, AccValidar, AccVer } from "@/components/Accion";
 import VentaModal, { PrefillVenta } from "@/components/VentaModal";
 import {
   BadgeEstadoVenta,
@@ -53,6 +53,177 @@ const enRango = (iso: unknown, desde: string, hasta: string) => {
   return true;
 };
 
+function PVModal({ v, onClose, onHecho }: { v: Venta; onClose: () => void; onHecho: () => void }) {
+  const r = v as Record<string, unknown>;
+  const anticipo = Number(r.anticipo ?? 0) || 0;
+  const [codigo, setCodigo] = useState("");
+  const [pv, setPv] = useState("");
+  const [pvAbono, setPvAbono] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const guardar = async () => {
+    setMsg(null);
+    if (!codigo.trim()) { setMsg("Registra el código de la llamada."); return; }
+    if (!pv.trim()) { setMsg("Registra el pedido de venta."); return; }
+    if (anticipo > 0 && !pvAbono.trim()) { setMsg("Hay anticipo: registra el PV de abono."); return; }
+    setGuardando(true);
+    try {
+      const res = await apiOperacion<{ parcial?: boolean }>("registrarPV", {
+        solicitud_id: ventaId(v),
+        codigo_llamada: codigo.trim(),
+        numero_pedido_venta: pv.trim(),
+        ...(anticipo > 0 ? { numero_pedido_abono: pvAbono.trim() } : {}),
+      });
+      if ((res as { parcial?: boolean })?.parcial) {
+        setMsg("PV guardado parcial: falta la migración de BD para código de llamada y PV de abono.");
+        return;
+      }
+      onHecho();
+      onClose();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "No se pudo registrar");
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl overflow-hidden">
+        <div className="px-6 py-4 border-b bg-slate-50">
+          <h2 className="font-bold text-lg">Registrar PV · {ventaNumero(v)}</h2>
+          <p className="text-xs text-slate-500">{ventaCliente(v)} · {formatoMoneda(Number(r.monto_total ?? ventaTotal(v)))}{anticipo > 0 ? ` · Anticipo ${formatoMoneda(anticipo)}` : ""}</p>
+        </div>
+        <div className="p-6 space-y-3">
+          <div>
+            <label className="label">Código de la llamada *</label>
+            <input className="input" placeholder="Código" value={codigo} onChange={(e) => setCodigo(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Pedido de venta (PV) *</label>
+            <input className="input" placeholder="N° pedido" value={pv} onChange={(e) => setPv(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">PV de abono {anticipo > 0 ? "*" : "(sin abono inicial)"}</label>
+            <input className="input" placeholder="N° pedido de abono" value={pvAbono} onChange={(e) => setPvAbono(e.target.value)} disabled={anticipo <= 0} />
+            {anticipo <= 0 && <p className="text-[11px] text-slate-400 mt-1">Bloqueado: la solicitud no tiene anticipo.</p>}
+          </div>
+          {msg && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t bg-slate-50">
+          <button className="btn-white" onClick={onClose}>Cancelar</button>
+          <button className="btn-green" onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Generar solicitud"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VisorVenta({ id, onClose }: { id: string; onClose: () => void }) {
+  const [d, setD] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await apiOperacion<Record<string, unknown>>("getVenta", { id });
+        setD(r);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "No se pudo cargar");
+      }
+    })();
+  }, [id]);
+  const sol = (d?.solicitud ?? {}) as Record<string, unknown>;
+  const items = (Array.isArray(d?.items) ? d.items : []) as Record<string, unknown>[];
+  const abonos = (Array.isArray(d?.abonos) ? d.abonos : []) as Record<string, unknown>[];
+  const ins = (d?.instalacion ?? null) as Record<string, unknown> | null;
+  const fila: [string, string][] = [
+    ["Número", String(sol.id ?? id)],
+    ["Estado", String(sol.estado ?? "—").toUpperCase()],
+    ["Cliente", String(sol.cliente_nombre ?? ventaCliente(sol as Venta))],
+    ["Proveedor", String(sol.proveedor_nombre ?? "")],
+    ["Asesor", String(sol.asesor_nombre ?? "")],
+    ["Canal", String(sol.canal ?? "—")],
+    ["Pago", String(sol.pago_modo ?? "—")],
+    ["Código de llamada", String(sol.codigo_llamada ?? "—")],
+    ["Pedido de venta", String(sol.numero_pedido ?? "—")],
+    ["PV de abono", String(sol.pv_abono ?? "—")],
+  ];
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/50 p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-3xl shadow-xl my-6 overflow-hidden">
+        <div className="flex items-start justify-between px-6 py-4 border-b bg-slate-50">
+          <div>
+            <h2 className="font-bold text-lg">Solicitud {String(sol.id ?? id)}</h2>
+            <p className="text-xs text-slate-500">Detalle completo de la venta y datos del pedido.</p>
+          </div>
+          <button className="btn-white !px-3" onClick={onClose}>✕</button>
+        </div>
+        <div className="p-6 space-y-5">
+          {error && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{error}</p>}
+          {!d && !error && <p className="text-sm text-[#0099D8]">Cargando…</p>}
+          {d && (<>
+            <div>
+              <p className="font-bold text-sm mb-2">Datos de la solicitud</p>
+              <dl className="grid sm:grid-cols-2 gap-2 text-sm">
+                {fila.map(([k, v]) => (
+                  <div key={k} className="flex justify-between gap-3 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
+                    <dt className="text-slate-500">{k}</dt>
+                    <dd className="font-semibold text-right break-all">{v || "—"}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+            <div>
+              <p className="font-bold text-sm mb-2">Materiales · {items.length}</p>
+              <div className="table-wrap"><table className="tabla">
+                <thead><tr><th>MATERIAL</th><th>CANT.</th><th>P. UNIT</th><th>MODO</th><th>SUBTOTAL</th></tr></thead>
+                <tbody>
+                  {items.map((it, i) => (
+                    <tr key={String(it.id ?? i)}>
+                      <td>{String(it.nombre ?? it.id_material ?? "—")}</td>
+                      <td>{String(it.cantidad ?? "")}</td>
+                      <td>{formatoMoneda(Number(it.precio_unit ?? 0))}</td>
+                      <td className="capitalize">{String(it.modo ?? "")}</td>
+                      <td>{formatoMoneda(Number(it.subtotal ?? 0))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table></div>
+            </div>
+            {abonos.length > 0 && (
+              <div>
+                <p className="font-bold text-sm mb-2">Abonos · {abonos.length}</p>
+                <div className="table-wrap"><table className="tabla">
+                  <thead><tr><th>MONTO</th><th>MEDIO</th><th>ESTADO</th></tr></thead>
+                  <tbody>
+                    {abonos.map((a, i) => (
+                      <tr key={String(a.id ?? i)}>
+                        <td>{formatoMoneda(Number(a.monto ?? 0))}</td>
+                        <td className="capitalize">{String(a.medio ?? "")}</td>
+                        <td>{String(a.estado ?? "").toUpperCase()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table></div>
+              </div>
+            )}
+            {ins && (
+              <div>
+                <p className="font-bold text-sm mb-2">Instalación · {String(ins.estado ?? "").toUpperCase()}</p>
+                <p className="text-xs text-slate-500">Evidencias registradas en el módulo de instalaciones.</p>
+              </div>
+            )}
+          </>)}
+        </div>
+        <div className="flex justify-end px-6 py-4 border-t bg-slate-50">
+          <button className="btn-white" onClick={onClose}>Cerrar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function VentasPage() {
   // ---- Mitad 1: buscar cotización / pendientes ----
   const [qCot, setQCot] = useState("");
@@ -66,6 +237,12 @@ export default function VentasPage() {
   const [prefill, setPrefill] = useState<PrefillVenta | null>(null);
   const [abrirModal, setAbrirModal] = useState(false);
   const [generando, setGenerando] = useState<string | null>(null);
+  const [pvDe, setPvDe] = useState<Venta | null>(null);
+  const [visorId, setVisorId] = useState<string | null>(null);
+
+  const puedePV = (v: Venta) => ["borrador", "observado"].includes(ventaEstado(v).toLowerCase());
+
+  const refrescarTodo = () => { buscarCotizaciones(); cargar(); cargarPendientes(); };
 
   // ---- Mitad 2: histórico ----
   const [rows, setRows] = useState<Venta[]>([]);
@@ -98,9 +275,18 @@ export default function VentasPage() {
   const cargarPendientes = async () => {
     setCargandoPend(true);
     try {
-      const datos = await apiOperacion<unknown>("listarVentas", { estado: "borrador", limit: 200, page: 1, pageSize: 200 });
-      const arr = Array.isArray(datos) ? datos : ((datos as { rows?: unknown })?.rows ?? []);
-      setPendientes(Array.isArray(arr) ? (arr as Venta[]) : []);
+      const listas = await Promise.all(
+        ["borrador", "observado"].map(async (est) => {
+          try {
+            const datos = await apiOperacion<unknown>("listarVentas", { estado: est, limit: 200, page: 1, pageSize: 200 });
+            const arr = Array.isArray(datos) ? datos : ((datos as { rows?: unknown })?.rows ?? []);
+            return Array.isArray(arr) ? (arr as Venta[]) : [];
+          } catch {
+            return [] as Venta[];
+          }
+        })
+      );
+      setPendientes([...listas[0], ...listas[1]]);
     } catch {
       setPendientes([]);
     } finally {
@@ -375,7 +561,13 @@ export default function VentasPage() {
                             <td className="font-medium">{ventaCliente(v)}</td>
                             <td>{String(r.asesor_nombre ?? "—")}</td>
                             <td className="whitespace-nowrap font-bold">{formatoMoneda(Number(r.monto_total ?? ventaTotal(v)))}</td>
-                            <td><AccAbrir title="Abrir solicitud" href={`/ventas/${encodeURIComponent(ventaId(v) || "")}`} /></td>
+                            <td className="whitespace-nowrap">
+                              <div className="flex gap-1.5">
+                                {puedePV(v) && <AccAprobar title="Registrar PV" onClick={() => setPvDe(v)} />}
+                                <AccVer title="Ver solicitud" onClick={() => setVisorId(ventaId(v))} />
+                                <AccAbrir title="Abrir solicitud" href={`/ventas/${encodeURIComponent(ventaId(v) || "")}`} />
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}
@@ -447,7 +639,9 @@ export default function VentasPage() {
                         <td className="whitespace-nowrap text-xs">{f.fecha ? formatoFecha(f.fecha) : "—"}</td>
                         <td className="whitespace-nowrap">
                           <div className="flex gap-1.5">
-                            <AccAbrir title="Ver solicitud" href={`/ventas/${encodeURIComponent(ventaId(v) || "")}`} />
+                            {puedePV(v) && <AccAprobar title="Registrar PV" onClick={() => setPvDe(v)} />}
+                            <AccVer title="Ver solicitud" onClick={() => setVisorId(ventaId(v))} />
+                            <AccAbrir title="Abrir solicitud" href={`/ventas/${encodeURIComponent(ventaId(v) || "")}`} />
                             <AccValidar title="Aprobar abonos pendientes" disabled={validando === ventaId(v)} onClick={() => aprobarAbonos(v)} />
                           </div>
                         </td>
@@ -461,7 +655,13 @@ export default function VentasPage() {
         )}
 
         {abrirModal && prefill && (
-          <VentaModal prefill={prefill} onClose={() => { setAbrirModal(false); setPrefill(null); buscarCotizaciones(); cargar(); cargarPendientes(); }} />
+          <VentaModal prefill={prefill} onClose={() => { setAbrirModal(false); setPrefill(null); refrescarTodo(); }} />
+        )}
+        {pvDe && (
+          <PVModal v={pvDe} onClose={() => setPvDe(null)} onHecho={() => refrescarTodo()} />
+        )}
+        {visorId && (
+          <VisorVenta id={visorId} onClose={() => setVisorId(null)} />
         )}
       </Shell>
     </AuthGate>

@@ -52,3 +52,18 @@ ALTER TABLE public.vta_solicitudes_venta
 
 CREATE INDEX IF NOT EXISTS ix_vta_sol_cot
   ON public.vta_solicitudes_venta(cotizacion_id);
+
+-- ---------------------------------------------------------------- ETAPA 4
+-- PV de Stephany: pedido único a cabecera, estado "generada".
+-- numero_pedido ya existe (UNIQUE, un PV por solicitud).
+-- pv_abono guarda el PV del anticipo (solo si hubo abono inicial).
+
+ALTER TABLE public.vta_solicitudes_venta DROP CONSTRAINT IF EXISTS vta_solicitudes_venta_estado_check;
+ALTER TABLE public.vta_solicitudes_venta
+  ADD CONSTRAINT vta_solicitudes_venta_estado_check CHECK (estado IN (
+    'borrador','pendiente_aprobacion','observado','aprobada','generada',
+    'en_instalacion','instalada','validada_proveedor','cerrada','liquidada'));
+
+ALTER TABLE public.vta_solicitudes_venta
+  ADD COLUMN IF NOT EXISTS codigo_llamada TEXT,
+  ADD COLUMN IF NOT EXISTS pv_abono TEXT;

@@ -208,7 +208,7 @@ export default function VentaDetallePage() {
   const puedeAprobar = ["borrador", "observado"].includes(est);
   const puedeObservarSol = ["borrador", "observado", "aprobada"].includes(est);
   const puedeAbono = !["liquidada", "cerrada"].includes(est);
-  const puedeInstalar = ["aprobada", "en_instalacion", "instalada", "observada"].includes(est);
+  const puedeInstalar = ["aprobada", "generada", "en_instalacion", "instalada", "observada"].includes(est);
   const puedeValidarInst = ["instalada", "en_instalacion"].includes(est);
   const puedeLiquidar = est === "validada_proveedor";
 

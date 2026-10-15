@@ -42,12 +42,13 @@ const T_ITEM = "vta_venta_items";
 const T_ABO = "vta_abonos";
 const T_INS = "vta_instalaciones";
 
-/** Estados de solicitud (9, igual que SQL): borrador → pendiente_aprobacion → aprobada/observado → instalada → validada_proveedor → liquidada. */
+/** Estados de solicitud (10): borrador → generada (PV) → instalada → validada_proveedor → liquidada. */
 export const ESTADOS_SOLICITUD = [
   "borrador",
   "pendiente_aprobacion",
   "observado",
   "aprobada",
+  "generada",
   "en_instalacion",
   "instalada",
   "validada_proveedor",
@@ -349,6 +350,15 @@ const EsquemaAprobar = z.object({
 const EsquemaObservarSolicitud = z.object({
   solicitud_id: z.string().trim().min(1).max(20),
   observacion: z.string().trim().min(2).max(2000),
+});
+
+// Etapa 4 — Stephany registra PV: pedido único + código de llamada.
+// El PV de abono solo se exige si hubo anticipo (abono inicial).
+const EsquemaRegistrarPV = z.object({
+  solicitud_id: z.string().trim().min(1).max(20),
+  codigo_llamada: z.string().trim().min(1).max(60),
+  numero_pedido_venta: z.string().trim().min(1).max(60),
+  numero_pedido_abono: z.string().trim().max(60).optional().default(""),
 });
 
 const EsquemaInstalacion = z.object({
@@ -1313,6 +1323,49 @@ async function hObtenerCotizacionParaVenta(args: z.infer<typeof EsquemaCotizacio
   }
 }
 
+async function hRegistrarPV(args: z.infer<typeof EsquemaRegistrarPV>, ctx: OperacionContext) {
+  try {
+    const { data: sol, error: eSol } = await ctx.service.from(T_SOL).select("*").eq("id", args.solicitud_id).maybeSingle();
+    if (eSol) throw new Error(eSol.message);
+    if (!sol) lanzar(404, `Solicitud no encontrada: ${args.solicitud_id}`);
+    const s = sol as Fila;
+    const est = String(s.estado ?? "").toLowerCase();
+    if (!["borrador", "observado"].includes(est)) {
+      lanzar(422, `Solo se registra PV en solicitudes pendientes (borrador/observado), no en '${est}'`);
+    }
+    const anticipo = Math.max(Number(s.anticipo ?? 0) || 0, 0);
+    const pvAbono = String(args.numero_pedido_abono ?? "").trim();
+    if (anticipo > 0 && !pvAbono) lanzar(422, "La solicitud tiene anticipo: registra el PV de abono");
+    if (anticipo <= 0 && pvAbono) lanzar(422, "La solicitud no tiene abono inicial: el PV de abono no aplica");
+    const parcheCompleto: Fila = {
+      numero_pedido: String(args.numero_pedido_venta).trim(),
+      codigo_llamada: String(args.codigo_llamada).trim(),
+      pv_abono: pvAbono || null,
+      estado: "generada",
+    };
+    let { data, error } = await ctx.service.from(T_SOL).update(parcheCompleto).eq("id", args.solicitud_id).select().single();
+    let parcial = false;
+    if (error && /column|schema cache/i.test(error.message)) {
+      // BD sin migración 03-04: guarda lo esencial (pedido + estado).
+      parcial = true;
+      const r2 = await ctx.service.from(T_SOL).update({
+        numero_pedido: String(args.numero_pedido_venta).trim(),
+        estado: "generada",
+      }).eq("id", args.solicitud_id).select().single();
+      data = r2.data;
+      error = r2.error;
+    }
+    if (error || !data) {
+      const m = error?.message ?? "No se pudo registrar el PV";
+      if (/duplicate|unique|llave duplicada|ya existe/i.test(m)) lanzar(409, `Ese pedido de venta ya está registrado: ${args.numero_pedido_venta}`);
+      throw new Error(m);
+    }
+    return { solicitud: data, parcial };
+  } catch (e) {
+    exigirTabla(e);
+  }
+}
+
 async function hActualizarTea(args: z.infer<typeof EsquemaTea>, ctx: OperacionContext) {
   try {
     const { data, error } = await ctx.service
@@ -1336,6 +1389,7 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   registrarAbono: { descripcion: "Ventas: registra abono pendiente + aviso email a admin (best-effort)", roles: OPERATIVO, schema: EsquemaRegistrarAbono, handler: hRegistrarAbono },
   validarAbono: { descripcion: "Ventas: valida u observa un abono", roles: SOLO_ADMIN, schema: EsquemaValidarAbono, handler: hValidarAbono },
   aprobarSolicitud: { descripcion: "Ventas: aprueba solicitud exigiendo n.º de pedido por cada ítem", roles: SOLO_ADMIN, schema: EsquemaAprobar, handler: hAprobarSolicitud },
+  registrarPV: { descripcion: "Ventas: registra PV + código de llamada → generada (PV abono solo si hubo anticipo)", roles: SOLO_ADMIN, schema: EsquemaRegistrarPV, handler: hRegistrarPV },
   actualizarNumerosPedido: { descripcion: "Ventas: edita n.º de pedido por ítem sin cambiar estado", roles: SOLO_ADMIN, schema: EsquemaAprobar, handler: hActualizarNumerosPedido },
   observarSolicitud: { descripcion: "Ventas: observa solicitud", roles: SOLO_ADMIN, schema: EsquemaObservarSolicitud, handler: hObservarSolicitud },
   registrarInstalacion: { descripcion: "Ventas: registra instalación (4 evidencias) → en_instalacion", roles: OPERATIVO, schema: EsquemaInstalacion, handler: hRegistrarInstalacion },
