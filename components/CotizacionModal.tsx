@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiOperacion } from "./Tablas";
 import { AccQuitar } from "./Accion";
+import { componerObservaciones } from "@/lib/detallesMueble";
 
 const CUOTAS = [3, 6, 9, 12, 18, 24, 36, 48, 60];
 const TEA = 0.4;
@@ -47,6 +48,14 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   const [asesores, setAsesores] = useState<UsuarioSGT[]>([]);
   const [tel, setTel] = useState("");
   const [obs, setObs] = useState("");
+  const [det, setDet] = useState({
+    marca_melamina: "",
+    color_estructura: "",
+    color_puertas: "",
+    color_tablero: "",
+    tiradores: "",
+    vidrios: "",
+  });
   const [mat, setMat] = useState<Fila[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -177,6 +186,20 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
         return;
       }
     }
+    const CAMPOS_DET: { clave: keyof typeof det; etiqueta: string }[] = [
+      { clave: "marca_melamina", etiqueta: "Marca de Melamina" },
+      { clave: "color_estructura", etiqueta: "Color estructura de mueble" },
+      { clave: "color_puertas", etiqueta: "Color de Puertas" },
+      { clave: "color_tablero", etiqueta: "Color Tablero" },
+      { clave: "tiradores", etiqueta: "Tiradores" },
+      { clave: "vidrios", etiqueta: "Vidrios" },
+    ];
+    for (const c of CAMPOS_DET) {
+      if (!String(det[c.clave] ?? "").trim()) {
+        setError(`El campo "${c.etiqueta}" es obligatorio.`);
+        return;
+      }
+    }
     setGuardando(true);
     try {
       const items = mat.map((f) => {
@@ -191,6 +214,14 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
         };
       });
       let creada: unknown = null;
+      const detalles = {
+        marca_melamina: det.marca_melamina.trim(),
+        color_estructura: det.color_estructura.trim(),
+        color_puertas: det.color_puertas.trim(),
+        color_tablero: det.color_tablero.trim(),
+        tiradores: det.tiradores.trim(),
+        vidrios: det.vidrios.trim(),
+      };
       try {
         creada = await apiOperacion("crearCotizacionSGT", {
           cliente_id: clienteId,
@@ -202,12 +233,13 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
           asesor: asesorSel.nombre,
           asesor_telefono: tel,
           observaciones: obs,
+          detalles,
         });
       } catch {
         creada = await apiOperacion("crearCotizacion", {
           cliente_id: clienteId,
           items,
-          observaciones: obs,
+          observaciones: componerObservaciones(detalles, obs),
         });
       }
       const cod = (creada as { codigo?: string; numero?: string })?.codigo ?? (creada as { numero?: string })?.numero ?? "";
@@ -388,6 +420,31 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </section>
+
+          <section className="card !shadow-none p-5">
+            <h3 className="font-bold">Detalles del mueble <span className="text-red-600">*</span></h3>
+            <p className="text-xs text-slate-400 mb-3">Todos los campos son obligatorios para crear la cotización.</p>
+            <div className="grid md:grid-cols-2 gap-3">
+              {([
+                ["marca_melamina", "Marca de Melamina"],
+                ["color_estructura", "Color estructura de mueble"],
+                ["color_puertas", "Color de Puertas"],
+                ["color_tablero", "Color Tablero"],
+                ["tiradores", "Tiradores"],
+                ["vidrios", "Vidrios"],
+              ] as const).map(([clave, etiqueta]) => (
+                <div key={clave}>
+                  <label className="label">{etiqueta} <span className="text-red-600">*</span></label>
+                  <input
+                    className="input"
+                    placeholder={etiqueta}
+                    value={det[clave]}
+                    onChange={(e) => setDet((p) => ({ ...p, [clave]: e.target.value }))}
+                  />
+                </div>
+              ))}
             </div>
           </section>
 

@@ -13,6 +13,7 @@ import {
   formatoFecha,
   formatoMoneda,
 } from "@/components/Tablas";
+import { extraerDetalles } from "@/lib/detallesMueble";
 
 type Item = {
   id?: string;
@@ -196,6 +197,8 @@ export default function CotizacionDetallePage({
     it.descripcion ??
     (it.materiales ? `${it.materiales.codigo ?? ""} ${it.materiales.nombre ?? ""}`.trim() : "—");
 
+  const { detalles, resto: obsLibres } = extraerDetalles(cot?.observaciones);
+
   return (
     <AuthGate><Shell>
       <Link href="/cotizaciones" className="text-xs font-bold text-[#0099D8] no-print">← Lista</Link>
@@ -251,9 +254,9 @@ export default function CotizacionDetallePage({
                 <p className="mt-3 text-xs text-slate-400">
                   Creada: {formatoFecha(cot.created_at)}
                 </p>
-                {cot.observaciones && (
+                {obsLibres && (
                   <p className="mt-2 text-sm bg-slate-50 border rounded-lg p-2">
-                    {cot.observaciones}
+                    {obsLibres}
                   </p>
                 )}
               </div>
@@ -308,6 +311,20 @@ export default function CotizacionDetallePage({
                 </div>
               </div>
             </div>
+
+            {detalles.length > 0 && (
+              <div className="card p-5">
+                <h2 className="font-semibold mb-3">Detalles del mueble</h2>
+                <dl className="grid gap-2 sm:grid-cols-2 text-sm">
+                  {detalles.map((d) => (
+                    <div key={d.etiqueta} className="flex justify-between gap-3 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
+                      <dt className="text-slate-500">{d.etiqueta}</dt>
+                      <dd className="font-semibold text-right">{d.valor}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
 
             <div className="card">
               <div className="px-5 py-3 border-b font-semibold">Ítems · {items.length}</div>

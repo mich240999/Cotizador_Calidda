@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { createSupabaseServiceRole } from "@/lib/supabaseServer";
 import { obtenerDatosPdf, buildCotizacionPdf } from "@/lib/cotizacionPdf";
+import { extraerDetalles } from "@/lib/detallesMueble";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,7 +55,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       from: SMTP_FROM || SMTP_USER,
       to: body.para,
       subject: `Cotización ${datos.codigo} Ambientes Cáliddos`,
-      text: `Estimado(a) ${datos.clienteNombre ?? ""}:\n\nAdjuntamos su cotización ${datos.codigo} de Ambientes Cáliddos por un total de S/ ${Number(datos.total || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.\n\nFinanciamiento: adelanto S/ ${Number(datos.cuotaInicial || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, valor a financiar S/ ${Number(datos.capital || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, TEA ${(datos.tea * 100).toFixed(2)}%, ${datos.plazo} cuotas de S/ ${Number(datos.cuotaMensual || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (cuota con IGV del interés incluido).\n\n${datos.observaciones ?? ""}\n\nDocumento generado por Ambientes Cáliddos.`,
+      text: `Estimado(a) ${datos.clienteNombre ?? ""}:\n\nAdjuntamos su cotización ${datos.codigo} de Ambientes Cáliddos por un total de S/ ${Number(datos.total || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.\n\nFinanciamiento: adelanto S/ ${Number(datos.cuotaInicial || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, valor a financiar S/ ${Number(datos.capital || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, TEA ${(datos.tea * 100).toFixed(2)}%, ${datos.plazo} cuotas de S/ ${Number(datos.cuotaMensual || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (cuota con IGV del interés incluido).${datos.detalles.length > 0 ? `\n\nDetalles del mueble:\n${datos.detalles.map((t) => `- ${t.etiqueta}: ${t.valor}`).join("\n")}` : ""}\n\n${extraerDetalles(datos.observaciones).resto}\n\nDocumento generado por Ambientes Cáliddos.`,
       attachments: [{ filename, content: pdf, contentType: "application/pdf" }]
     });
 

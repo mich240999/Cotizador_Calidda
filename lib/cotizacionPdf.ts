@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cuotaFrancesaConIgv, tablaSimulacion, PLAZOS_SIMULACION } from "./financiamiento";
+import { extraerDetalles } from "./detallesMueble";
 
 /** SOLO SERVER: construcción del PDF estilo captura COT-AMCA-00012.
  *  Fuente 100% BD SGT360: ven_cotizaciones + ven_cotizacion_items +
@@ -13,6 +14,7 @@ export interface ItemPdf {
   materiales?: { codigo?: string; nombre?: string; unidad?: string } | null;
 }
 export interface DatosPdf {  codigo: string; estado?: string; fecha?: string; observaciones?: string;
+  detalles: { etiqueta: string; valor: string }[];
   subtotal: number; descuento: number; total: number;
   clienteNombre?: string; clienteDoc?: string; clienteEmail?: string; clienteTel?: string;
   clienteContacto?: string;
@@ -125,12 +127,14 @@ async function obtenerDatosSGT(service: SupabaseClient, numero: string): Promise
   else if (capital > 0) cuotaMensual = cuotaFrancesaConIgv(capital, tea, plazo);
 
   const docCli = [cliR.tipo_doc, cliR.nro_doc].filter(Boolean).join(" ") || "—";
+  const parsed = extraerDetalles(String(c.observaciones ?? ""));
 
   return {
     codigo: numCot,
     estado: String(c.estado ?? "Pendiente"),
     fecha: c.created_at ? new Date(c.created_at).toLocaleDateString("es-PE") : new Date().toLocaleDateString("es-PE"),
-    observaciones: String(c.observaciones ?? ""),
+    observaciones: parsed.resto,
+    detalles: parsed.detalles,
     subtotal, descuento, total,
     clienteNombre: String(cliR.nombre_razon_social ?? "—"),
     clienteDoc: docCli || "—",
@@ -210,11 +214,13 @@ async function obtenerDatosLegacy(service: SupabaseClient, id: string): Promise<
       break;
     }
   }
+  const parsedLeg = extraerDetalles(String(c.observaciones ?? ""));
   return {
     codigo: String(c.codigo ?? id.slice(0, 8)),
     estado: String(c.estado ?? "BORRADOR"),
     fecha: c.created_at ? new Date(c.created_at).toLocaleDateString("es-PE") : new Date().toLocaleDateString("es-PE"),
-    observaciones: String(c.observaciones ?? ""),
+    observaciones: parsedLeg.resto,
+    detalles: parsedLeg.detalles,
     subtotal, descuento, total,
     clienteNombre: String(cli.nombres ?? "—"),
     clienteDoc: String(cli.dni ?? cli.documento ?? "—"),
@@ -496,6 +502,30 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
   y = headY + 24;
   doc.setFont("helvetica", "normal"); doc.setFontSize(7); gris(110);
   doc.text("* Cuota mensual con IGV del interés incluido (TEM × 1.18).", ML, y - 6);
+
+  // ---- DETALLES DEL MUEBLE: tabla etiqueta/valor ----
+  if (d.detalles.length > 0) {
+    if (y > 225) { doc.addPage(); y = 18; }
+    y = tituloSeccion("DETALLES DEL MUEBLE", y);
+    const hFila = 7;
+    const alto = d.detalles.length * hFila;
+    if (y + alto > 258) { doc.addPage(); y = 18; }
+    const yDet = y;
+    const colLab = 72;
+    doc.setDrawColor(...GRIS_LINEA); doc.setLineWidth(0.3);
+    doc.rect(ML, yDet, ANCHO, alto);
+    doc.line(ML + colLab, yDet, ML + colLab, yDet + alto);
+    d.detalles.forEach((t, i) => {
+      const yy = yDet + i * hFila;
+      if (i > 0) doc.line(ML, yy, MR, yy);
+      gris(130); doc.setFont("helvetica", "normal"); doc.setFontSize(7);
+      doc.text(String(t.etiqueta).toUpperCase().slice(0, 34), ML + 2, yy + 4.5);
+      doc.setTextColor(0, 0, 0); doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
+      doc.text(String(t.valor).slice(0, 60), ML + colLab + 2, yy + 4.5);
+    });
+    doc.setTextColor(0, 0, 0);
+    y = yDet + alto + 9;
+  }
 
   // ---- CONSIDERACIONES en caja + banda amarilla ----
   if (y > 225) { doc.addPage(); y = 18; }

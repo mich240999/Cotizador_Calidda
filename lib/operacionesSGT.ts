@@ -3,6 +3,7 @@ import type { RolUsuario } from "./auth";
 import type { OperacionContext } from "./operaciones";
 import { completarNombresItems } from "./operaciones";
 import { cuotaFrancesaConIgv, tablaSimulacion, temConIgv, PLAZOS_SIMULACION } from "./financiamiento";
+import { componerObservaciones } from "./detallesMueble";
 
 /**
  * lib/operacionesSGT.ts — Operaciones Ambientes Cáliddos (prefijo SGT).
@@ -196,6 +197,14 @@ const EsquemaItemSGT = z.object({
   precio_unit: z.coerce.number().min(0).max(10_000_000).optional(),
   descuento_pct: z.coerce.number().min(0).max(100).optional().default(0)
 });
+const EsquemaDetalleMueble = z.object({
+  marca_melamina: z.string().trim().min(1).max(120),
+  color_estructura: z.string().trim().min(1).max(120),
+  color_puertas: z.string().trim().min(1).max(120),
+  color_tablero: z.string().trim().min(1).max(120),
+  tiradores: z.string().trim().min(1).max(120),
+  vidrios: z.string().trim().min(1).max(120),
+});
 const EsquemaCrearCotSGT = z.object({
   cliente_id: z.string().uuid(),
   items: z.array(EsquemaItemSGT).min(1).max(200),
@@ -206,6 +215,7 @@ const EsquemaCrearCotSGT = z.object({
   asesor: z.string().trim().max(200).optional().default(""),
   asesor_telefono: z.string().trim().max(30).optional().default(""),
   observaciones: z.string().trim().max(2000).optional().default(""),
+  detalles: EsquemaDetalleMueble,
   validez_dias: z.coerce.number().int().min(0).max(365).optional().default(15)
 });
 const EsquemaRegenerar = z.object({ cotizacion_id: z.string().uuid() });
@@ -1146,12 +1156,15 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
   const { data: prev } = await ctx.service.from("cotizaciones").select("codigo").like("codigo", "COT-AMCA-%").limit(5000);
   const numero = siguienteCodigoAMCA(((prev ?? []) as { codigo: string }[]).map((r) => r.codigo));
 
+  // Detalles del mueble obligatorios: se guardan como bloque estructurado
+  // al inicio de observaciones (sin columnas nuevas en BD).
+  const observacionesFinal = componerObservaciones(args.detalles, args.observaciones ?? "");
   // Insert cabecera: intenta con columnas SGT; si no existen, inserta base.
   const extra = {
     codigo: numero,
     cliente_id: args.cliente_id,
     estado: "BORRADOR",
-    observaciones: args.observaciones ?? "",
+    observaciones: observacionesFinal,
     validez_dias: args.validez_dias ?? 15,
     created_by: ctx.sesion.userId,
     subtotal, total,
