@@ -57,7 +57,7 @@ export default function DashboardPage() {
         apiOperacion<unknown>("exportarVentas", {}),
         apiOperacion<unknown>("listarCotizaciones", { limit: 500 }),
         apiOperacion<unknown>("listarClientesSGT", { limit: 1, pageSize: 1 }).catch(() => apiOperacion<unknown>("listarClientes", { limit: 1 })),
-        apiOperacion<unknown>("listarMaterialesSGT", { limit: 1 }),
+        apiOperacion<unknown>("listarMaterialesSGT", { limit: 500 }),
         apiOperacion<unknown>("listarVentas", { limit: 500, page: 1, pageSize: 200 }),
       ]);
       if (v.status === "fulfilled") {
