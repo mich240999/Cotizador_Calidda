@@ -499,9 +499,9 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
       doc.setTextColor(0, 0, 0);
     }
   }
-  y = headY + 24;
+  y = headY + 20;
   doc.setFont("helvetica", "normal"); doc.setFontSize(7); gris(110);
-  doc.text("* Cuota mensual con IGV del interés incluido (TEM × 1.18).", ML, y - 6);
+  doc.text("* Cuota mensual con IGV del interés incluido (TEM × 1.18).", ML, y - 5);
 
   // ---- DETALLES DEL MUEBLE: siempre visible, luego de las cuotas y
   // antes de consideraciones. Sin datos muestra "—" por fila.
@@ -511,7 +511,7 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
       : DETALLES_LABELS.map(({ etiqueta }) => ({ etiqueta, valor: "—" }));
     if (y > 225) { doc.addPage(); y = 18; }
     y = tituloSeccion("DETALLES DEL MUEBLE", y);
-    const hFila = 7;
+    const hFila = 6;
     const alto = detMueble.length * hFila;
     if (y + alto > 258) { doc.addPage(); y = 18; }
     const yDet = y;
@@ -528,15 +528,17 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
       doc.text(String(t.valor).slice(0, 60), ML + colLab + 2, yy + 4.5);
     });
     doc.setTextColor(0, 0, 0);
-    y = yDet + alto + 9;
+    y = yDet + alto + 6;
   }
 
-  // ---- CONSIDERACIONES en caja + banda amarilla ----
-  if (y > 225) { doc.addPage(); y = 18; }
-  y = tituloSeccion("CONSIDERACIONES", y);
+  // ---- CONSIDERACIONES: si entra en el espacio en blanco, sigue en la página.
   doc.setFont("helvetica", "normal"); doc.setFontSize(8);
-  for (const c of CONSIDERACIONES) {
-    const ls = doc.splitTextToSize(c, ANCHO) as string[];
+  const lineasCons = CONSIDERACIONES.map((c) => doc.splitTextToSize(c, ANCHO) as string[]);
+  const nLineasCons = lineasCons.reduce((a, ls) => a + ls.length, 0);
+  const altoCons = 5 + nLineasCons * 3.8 + CONSIDERACIONES.length * 1 + 6 + 12;
+  if (y + altoCons > 278) { doc.addPage(); y = 18; }
+  y = tituloSeccion("CONSIDERACIONES", y);
+  for (const ls of lineasCons) {
     if (y + ls.length * 3.8 > 258) { doc.addPage(); y = 18; }
     doc.text(ls, ML, y);
     y += ls.length * 3.8 + 1;
@@ -569,9 +571,6 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     // Banda moderna de contacto: fondo teal, texto blanco grande.
     doc.setFillColor(...TEAL);
     doc.roundedRect(ML, 280.5, ANCHO, 12, 2.5, 2.5, "F");
-    // Acento verde a la izquierda de la banda.
-    doc.setFillColor(...VERDE);
-    doc.rect(ML + 2.5, 280.5, 2.2, 12, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold"); doc.setFontSize(10);
     doc.text("¿Dudas o consultas sobre tu cotización?", W / 2, 285.2, { align: "center" });
