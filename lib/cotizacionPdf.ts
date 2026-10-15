@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { cuotaFrancesa, tablaSimulacion, PLAZOS_SIMULACION } from "./financiamiento";
+import { cuotaFrancesaConIgv, tablaSimulacion, PLAZOS_SIMULACION } from "./financiamiento";
 
 /** SOLO SERVER: construcción del PDF estilo captura COT-AMCA-00012.
  *  Fuente 100% BD SGT360: ven_cotizaciones + ven_cotizacion_items +
@@ -115,14 +115,14 @@ async function obtenerDatosSGT(service: SupabaseClient, numero: string): Promise
   if (Array.isArray(simRaw) && simRaw.length > 0) {
     tabla = (simRaw as Record<string, any>[]).map((s) => ({ plazo: Number(s.cuotas), cuota: Number(s.valor_cuota) }));
   } else if (capital > 0) {
-    tabla = tablaSimulacion(capital, tea, PLAZOS_SIMULACION).map((f) => ({ plazo: f.plazo, cuota: f.cuota }));
+    tabla = tablaSimulacion(capital, tea, PLAZOS_SIMULACION, true).map((f) => ({ plazo: f.plazo, cuota: f.cuota }));
   } else {
     tabla = [...PLAZOS_SIMULACION].map((p) => ({ plazo: p, cuota: 0 }));
   }
   let cuotaMensual = 0;
   const filaElegida = tabla.find((f) => f.plazo === plazo);
   if (filaElegida) cuotaMensual = filaElegida.cuota;
-  else if (capital > 0) cuotaMensual = cuotaFrancesa(capital, tea, plazo);
+  else if (capital > 0) cuotaMensual = cuotaFrancesaConIgv(capital, tea, plazo);
 
   const docCli = [cliR.tipo_doc, cliR.nro_doc].filter(Boolean).join(" ") || "—";
 
@@ -172,9 +172,9 @@ async function obtenerDatosLegacy(service: SupabaseClient, id: string): Promise<
   const capital = Number(c.capital ?? (total - cuotaInicial)) || total - cuotaInicial;
   const tea = teaADecimal(Number(c.tea ?? 0.40));
   const plazo = Number(c.plazo ?? 9) || 9;
-  let tabla = tablaSimulacion(capital > 0 ? capital : total, tea, PLAZOS_SIMULACION)
+  let tabla = tablaSimulacion(capital > 0 ? capital : total, tea, PLAZOS_SIMULACION, true)
     .map((f) => ({ plazo: f.plazo, cuota: f.cuota }));
-  let cuotaMensual = capital > 0 ? cuotaFrancesa(capital, tea, plazo) : 0;
+  let cuotaMensual = capital > 0 ? cuotaFrancesaConIgv(capital, tea, plazo) : 0;
   for (const t of ["cotizacion_simulaciones", "cotizacion_financiamiento"]) {
     const { data } = await service.from(t).select("*").eq("cotizacion_id", id)
       .order("created_at", { ascending: false }).limit(1);
@@ -246,7 +246,10 @@ async function logoCalidda(): Promise<{ dataUrl: string; wMm: number; hMm: numbe
 export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const W = 210, ML = 14, MR = W - 14, ANCHO = W - 28;
-  const fmt = (n: number) => `S/ ${Number(n || 0).toFixed(2)}`;
+  const fmt = (n: number) =>
+    `S/ ${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmtCant = (n: number) =>
+    Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   const pct = (n: number) => `${Number(n || 0).toFixed(0)}%`;
   const gris = (v: number) => doc.setTextColor(v, v, v);
 
@@ -373,8 +376,8 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     const y0 = y;
     doc.text(String(it.idx), cx[0] + 1.5, y + 4);
     doc.text(matLineas, cx[1] + 1.5, y + 4);
-    doc.text(String(it.cant), cx[2] + 1.5, y + 4);
-    doc.text(Number(it.punit).toFixed(2), cx[3] + 1.5, y + 4);
+    doc.text(fmtCant(it.cant), cx[2] + 1.5, y + 4);
+    doc.text(Number(it.punit).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), cx[3] + 1.5, y + 4);
     doc.text(it.dscto > 0 ? pct(it.dscto) : "-", cx[4] + 1.5, y + 4);
     doc.setFont("helvetica", "bold");
     doc.text(fmt(it.neto), cx[5] + 1.5, y + 4);
@@ -385,16 +388,18 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
     for (let i = 1; i < cx.length - 1; i++) doc.line(cx[i], y0, cx[i], y);
   }
   y += 6;
-  // Subtotal / Descuento (solo si hay) / IGV 18% / Total.
-  // (El descuento guardado puede venir negativo cuando incluye el IGV.)
+  // Subtotal (importe) / Descuento (solo si hay) / Total (= importe) /
+  // Adelanto (abono) / Valor a financiar (= Total − Adelanto).
   const descPos = d.descuento > 0 ? d.descuento : 0;
-  const igv = Math.round((d.total - d.subtotal + descPos) * 100) / 100;
+  const adelanto = Math.max(Number(d.cuotaInicial || 0), 0);
+  const valorFinanciar = Math.max(Math.round((d.total - adelanto) * 100) / 100, 0);
   doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
-  doc.text("Subtotal:", MR - 52, y); doc.text(fmt(d.subtotal), MR, y, { align: "right" }); y += 4.5;
+  doc.text("Subtotal (importe):", MR - 52, y); doc.text(fmt(d.total), MR, y, { align: "right" }); y += 4.5;
   if (descPos > 0) {
     doc.text("Descuento:", MR - 52, y); doc.text(fmt(descPos), MR, y, { align: "right" }); y += 4.5;
   }
-  doc.text("IGV 18%:", MR - 52, y); doc.text(fmt(igv), MR, y, { align: "right" }); y += 4.5;
+  doc.text("Adelanto (abono):", MR - 52, y); doc.text(fmt(adelanto), MR, y, { align: "right" }); y += 4.5;
+  doc.text("Valor a financiar:", MR - 52, y); doc.text(fmt(valorFinanciar), MR, y, { align: "right" }); y += 4.5;
   doc.setDrawColor(...VERDE); doc.setLineWidth(0.5); doc.line(MR - 62, y, MR, y); y += 4.5;
   doc.setFont("helvetica", "bold"); doc.setFontSize(10);
   doc.text("Total:", MR - 52, y); doc.text(fmt(d.total), MR, y, { align: "right" });

@@ -11,9 +11,11 @@ import { apiOperacion } from "./Tablas";
 
 export const TEA_FIJA = 0.4;
 
-export function cuotaMensual(capital: number, n: number, tea = TEA_FIJA) {
+/** Cuota fija con IGV del interés incluido (TEM × 1.18). */
+export function cuotaMensual(capital: number, n: number, tea = TEA_FIJA, igv = 0.18) {
   if (!(capital > 0) || !(n > 0)) return 0;
-  const i = Math.pow(1 + tea, 1 / 12) - 1;
+  const tem = Math.pow(1 + tea, 1 / 12) - 1;
+  const i = tem * (1 + igv);
   if (i <= 0) return capital / n;
   return (capital * i) / (1 - Math.pow(1 + i, -n));
 }

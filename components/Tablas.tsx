@@ -89,9 +89,18 @@ export function TablaShell({
   );
 }
 
+/** Importe en soles con coma de miles y 2 decimales: S/ 12,345.67 */
 export function formatoMoneda(n: number | string | null | undefined) {
   const v = Number(n ?? 0);
-  return `S/ ${v.toFixed(2)}`;
+  if (!Number.isFinite(v)) return "S/ 0.00";
+  return `S/ ${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Cantidad en metros lineales: admite decimales, sin ceros de relleno. Ej. 2.5, 12.75 */
+export function formatoCantidad(n: number | string | null | undefined) {
+  const v = Number(n ?? 0);
+  if (!Number.isFinite(v)) return "0";
+  return v.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
 export function formatoFecha(iso: string | null | undefined) {

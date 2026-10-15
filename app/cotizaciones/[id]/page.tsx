@@ -9,6 +9,7 @@ import {
   apiOperacion,
   BadgeEstado,
   ESTADOS_COTIZACION,
+  formatoCantidad,
   formatoFecha,
   formatoMoneda,
 } from "@/components/Tablas";
@@ -37,6 +38,10 @@ type Cotizacion = {
   descuento?: number;
   igv?: number;
   total?: number;
+  cuota_inicial?: number;
+  cuotaInicial?: number;
+  capital?: number;
+  capital_financiado?: number;
   observaciones?: string | null;
   created_at?: string;
   cliente_id?: string;
@@ -249,20 +254,31 @@ export default function CotizacionDetallePage({
               </div>
               <div className="card p-5">
                 <h2 className="font-semibold mb-2">Totales</h2>
-                <dl className="text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <dt className="text-slate-500">Subtotal</dt>
-                    <dd>{formatoMoneda(cot.subtotal)}</dd>
-                  </div>
-                  <div className="flex justify-between">
-                    <dt className="text-slate-500">IGV 18%</dt>
-                    <dd>{formatoMoneda(cot.igv)}</dd>
-                  </div>
-                  <div className="flex justify-between text-lg border-t pt-2">
-                    <dt className="font-bold">Total</dt>
-                    <dd className="font-bold">{formatoMoneda(cot.total)}</dd>
-                  </div>
-                </dl>
+                {(() => {
+                  const total = Number(cot.total ?? cot.subtotal ?? 0);
+                  const adelanto = Number(cot.cuota_inicial ?? cot.cuotaInicial ?? 0);
+                  const valorFinanciar = Number(cot.capital ?? cot.capital_financiado ?? Math.max(total - adelanto, 0));
+                  return (
+                    <dl className="text-sm space-y-1">
+                      <div className="flex justify-between">
+                        <dt className="text-slate-500">Subtotal (importe)</dt>
+                        <dd>{formatoMoneda(total)}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-slate-500">Adelanto (abono)</dt>
+                        <dd>{formatoMoneda(adelanto)}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-slate-500">Valor a financiar</dt>
+                        <dd>{formatoMoneda(valorFinanciar)}</dd>
+                      </div>
+                      <div className="flex justify-between text-lg border-t pt-2">
+                        <dt className="font-bold">Total</dt>
+                        <dd className="font-bold">{formatoMoneda(total)}</dd>
+                      </div>
+                    </dl>
+                  );
+                })()}
                 <div className="mt-4 space-y-2 no-print">
                   <label className="label">Cambiar estado</label>
                   <div className="flex flex-wrap gap-2">
@@ -302,7 +318,7 @@ export default function CotizacionDetallePage({
                   {items.map((it, i) => (
                     <tr key={it.id ?? i}>
                       <td>{nombreItem(it)}</td>
-                      <td>{it.cantidad}</td>
+                      <td>{formatoCantidad(it.cantidad)}</td>
                       <td>{formatoMoneda(it.precio_unitario ?? it.precio_unit)}</td>
                       <td>{it.descuento ?? it.descuento_pct ?? 0}%</td>
                       <td>{formatoMoneda(lineaImporte(it))}</td>

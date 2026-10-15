@@ -6,11 +6,19 @@ import { AccQuitar } from "./Accion";
 
 const CUOTAS = [3, 6, 9, 12, 18, 24, 36, 48, 60];
 const TEA = 0.4;
+/** IGV que grava el interés del financiamiento (Perú 18%). */
+const IGV_INTERES = 0.18;
+
+const fmtMiles = (n: number) =>
+  `S/ ${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function cuotaMensual(capital: number, n: number) {
   if (capital <= 0) return 0;
-  const i = Math.pow(1 + TEA, 1 / 12) - 1;
-  return (capital * i) / (1 - Math.pow(1 + i, -n));
+  // Sistema francés CON IGV del interés: TEM recargada TEM × (1 + IGV).
+  const tem = Math.pow(1 + TEA, 1 / 12) - 1;
+  const i = tem * (1 + IGV_INTERES);
+  if (i <= 0) return Math.round((capital / n) * 100) / 100;
+  return Math.round(((capital * i) / (1 - Math.pow(1 + i, -n)) + Number.EPSILON) * 100) / 100;
 }
 
 type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; email?: string; correo?: string; telefono?: string };
@@ -309,17 +317,17 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                           <option value="">— Seleccionar —</option>
                           {materiales.map((x) => (
                             <option key={String(x.id)} value={String(x.id)}>
-                              {`${codMat(x)} ${x.nombre} — S/ ${precioMat(x).toFixed(2)}`.trim()}
+                              {`${codMat(x)} ${x.nombre} — ${fmtMiles(precioMat(x))}`.trim()}
                             </option>
                           ))}
                         </select>
                         {f.descripcion && <p className="text-[11px] text-slate-400 mt-1 leading-snug">{f.descripcion}</p>}
                       </td>
-                      <td><input type="number" min={0} step="any" className="input !w-20 !py-1" value={f.cant} onChange={(e) => setFila(i, { cant: Number(e.target.value) })} /></td>
-                      <td><input type="number" min={0} step="any" className="input !w-24 !py-1 font-semibold text-emerald-700" value={f.precio} onChange={(e) => setFila(i, { precio: Number(e.target.value) })} title="Precio editable (precargado con tarifa vigente)" /></td>
+                      <td><input type="number" min={0} step="0.01" className="input !w-20 !py-1" value={f.cant} onChange={(e) => setFila(i, { cant: Number(e.target.value) })} title="Cantidad en metros lineales (admite decimales)" /></td>
+                      <td><input type="number" min={0} step="0.01" className="input !w-24 !py-1 font-semibold text-emerald-700" value={f.precio} onChange={(e) => setFila(i, { precio: Number(e.target.value) })} title="Precio editable (precargado con tarifa vigente)" /></td>
                       <td><input type="number" min={0} max={100} step="any" className="input !w-20 !py-1" value={f.dsctoPct} onChange={(e) => setFila(i, { dsctoPct: Number(e.target.value) })} /></td>
-                      <td className="whitespace-nowrap">S/ {brutoFila(f).toFixed(2)}</td>
-                      <td className="whitespace-nowrap font-bold text-emerald-700">S/ {netoFila(f).toFixed(2)}</td>
+                      <td className="whitespace-nowrap">{fmtMiles(brutoFila(f))}</td>
+                      <td className="whitespace-nowrap font-bold text-emerald-700">{fmtMiles(netoFila(f))}</td>
                       <td><AccQuitar title="Quitar material" onClick={() => setMat((p) => p.filter((_, j) => j !== i))} /></td>
                     </tr>
                   ))}
@@ -332,10 +340,10 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
             <h3 className="font-bold">Resumen de importes</h3>
             <p className="text-xs text-slate-400 mb-3">Revisa los importes calculados antes de definir el financiamiento.</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[["Subtotal", subtotal], ["Descuento", descuento], ["Total", total], ["Capital financiado", capital]].map(([label, v]) => (
+              {[["Subtotal", subtotal], ["Descuento", descuento], ["Total", total], ["Valor a financiar", capital]].map(([label, v]) => (
                 <div key={label as string} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
                   <p className="text-[11px] text-slate-400">{label}</p>
-                  <p className="font-extrabold">S/ {(v as number).toFixed(2)}</p>
+                  <p className="font-extrabold">{fmtMiles(v as number)}</p>
                 </div>
               ))}
             </div>
@@ -348,7 +356,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
               <p className="font-bold text-sm">Parámetros de financiamiento</p>
               <p className="text-xs text-slate-400 mb-3">Define la cuota inicial, la TEA y el plazo seleccionado.</p>
               <div className="grid md:grid-cols-3 gap-3">
-                <div><label className="label">Cuota inicial</label><input type="number" min={0} className="input" value={inicial} onChange={(e) => setInicial(Number(e.target.value))} /></div>
+                <div><label className="label">Adelanto (cuota inicial)</label><input type="number" min={0} step="0.01" className="input" value={inicial} onChange={(e) => setInicial(Number(e.target.value))} /></div>
                 <div><label className="label">TEA predeterminada</label><input className="input" value="40%" readOnly /><p className="text-[11px] text-slate-400 mt-1">Ingresa el porcentaje anual, por ejemplo 40%.</p></div>
                 <div><label className="label">Cuotas seleccionadas</label>
                   <select className="input" value={cuotas} onChange={(e) => setCuotas(Number(e.target.value))}>
@@ -360,7 +368,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
 
           <section className="card !shadow-none p-5">
             <h3 className="font-bold">Simulación de cuotas</h3>
-            <p className="text-xs text-slate-400 mb-3">Los importes monetarios se redondean a dos decimales.</p>
+            <p className="text-xs text-slate-400 mb-3">Cuota fija con IGV del interés incluido (TEM × 1.18). Los importes se redondean a dos decimales.</p>
             <div className="table-wrap">
               <table className="tabla">
                 <thead><tr><th>CUOTAS</th><th>VALOR CUOTA</th><th></th></tr></thead>
@@ -368,7 +376,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                   {sim.map((s) => (
                     <tr key={s.n} className={s.n === cuotas ? "bg-sky-50" : ""}>
                       <td className="font-bold">{s.n}{s.n === cuotas && <span className="ml-2 text-[11px] font-bold bg-sky-500 text-white rounded-lg px-2 py-0.5">✓ Elegida</span>}</td>
-                      <td className="font-semibold">S/ {s.v.toFixed(2)}</td>
+                      <td className="font-semibold">{fmtMiles(s.v)}</td>
                       <td>{s.n === cuotas ? null : <button className="text-xs text-[#0099D8] font-semibold" onClick={() => setCuotas(s.n)}>Elegir</button>}</td>
                     </tr>
                   ))}

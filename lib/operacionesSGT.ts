@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { RolUsuario } from "./auth";
 import type { OperacionContext } from "./operaciones";
-import { cuotaFrancesa, tablaSimulacion, temDesdeTea, PLAZOS_SIMULACION } from "./financiamiento";
+import { cuotaFrancesaConIgv, tablaSimulacion, temConIgv, PLAZOS_SIMULACION } from "./financiamiento";
 
 /**
  * lib/operacionesSGT.ts — Operaciones Ambientes Cálidos (prefijo SGT).
@@ -1078,10 +1078,10 @@ async function hSimularFinanciamiento(args: z.infer<typeof EsquemaSimular>, _ctx
   const tea = teaADecimal(args.tea);
   const capital = args.capital - (args.cuota_inicial ?? 0);
   if (capital <= 0) throw new Error("cuota_inicial debe ser menor que el total/capital");
-  const tem = temDesdeTea(tea);
-  const tabla = tablaSimulacion(capital, tea, PLAZOS_SIMULACION);
+  const tem = temConIgv(tea);
+  const tabla = tablaSimulacion(capital, tea, PLAZOS_SIMULACION, true);
   const plazo = args.plazo ?? 9;
-  const cuota = cuotaFrancesa(capital, tea, plazo);
+  const cuota = cuotaFrancesaConIgv(capital, tea, plazo);
   return { capital, cuota_inicial: args.cuota_inicial ?? 0, tea, tem, plazo, cuota_mensual: cuota, tabla };
 }
 
@@ -1117,8 +1117,8 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
   const total = Math.round((subtotal - descuento) * 100) / 100;
   const capital = Math.round((total - (args.cuota_inicial ?? 0)) * 100) / 100;
   if (capital <= 0) throw new Error("cuota_inicial debe ser menor que el total");
-  const cuota = cuotaFrancesa(capital, tea, args.plazo);
-  const tabla = tablaSimulacion(capital, tea, PLAZOS_SIMULACION);
+  const cuota = cuotaFrancesaConIgv(capital, tea, args.plazo);
+  const tabla = tablaSimulacion(capital, tea, PLAZOS_SIMULACION, true);
 
   // Correlativo COT-AMCA-xxxxx (tolerante a concurrencia media).
   const { data: prev } = await ctx.service.from("cotizaciones").select("codigo").like("codigo", "COT-AMCA-%").limit(5000);
@@ -1178,7 +1178,7 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
   ]);
   return {
     ...(final as object), numero, subtotal, descuento, total, capital,
-    financiamiento: { cuota_inicial: args.cuota_inicial ?? 0, capital, tea, tem: temDesdeTea(tea), plazo: args.plazo, cuota_mensual: cuota, tabla },
+    financiamiento: { cuota_inicial: args.cuota_inicial ?? 0, capital, tea, tem: temConIgv(tea), plazo: args.plazo, cuota_mensual: cuota, tabla },
     items: items ?? []
   };
 }
@@ -1201,8 +1201,8 @@ async function hRegenerarPDF(args: z.infer<typeof EsquemaRegenerar>, ctx: Operac
   if (!financiamiento && capital > 0) {
     financiamiento = {
       capital, tea, plazo,
-      cuota_mensual: cuotaFrancesa(capital, tea, plazo),
-      tabla: tablaSimulacion(capital, tea, PLAZOS_SIMULACION)
+      cuota_mensual: cuotaFrancesaConIgv(capital, tea, plazo),
+      tabla: tablaSimulacion(capital, tea, PLAZOS_SIMULACION, true)
     };
   }
   return {

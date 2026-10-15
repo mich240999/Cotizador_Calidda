@@ -222,10 +222,11 @@ export default function CotizadorForm() {
                   </select>
                 </div>
                 <div>
-                  <label className="label">Cant.</label>
+                  <label className="label">Cant. (m)</label>
                   <input
                     type="number"
-                    min={1}
+                    min={0.01}
+                    step={0.01}
                     className="input"
                     value={it.cantidad}
                     onChange={(e) => setItem(idx, { cantidad: Number(e.target.value) })}
