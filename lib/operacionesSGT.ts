@@ -1678,10 +1678,17 @@ async function hValidarArchivoClientes(args: z.infer<typeof EsquemaValidarClient
 }
 
 async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, ctx: OperacionContext) {
-  const { filas, errores } = parseCSVClientes(args.csv);
-  let insertadas = 0;
-  const duenos: string[] = [...errores];
-  // IDs existentes en una sola lectura (paginada) para no chocar correlativos.
+  const { filas: filasCrudas, errores } = parseCSVClientes(args.csv);
+
+  // Dedupar por tipo_doc|nro_doc: si el archivo trae la misma fila varias veces,
+  // quedarse con la última (asumimos que es la más actualizada).
+  const dedup = new Map<string, FilaClienteCSV>();
+  for (const f of filasCrudas) {
+    dedup.set(`${f.tipo_doc}|${f.nro_doc}`, f);
+  }
+  const filas = [...dedup.values()];
+
+  // IDs existentes para generar correlativos sin colisión.
   let corr: (string | undefined)[] = [];
   {
     let desde = 0;
@@ -1693,6 +1700,19 @@ async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, 
       desde += 1000;
     }
   }
+
+  // Qué documentos ya existen (para contar insertadas vs actualizadas).
+  const existentes = new Set<string>();
+  if (filas.length > 0) {
+    const docs = [...new Set(filas.map((f) => f.nro_doc))];
+    try {
+      const { data: ex } = await ctx.service.from("mae_clientes").select("tipo_doc,nro_doc").in("nro_doc", docs);
+      for (const e of ((ex ?? []) as Record<string, any>[])) {
+        existentes.add(`${e.tipo_doc}|${e.nro_doc}`);
+      }
+    } catch { /* si falla, tratamos todo como nuevo */ }
+  }
+
   // Con validar_sap, los que traen BP/SAP quedan validados automáticamente.
   const autoValidar = !!args.validar_sap;
   const armarFila = (f: FilaClienteCSV, id: string, conNuevas: boolean): Record<string, unknown> => {
@@ -1721,8 +1741,12 @@ async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, 
     }
     return base;
   };
-  // Inserción por lotes (rápida para archivos grandes como el Airtable).
+
+  // Upsert por lotes: si el cliente existe, actualiza; si no, crea.
   const LOTE = 500;
+  let insertadas = 0;
+  let actualizadas = 0;
+  const duenos: string[] = [...errores];
   let sinNuevas = false;
   for (let i = 0; i < filas.length; i += LOTE) {
     const trozo = filas.slice(i, i + LOTE);
@@ -1732,32 +1756,42 @@ async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, 
       corr = [...corr, id];
       lote.push({ f, id, fila: armarFila(f, id, !sinNuevas) });
     }
-    const { error } = await ctx.service.from("mae_clientes").insert(lote.map((l) => l.fila));
+    const { error } = await ctx.service.from("mae_clientes").upsert(lote.map((l) => l.fila), { onConflict: "tipo_doc,nro_doc" });
     if (!error) {
-      insertadas += lote.length;
+      for (const l of lote) {
+        if (existentes.has(`${l.f.tipo_doc}|${l.f.nro_doc}`)) actualizadas++;
+        else insertadas++;
+      }
       continue;
     }
     if (!sinNuevas && /column|schema cache/i.test(error.message)) {
       // BD sin migración 03: reintenta el lote sin columnas nuevas.
       sinNuevas = true;
       const { error: e2 } = await ctx.service.from("mae_clientes")
-        .insert(lote.map((l) => armarFila(l.f, l.id, false)));
+        .upsert(lote.map((l) => armarFila(l.f, l.id, false)), { onConflict: "tipo_doc,nro_doc" });
       if (!e2) {
-        insertadas += lote.length;
+        for (const l of lote) {
+          if (existentes.has(`${l.f.tipo_doc}|${l.f.nro_doc}`)) actualizadas++;
+          else insertadas++;
+        }
         continue;
       }
     }
-    // El lote falló por datos: fila por fila para reportar cada error.
+    // Fila por fila para reportar cada error.
     for (const l of lote) {
       const { error: eF } = await ctx.service.from("mae_clientes")
-        .insert(armarFila(l.f, l.id, !sinNuevas));
+        .upsert(armarFila(l.f, l.id, !sinNuevas), { onConflict: "tipo_doc,nro_doc" });
       if (eF) duenos.push(`Fila ${l.f.fila}: ${eF.message}`);
-      else insertadas++;
+      else {
+        if (existentes.has(`${l.f.tipo_doc}|${l.f.nro_doc}`)) actualizadas++;
+        else insertadas++;
+      }
     }
   }
   return {
     total: filas.length,
     insertadas,
+    actualizadas,
     validacion_sap: args.validar_sap ? "auto" : "manual",
     errores: duenos
   };
