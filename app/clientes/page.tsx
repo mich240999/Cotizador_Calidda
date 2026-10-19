@@ -534,13 +534,15 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
       const lotes = partirEnLotes(texto);
       let total = 0;
       let insertadas = 0;
+      let actualizadas = 0;
       const errs: string[] = [];
       for (let i = 0; i < lotes.length; i++) {
-        setResultado(`Procesando lote ${i + 1} de ${lotes.length}… (${insertadas} creados)`);
+        setResultado(`Procesando lote ${i + 1} de ${lotes.length}… (${insertadas} creados, ${actualizadas} actualizados)`);
         try {
-          const r = await apiOperacion<{ total?: number; insertadas?: number; errores?: string[] }>("cargaMasivaClientes", { csv: lotes[i], validar_sap: validarSap });
+          const r = await apiOperacion<{ total?: number; insertadas?: number; actualizadas?: number; errores?: string[] }>("cargaMasivaClientes", { csv: lotes[i], validar_sap: validarSap });
           total += r?.total ?? 0;
           insertadas += r?.insertadas ?? 0;
+          actualizadas += r?.actualizadas ?? 0;
           for (const e of (r?.errores ?? [])) {
             if (errs.length < 200) errs.push(e);
           }
@@ -548,7 +550,7 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
           errs.push(`Lote ${i + 1}: ${e instanceof Error ? e.message : "no se pudo procesar"}`);
         }
       }
-      setResultado(`Creados ${insertadas} de ${total}.${errs.length > 0 ? `\nErrores:\n${errs.slice(0, 10).join("\n")}${errs.length > 10 ? `\n…y ${errs.length - 10} más` : ""}` : ""}`);
+      setResultado(`Creados ${insertadas} y actualizados ${actualizadas} de ${total}.${errs.length > 0 ? `\nErrores:\n${errs.slice(0, 10).join("\n")}${errs.length > 10 ? `\n…y ${errs.length - 10} más` : ""}` : ""}`);
       onProcesado();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "No se pudo procesar");
