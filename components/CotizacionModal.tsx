@@ -59,6 +59,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   });
   const [mat, setMat] = useState<Fila[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [buscandoCliente, setBuscandoCliente] = useState(false);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [materiales, setMateriales] = useState<Material[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -72,15 +73,16 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     (async () => {
       // Carga tolerante: si un catálogo falla, los otros igual se muestran.
       // Clientes: SGT primero (mae_clientes), fallback a tabla base.
+      // Siempre buscamos con q=buscaCliente para filtrar en el backend.
       const qp: Promise<unknown> = (async () => {
         try {
-          const r = await apiOperacion<unknown>("listarClientesSGT", { limit: 500, pageSize: 500 });
+          const r = await apiOperacion<unknown>("listarClientesSGT", { q: buscaCliente.trim(), limit: 500, pageSize: 500 });
           if (r && typeof r === "object" && Array.isArray((r as { rows?: unknown }).rows)) {
             return (r as { rows: unknown }).rows;
           }
           if (Array.isArray(r)) return r;
         } catch { /* fallback base */ }
-        return apiOperacion<unknown>("listarClientes", { limit: 500 });
+        return apiOperacion<unknown>("listarClientes", { q: buscaCliente.trim(), limit: 500 });
       })();
       const [rc, rp, rm, ru] = await Promise.allSettled([
         qp,
@@ -109,7 +111,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     return () => {
       vivo = false;
     };
-  }, []);
+  }, [buscaCliente]);
 
   // Si quien crea es un asesor logueado, asesor + proveedor ya vienen seteados.
   const [autoAsesor, setAutoAsesor] = useState(false);
@@ -129,14 +131,6 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asesores, proveedores, cargando, autoAsesor]);
-
-  const clientesFiltrados = useMemo(() => {
-    const s = buscaCliente.trim().toLowerCase();
-    if (!s) return clientes;
-    return clientes.filter((c) =>
-      [nombreCliente(c), docCliente(c), mailCliente(c)].join(" ").toLowerCase().includes(s)
-    );
-  }, [clientes, buscaCliente]);
 
   const clienteSel = useMemo(() => clientes.find((c) => String(c.id) === clienteId) ?? null, [clientes, clienteId]);
 
@@ -351,7 +345,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                 }
               />
               <div className="mt-2 max-h-44 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
-                {clientesFiltrados.slice(0, 8).map((c) => {
+                {clientes.slice(0, 8).map((c) => {
                   const sel = String(c.id) === clienteId;
                   return (
                     <button
@@ -369,12 +363,15 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                     </button>
                   );
                 })}
-                {clientesFiltrados.length === 0 && (
+                {clientes.length === 0 && (
                   <p className="px-3 py-4 text-sm text-slate-400 text-center">Sin coincidencias para esa búsqueda.</p>
                 )}
+                {clientes.length > 8 && (
+                  <p className="text-[11px] text-slate-400 mt-1">Mostrando 8 de {clientes.length}: afina la búsqueda.</p>
+                )}
               </div>
-              {clientesFiltrados.length > 8 && (
-                <p className="text-[11px] text-slate-400 mt-1">Mostrando 8 de {clientesFiltrados.length}: afina la búsqueda.</p>
+              {clientes.length > 8 && (
+                <p className="text-[11px] text-slate-400 mt-1">Mostrando 8 de {clientes.length}: afina la búsqueda.</p>
               )}
             </div>
           </section>
