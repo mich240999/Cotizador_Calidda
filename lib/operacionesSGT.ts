@@ -1502,8 +1502,10 @@ async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT
     `nombre_razon_social.ilike.%${qq}%,nro_doc.ilike.%${qq}%,codigo_sap.ilike.%${qq}%,contacto.ilike.%${qq}%`;
   const armarQuery = (conCta: boolean, conVal = true) => {
     const desde = (args.page - 1) * args.pageSize;
+    // Comas y paréntesis rompen la sintaxis or() de PostgREST.
+    const qOr = args.q.replace(/[,()*]/g, " ").replace(/\s+/g, " ").trim();
     let qq = ctx.service.from("mae_clientes").select("*", { count: "exact" }).order("created_at", { ascending: false });
-    if (args.q) qq = qq.or(conCta ? orConCta(args.q) : orSinCta(args.q));
+    if (qOr) qq = qq.or(conCta ? orConCta(qOr) : orSinCta(qOr));
     if (args.tipo_persona) qq = qq.eq("tipo_persona", args.tipo_persona.toUpperCase());
     if (args.tipo_doc) qq = qq.eq("tipo_doc", args.tipo_doc.toUpperCase());
     if (args.estado) qq = qq.eq("estado", args.estado.toUpperCase());
@@ -1539,6 +1541,9 @@ async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT
 
     // Siempre también buscar en tabla legacy clientes (fallback cuando mae_clientes
     // no tiene el cliente o está vacía). Unido por nro_doc para no duplicar.
+    const qNorm = args.q.toLowerCase();
+    const coincideQ = (...valores: unknown[]) =>
+      !qNorm || valores.some((v) => String(v ?? "").toLowerCase().includes(qNorm));
     let legRows: Record<string, unknown>[] = [];
     try {
       const { data: leg, error: eLeg } = await ctx.service.from("clientes").select("*").order("created_at", { ascending: false }).limit(args.limit * 2);
@@ -1547,6 +1552,7 @@ async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT
           const ndoc = String(c.dni ?? c.documento ?? "").trim();
           const nom = String(c.nombres ?? c.nombre ?? "").trim();
           if (!ndoc && !nom) continue;
+          if (!coincideQ(ndoc, nom, c.email, c.telefono)) continue;
           // Solo agregar si no existe ya en mae_clientes (por nro_doc) para no duplicar
           const yaExiste = maeRows.some((r: any) => String(r.nro_doc ?? "").trim() === ndoc);
           if (!yaExiste) {
@@ -1596,7 +1602,15 @@ async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT
       revision_label: "Pendiente" as const,
       estado: "ACTIVO"
     }));
-    return { rows, total: rows.length, page: 1, pageSize: args.pageSize };
+    const qNorm = args.q.toLowerCase();
+    const filtradas = !qNorm
+      ? rows
+      : rows.filter((c) =>
+          [c.nro_doc, c.nombre_razon_social, c.correo, c.telefono].some((v) =>
+            String(v ?? "").toLowerCase().includes(qNorm)
+          )
+        );
+    return { rows: filtradas, total: filtradas.length, page: 1, pageSize: args.pageSize };
   }
 }
 

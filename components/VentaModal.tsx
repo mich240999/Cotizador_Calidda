@@ -110,7 +110,7 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
       const qp: Promise<unknown> = (async () => {
         let sgt: unknown[] = [];
         try {
-          const r = await apiOperacion<unknown>("listarClientesSGT", { limit: 500, pageSize: 500 });
+          const r = await apiOperacion<unknown>("listarClientesSGT", { limit: 500, pageSize: 100 });
           if (r && typeof r === "object" && Array.isArray((r as { rows?: unknown }).rows)) sgt = (r as { rows: unknown[] }).rows;
           else if (Array.isArray(r)) sgt = r as unknown[];
         } catch { /* cae a base */ }

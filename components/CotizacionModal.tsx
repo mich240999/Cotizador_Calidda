@@ -59,7 +59,6 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   });
   const [mat, setMat] = useState<Fila[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [buscandoCliente, setBuscandoCliente] = useState(false);
   const [errorBusqueda, setErrorBusqueda] = useState<string | null>(null);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [materiales, setMateriales] = useState<Material[]>([]);
@@ -69,39 +68,18 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
+  // Catálogos: se cargan una sola vez al abrir el modal.
   useEffect(() => {
     let vivo = true;
-    let cancelado = false;
     (async () => {
       // Carga tolerante: si un catálogo falla, los otros igual se muestran.
-      // Clientes: SGT primero (mae_clientes), fallback a tabla base.
-      // Siempre buscamos con q=buscaCliente para filtrar en el backend.
-      setBuscandoCliente(true);
-      setErrorBusqueda(null);
-      const qp: Promise<unknown> = (async () => {
-        try {
-          const r = await apiOperacion<unknown>("listarClientesSGT", { q: buscaCliente.trim(), limit: 500, pageSize: 500 });
-          if (!vivo) return [];
-          if (r && typeof r === "object" && Array.isArray((r as { rows?: unknown }).rows)) {
-            return (r as { rows: unknown }).rows;
-          }
-          if (Array.isArray(r)) return r;
-        } catch { /* fallback base */ }
-        return apiOperacion<unknown>("listarClientes", { q: buscaCliente.trim(), limit: 500 });
-      })();
-      const [rc, rp, rm, ru] = await Promise.allSettled([
-        qp,
+      const [rp, rm, ru] = await Promise.allSettled([
         apiOperacion<unknown>("listarProveedoresSGT", { limit: 200 }),
         apiOperacion<unknown>("listarMaterialesSGT", { limit: 200, espacio: "COTIZACION" }),
         apiOperacion<unknown>("listarUsuariosSGT", {}),
       ]);
       if (!vivo) return;
       const warns: string[] = [];
-      if (rc.status === "fulfilled" && Array.isArray(rc.value)) setClientes(rc.value as Cliente[]);
-      else {
-        warns.push("No se pudieron cargar los clientes del backend.");
-        setErrorBusqueda("No se pudieron cargar los clientes. Revisa la conexión.");
-      }
       if (rp.status === "fulfilled" && Array.isArray(rp.value)) setProveedores(rp.value as Proveedor[]);
       else warns.push("No se pudieron cargar los proveedores (ejecuta schema_sgt360.sql).");
       if (rm.status === "fulfilled" && Array.isArray(rm.value)) setMateriales(rm.value as Material[]);
@@ -115,10 +93,43 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       } else warns.push("No se pudieron cargar los asesores del backend.");
       setAvisos(warns);
       setCargando(false);
-      setBuscandoCliente(false);
     })();
     return () => {
       vivo = false;
+    };
+  }, []);
+
+  // Búsqueda de clientes: SGT (mae_clientes) con fallback a tabla legacy.
+  useEffect(() => {
+    let vivo = true;
+    const q = buscaCliente.trim();
+    const t = setTimeout(async () => {
+      try {
+        const r = await apiOperacion<unknown>("listarClientesSGT", { q, limit: 500, pageSize: 100 });
+        if (!vivo) return;
+        if (r && typeof r === "object" && Array.isArray((r as { rows?: unknown }).rows)) {
+          setClientes((r as { rows: unknown }).rows as Cliente[]);
+        } else {
+          setClientes(Array.isArray(r) ? (r as Cliente[]) : []);
+        }
+        setErrorBusqueda(null);
+      } catch {
+        if (!vivo) return;
+        try {
+          const r = await apiOperacion<unknown>("listarClientes", { q, limit: 500 });
+          if (!vivo) return;
+          setClientes(Array.isArray(r) ? (r as Cliente[]) : []);
+          setErrorBusqueda(null);
+        } catch {
+          if (!vivo) return;
+          setClientes([]);
+          setErrorBusqueda("No se pudieron cargar los clientes. Revisa la conexión.");
+        }
+      }
+    }, 300);
+    return () => {
+      vivo = false;
+      clearTimeout(t);
     };
   }, [buscaCliente]);
 
@@ -313,13 +324,10 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
             <p className="text-xs text-slate-400 mb-3">Cliente, proveedor y asesor.</p>
             <div className="grid md:grid-cols-3 gap-3">
               <div className="md:col-span-1">
-              <label className="label">Buscar cliente</label>
-              <div className="relative">
+                <label className="label">Buscar cliente</label>
                 <input className="input" placeholder="Documento, nombre, correo o ID" value={buscaCliente} onChange={(e) => setBuscaCliente(e.target.value)} />
-                {buscandoCliente && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sky-500 animate-spin">⟳</span>}
+                {errorBusqueda && <p className="text-[11px] text-red-600 mt-1">{errorBusqueda}</p>}
               </div>
-              {errorBusqueda && <p className="text-[11px] text-red-600 mt-1">{errorBusqueda}</p>}
-            </div>
               <div>
                 <label className="label">Proveedor</label>
                 <select className="input" value={proveedor} onChange={(e) => setProveedor(e.target.value)}>
