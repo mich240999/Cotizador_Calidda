@@ -384,7 +384,7 @@ export default function VentasPage() {
     return rows.filter((v) => {
       const r = v as Record<string, unknown>;
       if (s) {
-        const hay = [ventaNumero(v), ventaCliente(v), ventaDoc(v), String(r.cliente_nombre ?? ""), String(r.cuenta_contrato ?? ""), String(r.cotizacion_codigo ?? ""), String(r.numero_pedido ?? ""), String(r.pv_abono ?? "")].join(" ").toLowerCase();
+        const hay = [ventaNumero(v), ventaCliente(v), ventaDoc(v), String(r.cliente_nombre ?? ""), String(r.cuenta_contrato ?? ""), String(r.cotizacion_codigo ?? ""), String(r.numero_pedido ?? ""), String(r.pv_abono ?? ""), String(r.codigo_llamada ?? "")].join(" ").toLowerCase();
         if (!hay.includes(s)) return false;
       }
       if (fEst !== "TODOS" && ventaEstado(v).toLowerCase() !== fEst) return false;
@@ -393,35 +393,48 @@ export default function VentasPage() {
     });
   }, [rows, q, fEst, fDesde, fHasta]);
 
+  // El exportado usa exactamente las filas visibles con los filtros aplicados.
+  const filasExportacion = useMemo(
+    () =>
+      historico.map((v) => {
+        const r = v as Record<string, unknown>;
+        const sol = (r.solicitud ?? {}) as Record<string, unknown>;
+        return {
+          ESTADO: ventaEstado(v),
+          N_COTIZACION: String(r.cotizacion_codigo ?? ""),
+          CLIENTE: ventaCliente(v),
+          CTA_CTO: String(r.cuenta_contrato ?? ""),
+          PROVEEDOR: ventaProveedor(v),
+          ASESOR: String(r.asesor_nombre ?? ""),
+          MONTO_TOTAL: Number(r.monto_total ?? ventaTotal(v)),
+          ANTICIPO: Number(r.anticipo ?? 0),
+          MONTO_FINANCIADO: Number(r.monto_financiado ?? 0),
+          NRO_CUOTAS: String(r.nro_cuotas ?? ""),
+          AMBIENTE: String(r.ambiente ?? ""),
+          MATERIAL: String(r.material_nombre ?? ""),
+          FECHA_VENTA: ventaFecha(v),
+          CODIGO_DE_AUDIO: String(r.codigo_llamada ?? r.codigo_audio ?? sol.codigo_llamada ?? ""),
+          PEDIDO_DE_VENTA: String(r.numero_pedido ?? r.numero_pedido_venta ?? sol.numero_pedido ?? ""),
+          PEDIDO_DE_ABONO: String(r.pv_abono ?? r.numero_pedido_abono ?? sol.pv_abono ?? ""),
+        };
+      }),
+    [historico]
+  );
+
   const exportar = async () => {
-    setExportando(true);
     setError(null);
+    if (filasExportacion.length === 0) {
+      setError("No hay filas para exportar con los filtros aplicados.");
+      return;
+    }
+    setExportando(true);
     try {
       const XLSX = await import("xlsx");
-      const hoja = XLSX.utils.json_to_sheet(
-        historico.map((v) => {
-          const r = v as Record<string, unknown>;
-          return {
-            ESTADO: ventaEstado(v),
-            N_COTIZACION: String(r.cotizacion_codigo ?? ""),
-            CLIENTE: ventaCliente(v),
-            CTA_CTO: String(r.cuenta_contrato ?? ""),
-            PROVEEDOR: ventaProveedor(v),
-            ASESOR: String(r.asesor_nombre ?? ""),
-            MONTO_TOTAL: Number(r.monto_total ?? ventaTotal(v)),
-            ANTICIPO: Number(r.anticipo ?? 0),
-            MONTO_FINANCIADO: Number(r.monto_financiado ?? 0),
-            NRO_CUOTAS: String(r.nro_cuotas ?? ""),
-            AMBIENTE: String(r.ambiente ?? ""),
-            MATERIAL: String(r.material_nombre ?? ""),
-            FECHA_VENTA: ventaFecha(v),
-          };
-        })
-      );
+      const hoja = XLSX.utils.json_to_sheet(filasExportacion);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, hoja, "Solicitudes");
       XLSX.writeFile(wb, "solicitudes_venta.xlsx");
-      setInfo(`Exportadas ${historico.length} filas a solicitudes_venta.xlsx.`);
+      setInfo(`Exportadas ${filasExportacion.length} filas con los filtros aplicados a solicitudes_venta.xlsx.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo exportar");
     } finally {
@@ -457,7 +470,7 @@ export default function VentasPage() {
           desc="Las solicitudes nacen de una cotización: busca por DNI, nombre o cuenta contrato y genera la solicitud."
           actions={<>
             <button className="btn-white" onClick={() => { cargar(); cargarPendientes(); }} disabled={loading}>Actualizar</button>
-            <button className="btn-white" onClick={exportar} disabled={exportando}>{exportando ? "Exportando…" : "Exportar XLSX"}</button>
+            <button className="btn-white" onClick={exportar} disabled={exportando || loading || filasExportacion.length === 0}>{exportando ? "Exportando…" : "Exportar XLSX"}</button>
           </>}
         />
 
