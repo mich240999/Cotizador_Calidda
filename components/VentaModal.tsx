@@ -4,11 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { apiOperacion } from "./Tablas";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import { AccQuitar } from "./Accion";
+import { ordenarMateriales } from "@/lib/materialMatch";
 import { TEA_FIJA, cuotaMensual, subirArchivoStorage, useRolVista } from "./VentasComun";
 
 type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; documento?: string; email?: string; correo?: string; telefono?: string };
 type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string };
-type Material = { id: string; codigo?: string; codigo_tmp?: string; nombre: string; descripcion?: string; precio_unit?: number; precio_vigente?: number; proveedor_nombre?: string | null };
+type Material = { id: string; codigo?: string; codigo_sap?: string; codigo_tmp?: string; nombre: string; descripcion?: string; espacio_remodelar?: string; id_proveedor?: string | number | null; proveedor_nombre?: string | null; precio_unit?: number; precio_vigente?: number };
 
 /** Cotización origen para prellenar la solicitud (Etapa 3). */
 export interface PrefillVenta {
@@ -121,7 +122,7 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
       const [rc, rp, rm, ra] = await Promise.allSettled([
         qp,
         apiOperacion<unknown>("listarProveedoresSGT", { limit: 200 }),
-        apiOperacion<unknown>("listarMaterialesSGT", { limit: 200, espacio: "VENTAS" }),
+        apiOperacion<unknown>("listarMaterialesSGT", { limit: 500, espacio: "VENTAS" }),
         apiOperacion<unknown>("listarUsuariosSGT", { limit: 500 }),
       ]);
       if (!vivo) return;
@@ -237,6 +238,34 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
   }, [clientes, buscaCliente]);
 
   const clienteSel = useMemo(() => clientes.find((c) => String(c.id) === clienteId) ?? null, [clientes, clienteId]);
+
+  const proveedorSelNombre = useMemo(() => {
+    const p = proveedores.find((x) => String(x.id) === proveedorSel);
+    return p ? nombreProv(p) : (prefill?.proveedor ?? "");
+  }, [proveedores, proveedorSel, prefill]);
+
+  // Materiales sugeridos: primero los del proveedor elegido y los que
+  // coinciden con el ambiente/descripción de la cotización de origen.
+  const materialesRank = useMemo(
+    () =>
+      ordenarMateriales(materiales, {
+        texto: [
+          prefill?.cliente.ambiente,
+          (prefill?.items ?? []).map((i) => i.descripcion).join(" "),
+          obs,
+        ]
+          .filter(Boolean)
+          .join(" "),
+        codigos: (prefill?.items ?? []).map((i) => i.material_codigo),
+        proveedorId: proveedorSel,
+        proveedorNombre: proveedorSelNombre,
+      }),
+    [materiales, prefill, obs, proveedorSel, proveedorSelNombre]
+  );
+
+  const opcionMaterial = (x: Material) => (
+    <option key={String(x.id)} value={String(x.id)}>{`${codMat(x)} ${x.nombre} — S/ ${precioMat(x).toFixed(2)}`.trim()}</option>
+  );
 
   const elegirMaterial = (i: number, materialId: string) => {
     const m = materiales.find((x) => String(x.id) === materialId);
@@ -513,10 +542,19 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
                               tarifaOK: m ? precioMat(m) > 0 : false,
                             });
                           }}>
-                            <option value="">— Seleccionar —</option>
-                            {materiales.map((x) => (
-                              <option key={String(x.id)} value={String(x.id)}>{`${codMat(x)} ${x.nombre} — S/ ${precioMat(x).toFixed(2)}`.trim()}</option>
-                            ))}
+                            <option value="">
+                              {materialesRank.sugeridos.length > 0
+                                ? `— Seleccionar (${materialesRank.sugeridos.length} sugeridos) —`
+                                : "— Seleccionar —"}
+                            </option>
+                            {materialesRank.sugeridos.length > 0 && (
+                              <optgroup label="Sugeridos por proveedor y descripción">
+                                {materialesRank.sugeridos.map(opcionMaterial)}
+                              </optgroup>
+                            )}
+                            <optgroup label={materialesRank.sugeridos.length > 0 ? "Otros materiales" : "Todos los materiales"}>
+                              {materialesRank.resto.map(opcionMaterial)}
+                            </optgroup>
                           </select>
                         </div>
                         <div><label className="label">Cantidad *</label><input type="number" min={0.01} step="any" className="input" value={it.cantidad} onChange={(e) => setItem(i, { cantidad: Number(e.target.value) })} /></div>

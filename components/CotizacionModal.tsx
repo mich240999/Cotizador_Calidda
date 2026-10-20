@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiOperacion } from "./Tablas";
 import { AccQuitar } from "./Accion";
 import { componerObservaciones } from "@/lib/detallesMueble";
+import { ordenarMateriales } from "@/lib/materialMatch";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
 const CUOTAS = [3, 6, 9, 12, 18, 24, 36, 48, 60];
@@ -26,7 +27,7 @@ function cuotaMensual(capital: number, n: number) {
 type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; email?: string; correo?: string; telefono?: string; cuenta_contrato?: string };
 type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string };
 type UsuarioSGT = { id: string | number; nombre: string; telefono?: string; correo?: string; id_proveedor?: string | number | null; rol?: string; rol_codigo?: string };
-type Material = { id: string; codigo?: string; codigo_tmp?: string; nombre: string; descripcion?: string; precio_unit?: number; precio_vigente?: number };
+type Material = { id: string; codigo?: string; codigo_sap?: string; codigo_tmp?: string; nombre: string; descripcion?: string; espacio_remodelar?: string; id_proveedor?: string | number | null; proveedor_nombre?: string | null; precio_unit?: number; precio_vigente?: number };
 
 type Fila = { material_id: string; nombre: string; descripcion: string; cant: number; precio: number; dsctoPct: number };
 
@@ -45,6 +46,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   const [clienteId, setClienteId] = useState("");
   const [buscaCliente, setBuscaCliente] = useState("");
   const [proveedor, setProveedor] = useState("");
+  const [proveedorId, setProveedorId] = useState("");
   const [asesorId, setAsesorId] = useState("");
   const [asesores, setAsesores] = useState<UsuarioSGT[]>([]);
   const [tel, setTel] = useState("");
@@ -75,7 +77,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       // Carga tolerante: si un catálogo falla, los otros igual se muestran.
       const [rp, rm, ru] = await Promise.allSettled([
         apiOperacion<unknown>("listarProveedoresSGT", { limit: 200 }),
-        apiOperacion<unknown>("listarMaterialesSGT", { limit: 200, espacio: "COTIZACION" }),
+        apiOperacion<unknown>("listarMaterialesSGT", { limit: 500, espacio: "COTIZACION" }),
         apiOperacion<unknown>("listarUsuariosSGT", {}),
       ]);
       if (!vivo) return;
@@ -164,9 +166,43 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     // Proveedor del asesor (viene de su usuario): se setea solo.
     if (u.id_proveedor != null && String(u.id_proveedor) !== "") {
       const p = proveedores.find((x) => String(x.id) === String(u.id_proveedor));
-      if (p) setProveedor(nombreProv(p));
+      if (p) {
+        setProveedorId(String(p.id));
+        setProveedor(nombreProv(p));
+      }
     }
   };
+
+  const proveedorSelId = useMemo(() => {
+    if (proveedorId) return proveedorId;
+    const p = proveedores.find((x) => nombreProv(x) === proveedor);
+    return p ? String(p.id) : "";
+  }, [proveedorId, proveedores, proveedor]);
+
+  const proveedorSelNombre = useMemo(() => {
+    const p = proveedores.find((x) => String(x.id) === proveedorSelId);
+    return p ? nombreProv(p) : proveedor;
+  }, [proveedores, proveedorSelId, proveedor]);
+
+  // Materiales sugeridos: primero los del proveedor elegido y los que
+  // coinciden con la descripción/detalles de la cotización.
+  const materialesRank = useMemo(
+    () =>
+      ordenarMateriales(materiales, {
+        texto: [
+          obs,
+          det.marca_melamina,
+          det.color_estructura,
+          det.color_puertas,
+          det.color_tablero,
+          det.tiradores,
+          det.vidrios,
+        ].join(" "),
+        proveedorId: proveedorSelId,
+        proveedorNombre: proveedorSelNombre,
+      }),
+    [materiales, obs, det, proveedorSelId, proveedorSelNombre]
+  );
 
   const elegirMaterial = (i: number, materialId: string) => {
     const m = materiales.find((x) => String(x.id) === materialId);
@@ -297,6 +333,12 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const opcionMaterial = (x: Material) => (
+    <option key={String(x.id)} value={String(x.id)}>
+      {`${codMat(x)} ${x.nombre} — ${fmtMiles(precioMat(x))}`.trim()}
+    </option>
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/50 p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl w-full max-w-5xl shadow-xl my-6">
@@ -330,10 +372,19 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
               </div>
               <div>
                 <label className="label">Proveedor</label>
-                <select className="input" value={proveedor} onChange={(e) => setProveedor(e.target.value)}>
+                <select
+                  className="input"
+                  value={proveedorSelId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setProveedorId(id);
+                    const p = proveedores.find((x) => String(x.id) === id);
+                    setProveedor(p ? nombreProv(p) : "");
+                  }}
+                >
                   <option value="">— Seleccionar —</option>
                   {proveedores.map((p) => (
-                    <option key={String(p.id)} value={nombreProv(p)}>{nombreProv(p)}</option>
+                    <option key={String(p.id)} value={String(p.id)}>{nombreProv(p)}</option>
                   ))}
                 </select>
               </div>
@@ -401,7 +452,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
             <div className="flex items-center justify-between mb-1">
               <div>
                 <h3 className="font-bold">Materiales</h3>
-                <p className="text-xs text-slate-400">Agrega una línea y selecciona el material desde su lista desplegable. El precio es EDITABLE: se precarga con el precio vigente de la tarifa pero puedes ajustarlo. Los precios y datos se validan nuevamente al guardar.</p>
+                <p className="text-xs text-slate-400">Los materiales se ordenan por defecto según el proveedor y la descripción/detalles de esta cotización. Agrega una línea y revisa los sugeridos; el precio es EDITABLE y se valida nuevamente al guardar.</p>
               </div>
               <button className="btn-white !py-1.5 !text-xs whitespace-nowrap" onClick={() => setMat((p) => [...p, { ...FILA_VACIA }])}>Agregar material</button>
             </div>
@@ -416,12 +467,19 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                     <tr key={i}>
                       <td className="min-w-[220px]">
                         <select className="input !py-1" value={f.material_id} onChange={(e) => elegirMaterial(i, e.target.value)}>
-                          <option value="">— Seleccionar —</option>
-                          {materiales.map((x) => (
-                            <option key={String(x.id)} value={String(x.id)}>
-                              {`${codMat(x)} ${x.nombre} — ${fmtMiles(precioMat(x))}`.trim()}
-                            </option>
-                          ))}
+                          <option value="">
+                            {materialesRank.sugeridos.length > 0
+                              ? `— Seleccionar (${materialesRank.sugeridos.length} sugeridos) —`
+                              : "— Seleccionar —"}
+                          </option>
+                          {materialesRank.sugeridos.length > 0 && (
+                            <optgroup label="Sugeridos por proveedor y descripción">
+                              {materialesRank.sugeridos.map(opcionMaterial)}
+                            </optgroup>
+                          )}
+                          <optgroup label={materialesRank.sugeridos.length > 0 ? "Otros materiales" : "Todos los materiales"}>
+                            {materialesRank.resto.map(opcionMaterial)}
+                          </optgroup>
                         </select>
                         {f.descripcion && <p className="text-[11px] text-slate-400 mt-1 leading-snug">{f.descripcion}</p>}
                       </td>
