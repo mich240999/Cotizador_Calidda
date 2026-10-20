@@ -383,7 +383,7 @@ function VisualizarModal({ c, onClose, onCambio }: { c: Cliente; onClose: () => 
   );
 }
 
-const FILAS_POR_LOTE = 800;
+const FILAS_POR_LOTE = 400;
 
 /** Divide el CSV en filas respetando celdas entrecomilladas (multilínea). */
 function dividirFilasCSV(texto: string): string[] {

@@ -8,6 +8,7 @@ import { ejecutarOperacionSeguraVentas, OPERACIONES_VENTAS } from "@/lib/operaci
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const EsquemaBody = z.object({
   operacion: z.string().trim().min(1).max(80),

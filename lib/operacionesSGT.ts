@@ -1579,9 +1579,13 @@ async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT
     // Si hay búsqueda (q), ya se aplicó en mae_clientes; para legacy ya filtró por q.
     // Si no hay q en mae pero sí hay en leg, ya vino filtrado.
 
+    // `maeCount` es el total real del filtro (count exacto); `todas` solo trae
+    // la página actual. Sumar los legacy únicos evita reportar "26 clientes"
+    // cuando en realidad hay miles.
+    const totalMae = typeof maeCount === "number" ? maeCount : maeRowsNorm.length;
     return {
       rows: todas,
-      total: todas.length,
+      total: totalMae + legRows.length,
       page: args.page,
       pageSize: args.pageSize
     };
@@ -1741,40 +1745,92 @@ async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, 
   // quedarse con la última (asumimos que es la más actualizada).
   const dedup = new Map<string, FilaClienteCSV>();
   for (const f of filasCrudas) {
-    dedup.set(`${f.tipo_doc}|${f.nro_doc}`, f);
+    dedup.set(`${f.tipo_doc.toUpperCase()}|${f.nro_doc}`, f);
   }
   const filas = [...dedup.values()];
+  const claveDoc = (f: FilaClienteCSV) => `${f.tipo_doc.toUpperCase()}|${f.nro_doc}`;
+  const duenos: string[] = [...errores];
 
-  // IDs existentes para generar correlativos sin colisión.
-  let corr: (string | undefined)[] = [];
-  {
-    let desde = 0;
-    for (;;) {
-      const { data } = await ctx.service.from("mae_clientes").select("id").range(desde, desde + 999);
-      const ids = ((data ?? []) as { id?: string }[]).map((r) => r.id);
-      corr = [...corr, ...ids];
-      if (ids.length < 1000) break;
-      desde += 1000;
+  // `codigo_sap` es UNIQUE. Si el archivo repite un BP en leads distintos, el
+  // segundo se guarda sin SAP (antes hacía fallar todo el lote y lo degradaba
+  // a fila por fila: 14 mil clientes tardaban ~25 minutos).
+  const sapDueno = new Map<string, string>();
+  for (const f of filas) {
+    const sap = f.codigo_sap.trim();
+    if (!sap) continue;
+    const key = claveDoc(f);
+    const previo = sapDueno.get(sap);
+    if (previo && previo !== key) {
+      f.codigo_sap = "";
+      if (duenos.length < 500) duenos.push(`Fila ${f.fila}: BP ${sap} repetido; se guarda sin código SAP`);
+    } else {
+      sapDueno.set(sap, key);
     }
   }
 
-  // Qué documentos ya existen (para contar insertadas vs actualizadas).
+  // IDs: partir del mayor CLI existente en vez de leer toda la tabla.
+  let proximoId = 1;
+  {
+    const { data } = await ctx.service.from("mae_clientes")
+      .select("id").like("id", "CLI%").order("id", { ascending: false }).limit(1);
+    const ultimo = String(((data ?? [])[0] as { id?: string } | undefined)?.id ?? "");
+    const m = /^CLI(\d+)$/.exec(ultimo);
+    if (m) {
+      proximoId = parseInt(m[1], 10) + 1;
+    } else {
+      const { data: ids } = await ctx.service.from("mae_clientes").select("id");
+      proximoId = Math.max(
+        0,
+        ...((ids ?? []) as { id?: string }[]).map((r) => {
+          const mm = /^CLI(\d+)$/.exec(String(r.id ?? ""));
+          return mm ? parseInt(mm[1], 10) : 0;
+        })
+      ) + 1;
+    }
+  }
+  const nuevoId = () => `CLI${String(proximoId++).padStart(6, "0")}`;
+
+  // Qué documentos ya existen (en trozos: un .in() con miles de valores rompe
+  // la URL y hacía que todo se tratara como nuevo).
   const existentes = new Set<string>();
-  if (filas.length > 0) {
-    const docs = [...new Set(filas.map((f) => f.nro_doc))];
+  const docs = [...new Set(filas.map((f) => f.nro_doc))];
+  for (let i = 0; i < docs.length; i += 150) {
     try {
-      const { data: ex } = await ctx.service.from("mae_clientes").select("tipo_doc,nro_doc").in("nro_doc", docs);
-      for (const e of ((ex ?? []) as Record<string, any>[])) {
-        existentes.add(`${e.tipo_doc}|${e.nro_doc}`);
+      const { data } = await ctx.service.from("mae_clientes")
+        .select("tipo_doc,nro_doc").in("nro_doc", docs.slice(i, i + 150));
+      for (const e of ((data ?? []) as Record<string, any>[])) {
+        existentes.add(`${String(e.tipo_doc ?? "").toUpperCase()}|${String(e.nro_doc ?? "")}`);
       }
-    } catch { /* si falla, tratamos todo como nuevo */ }
+    } catch { /* si falla, el upsert resuelve por onConflict */ }
+  }
+
+  // SAP ya usados en la BD por otros documentos.
+  const saps = [...new Set(filas.map((f) => f.codigo_sap.trim()).filter(Boolean))];
+  for (let i = 0; i < saps.length; i += 150) {
+    try {
+      const { data } = await ctx.service.from("mae_clientes")
+        .select("tipo_doc,nro_doc,codigo_sap").in("codigo_sap", saps.slice(i, i + 150));
+      for (const e of ((data ?? []) as Record<string, any>[])) {
+        const sap = String(e.codigo_sap ?? "").trim();
+        if (sap && !sapDueno.has(sap)) {
+          sapDueno.set(sap, `${String(e.tipo_doc ?? "").toUpperCase()}|${String(e.nro_doc ?? "")}`);
+        }
+      }
+    } catch { /* ignorar */ }
+  }
+  for (const f of filas) {
+    const sap = f.codigo_sap.trim();
+    if (!sap) continue;
+    if (sapDueno.get(sap) !== claveDoc(f)) {
+      f.codigo_sap = "";
+      if (duenos.length < 500) duenos.push(`Fila ${f.fila}: BP ${sap} ya asignado a otro cliente; se guarda sin código SAP`);
+    }
   }
 
   // Con validar_sap, los que traen BP/SAP quedan validados automáticamente.
   const autoValidar = !!args.validar_sap;
-  const armarFila = (f: FilaClienteCSV, id: string, conNuevas: boolean): Record<string, unknown> => {
+  const armarFila = (f: FilaClienteCSV, id: string | null, conNuevas: boolean): Record<string, unknown> => {
     const base: Record<string, unknown> = {
-      id,
       tipo_persona: f.tipo_persona,
       tipo_doc: f.tipo_doc.toUpperCase(),
       nro_doc: f.nro_doc,
@@ -1785,6 +1841,7 @@ async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, 
       codigo_sap: f.codigo_sap || null,
       estado: "ACTIVO"
     };
+    if (id) base.id = id;
     if (conNuevas) {
       base.cuenta_contrato = f.cuenta_contrato || null;
       base.telefono2 = f.telefono2 || null;
@@ -1799,52 +1856,91 @@ async function hCargaMasivaClientes(args: z.infer<typeof EsquemaCargaClientes>, 
     return base;
   };
 
-  // Upsert por lotes: si el cliente existe, actualiza; si no, crea.
-  const LOTE = 500;
+  // Se separan altas y actualizaciones: el upsert anterior enviaba `id` también
+  // para existentes y cambiaba la PK usada por cotizaciones (FK).
+  const LOTE = 200;
   let insertadas = 0;
   let actualizadas = 0;
-  const duenos: string[] = [...errores];
   let sinNuevas = false;
-  for (let i = 0; i < filas.length; i += LOTE) {
-    const trozo = filas.slice(i, i + LOTE);
-    const lote: { f: FilaClienteCSV; id: string; fila: Record<string, unknown> }[] = [];
-    for (const f of trozo) {
-      const id = siguienteId("CLI", corr, 6);
-      corr = [...corr, id];
-      lote.push({ f, id, fila: armarFila(f, id, !sinNuevas) });
+  const esErrorColumnas = (msg: string) => /column|schema cache/i.test(msg);
+
+  const insertarFila = async (f: FilaClienteCSV): Promise<string | null> => {
+    const { error } = await ctx.service.from("mae_clientes").insert(armarFila(f, nuevoId(), !sinNuevas));
+    if (!error) { insertadas++; return null; }
+    if (!sinNuevas && esErrorColumnas(error.message)) {
+      sinNuevas = true;
+      const { error: e2 } = await ctx.service.from("mae_clientes").insert(armarFila(f, nuevoId(), false));
+      if (!e2) { insertadas++; return null; }
+      return e2.message;
     }
-    const { error } = await ctx.service.from("mae_clientes").upsert(lote.map((l) => l.fila), { onConflict: "tipo_doc,nro_doc" });
-    if (!error) {
-      for (const l of lote) {
-        if (existentes.has(`${l.f.tipo_doc}|${l.f.nro_doc}`)) actualizadas++;
-        else insertadas++;
-      }
-      continue;
-    }
-    if (!sinNuevas && /column|schema cache/i.test(error.message)) {
-      // BD sin migración 03: reintenta el lote sin columnas nuevas.
+    return error.message;
+  };
+
+  const actualizarFila = async (f: FilaClienteCSV): Promise<string | null> => {
+    const { error } = await ctx.service.from("mae_clientes")
+      .upsert(armarFila(f, null, !sinNuevas), { onConflict: "tipo_doc,nro_doc" });
+    if (!error) { actualizadas++; return null; }
+    if (!sinNuevas && esErrorColumnas(error.message)) {
       sinNuevas = true;
       const { error: e2 } = await ctx.service.from("mae_clientes")
-        .upsert(lote.map((l) => armarFila(l.f, l.id, false)), { onConflict: "tipo_doc,nro_doc" });
-      if (!e2) {
-        for (const l of lote) {
-          if (existentes.has(`${l.f.tipo_doc}|${l.f.nro_doc}`)) actualizadas++;
-          else insertadas++;
+        .upsert(armarFila(f, null, false), { onConflict: "tipo_doc,nro_doc" });
+      if (!e2) { actualizadas++; return null; }
+      return e2.message;
+    }
+    return error.message;
+  };
+
+  for (let i = 0; i < filas.length; i += LOTE) {
+    const trozo = filas.slice(i, i + LOTE);
+    const nuevos = trozo.filter((f) => !existentes.has(claveDoc(f)));
+    const viejos = trozo.filter((f) => existentes.has(claveDoc(f)));
+
+    if (nuevos.length) {
+      const { error } = await ctx.service.from("mae_clientes")
+        .insert(nuevos.map((f) => armarFila(f, nuevoId(), !sinNuevas)));
+      if (!error) {
+        insertadas += nuevos.length;
+      } else {
+        if (!sinNuevas && esErrorColumnas(error.message)) {
+          sinNuevas = true;
+          const { error: e2 } = await ctx.service.from("mae_clientes")
+            .insert(nuevos.map((f) => armarFila(f, nuevoId(), false)));
+          if (!e2) {
+            insertadas += nuevos.length;
+            nuevos.length = 0;
+          }
         }
-        continue;
+        // Fila por fila solo si el lote falló (no en el camino normal).
+        for (const f of nuevos) {
+          const msg = await insertarFila(f);
+          if (msg && duenos.length < 500) duenos.push(`Fila ${f.fila}: ${msg}`);
+        }
       }
     }
-    // Fila por fila para reportar cada error.
-    for (const l of lote) {
-      const { error: eF } = await ctx.service.from("mae_clientes")
-        .upsert(armarFila(l.f, l.id, !sinNuevas), { onConflict: "tipo_doc,nro_doc" });
-      if (eF) duenos.push(`Fila ${l.f.fila}: ${eF.message}`);
-      else {
-        if (existentes.has(`${l.f.tipo_doc}|${l.f.nro_doc}`)) actualizadas++;
-        else insertadas++;
+
+    if (viejos.length) {
+      const { error } = await ctx.service.from("mae_clientes")
+        .upsert(viejos.map((f) => armarFila(f, null, !sinNuevas)), { onConflict: "tipo_doc,nro_doc" });
+      if (!error) {
+        actualizadas += viejos.length;
+      } else {
+        if (!sinNuevas && esErrorColumnas(error.message)) {
+          sinNuevas = true;
+          const { error: e2 } = await ctx.service.from("mae_clientes")
+            .upsert(viejos.map((f) => armarFila(f, null, false)), { onConflict: "tipo_doc,nro_doc" });
+          if (!e2) {
+            actualizadas += viejos.length;
+            viejos.length = 0;
+          }
+        }
+        for (const f of viejos) {
+          const msg = await actualizarFila(f);
+          if (msg && duenos.length < 500) duenos.push(`Fila ${f.fila}: ${msg}`);
+        }
       }
     }
   }
+
   return {
     total: filas.length,
     insertadas,
