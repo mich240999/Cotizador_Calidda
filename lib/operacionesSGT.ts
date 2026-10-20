@@ -1535,6 +1535,33 @@ async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT
       ...r,
       revision_label: revisionCliente(r.codigo_sap, (r as Record<string, unknown>).sap_validado)
     }));
+    // Si mae_clientes existe pero está vacía (o solo tiene registros de prueba),
+    // fallback a tabla legacy clientes para que la búsqueda no devuelva vacío.
+    if (rows.length === 0) {
+      try {
+        const { data: leg, error: eLeg } = await ctx.service.from("clientes").select("*").order("created_at", { ascending: false }).limit(args.limit);
+        if (!eLeg && (leg ?? []).length > 0) {
+          return {
+            rows: ((leg ?? []) as Record<string, unknown>[]).map((c) => ({
+              id: c.id,
+              tipo_persona: "NATURAL",
+              tipo_doc: "DNI",
+              nro_doc: c.dni ?? c.documento ?? "",
+              nombre_razon_social: c.nombres ?? c.nombre ?? "",
+              contacto: "",
+              correo: c.email ?? "",
+              telefono: c.telefono ?? "",
+              codigo_sap: null,
+              revision_label: "Pendiente" as const,
+              estado: "ACTIVO"
+            })),
+            total: (leg ?? []).length,
+            page: args.page,
+            pageSize: args.pageSize
+          };
+        }
+      } catch { /* si no hay tabla base, se queda vacío */ }
+    }
     return { rows, total: count ?? rows.length, page: args.page, pageSize: args.pageSize };
   } catch (e) {
     if (!esTablaFaltante(e)) throw e;
