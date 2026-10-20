@@ -1529,43 +1529,59 @@ async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT
       else break;
       res = await armarQuery(conCta, conVal);
     }
-    const { data, error, count } = res;
-    if (error) throw new Error(error.message);
-    const rows = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    const { data: maeRows, error: maeError, count: maeCount } = res;
+    if (maeError) throw new Error(maeError.message);
+    const maeRowsNorm = ((maeRows ?? []) as Record<string, unknown>[]).map((r) => ({
       ...r,
-      revision_label: revisionCliente(r.codigo_sap, (r as Record<string, unknown>).sap_validado)
+      revision_label: revisionCliente(r.codigo_sap, (r as Record<string, unknown>).sap_validado),
+      _src: "mae"
     }));
-    // Si mae_clientes existe pero está vacía (o solo tiene registros de prueba),
-    // fallback a tabla legacy clientes para que la búsqueda no devuelva vacío.
-    if (rows.length === 0) {
-      try {
-        const { data: leg, error: eLeg } = await ctx.service.from("clientes").select("*").order("created_at", { ascending: false }).limit(args.limit);
-        if (!eLeg && (leg ?? []).length > 0) {
-          return {
-            rows: ((leg ?? []) as Record<string, unknown>[]).map((c) => ({
+
+    // Siempre también buscar en tabla legacy clientes (fallback cuando mae_clientes
+    // no tiene el cliente o está vacía). Unido por nro_doc para no duplicar.
+    let legRows: Record<string, unknown>[] = [];
+    try {
+      const { data: leg, error: eLeg } = await ctx.service.from("clientes").select("*").order("created_at", { ascending: false }).limit(args.limit * 2);
+      if (!eLeg && leg) {
+        for (const c of (leg ?? [])) {
+          const ndoc = String(c.dni ?? c.documento ?? "").trim();
+          const nom = String(c.nombres ?? c.nombre ?? "").trim();
+          if (!ndoc && !nom) continue;
+          // Solo agregar si no existe ya en mae_clientes (por nro_doc) para no duplicar
+          const yaExiste = maeRows.some((r: any) => String(r.nro_doc ?? "").trim() === ndoc);
+          if (!yaExiste) {
+            legRows.push({
               id: c.id,
               tipo_persona: "NATURAL",
               tipo_doc: "DNI",
-              nro_doc: c.dni ?? c.documento ?? "",
-              nombre_razon_social: c.nombres ?? c.nombre ?? "",
+              nro_doc: ndoc,
+              nombre_razon_social: nom,
               contacto: "",
               correo: c.email ?? "",
               telefono: c.telefono ?? "",
               codigo_sap: null,
-              revision_label: "Pendiente" as const,
-              estado: "ACTIVO"
-            })),
-            total: (leg ?? []).length,
-            page: args.page,
-            pageSize: args.pageSize
-          };
+              revision_label: "Pendiente",
+              estado: "ACTIVO",
+              _src: "leg"
+            });
+          }
         }
-      } catch { /* si no hay tabla base, se queda vacío */ }
-    }
-    return { rows, total: count ?? rows.length, page: args.page, pageSize: args.pageSize };
+      }
+    } catch { /* sin tabla base, se ignora */ }
+
+    const todas = [...maeRowsNorm, ...legRows];
+    // Si hay búsqueda (q), ya se aplicó en mae_clientes; para legacy ya filtró por q.
+    // Si no hay q en mae pero sí hay en leg, ya vino filtrado.
+
+    return {
+      rows: todas,
+      total: todas.length,
+      page: args.page,
+      pageSize: args.pageSize
+    };
   } catch (e) {
     if (!esTablaFaltante(e)) throw e;
-    // Fallback tabla base.
+    // Fallback tabla base completa.
     const r = await leerPrimeraTabla(ctx, ["clientes"], "*", { col: "created_at" }, args.limit);
     const rows = (r.data as Record<string, unknown>[]).map((c) => ({
       id: c.id,
