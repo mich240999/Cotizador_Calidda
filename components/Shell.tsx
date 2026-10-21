@@ -64,7 +64,7 @@ const ICONOS: Record<string, JSX.Element> = {
 };
 
 const ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
+  { href: "/dashboard", label: "Dashboard", icon: "dashboard", roles: ["ADMIN"] },
   { href: "/clientes", label: "Clientes", icon: "clientes" },
   { href: "/cotizaciones", label: "Cotizaciones", icon: "cotizaciones" },
   { href: "/ventas", label: "Ventas", icon: "ventas" },
@@ -77,6 +77,9 @@ const ITEMS = [
 // despliegue un instante al montar de nuevo la página.
 let estadoPlegado: boolean | null = null;
 let estadoTema: boolean | null = null;
+// Se conserva el rol entre navegaciones para que los módulos restringidos no
+// aparezcan y desaparezcan mientras /api/mi-perfil responde.
+let rolCache: string | null = null;
 
 function initials(email: string | null) {
   if (!email) return "MS";
@@ -92,23 +95,40 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const [email, setEmail] = useState<string | null>(null);
   const [oscuro, setOscuro] = useState(() => estadoTema ?? false);
   const [plegado, setPlegado] = useState(() => estadoPlegado ?? false);
-  const [miRol, setMiRol] = useState("");
+  const [miRol, setMiRol] = useState(() => rolCache ?? "");
 
   useEffect(() => {
     const sb = getSupabaseBrowser();
+    const cargarRol = () => {
+      fetch("/api/mi-perfil")
+        .then((r) => r.json())
+        .then((j) => {
+          if (!j?.ok || !j.rol) return;
+          const rol = String(j.rol).toUpperCase();
+          rolCache = rol;
+          setMiRol(rol);
+        })
+        .catch(() => {});
+    };
     sb.auth.getSession().then(({ data }) => setEmail(data.session?.user?.email ?? null));
-    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => setEmail(s?.user?.email ?? null));
-    fetch("/api/mi-perfil")
-      .then((r) => r.json())
-      .then((j) => { if (j?.ok && j.rol) setMiRol(String(j.rol).toUpperCase()); })
-      .catch(() => {});
+    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => {
+      setEmail(s?.user?.email ?? null);
+      if (!s) {
+        rolCache = null;
+        setMiRol("");
+        return;
+      }
+      if (!rolCache) cargarRol();
+    });
+    cargarRol();
     return () => sub.subscription.unsubscribe();
   }, []);
 
   const visibles = ITEMS.filter((it) => {
     const r = (it as { roles?: string[] }).roles;
     if (!r) return true;
-    if (!miRol) return true; // mientras carga, muestra todo
+    // Sin rol cargado no se muestra nada restringido (evita el parpadeo).
+    if (!miRol) return false;
     return r.includes(miRol);
   });
 

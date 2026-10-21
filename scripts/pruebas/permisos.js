@@ -215,6 +215,19 @@ async function ejecutar() {
     servidor.stderr.on("data", (d) => { if (VERBOSO) process.stderr.write(d); });
     aviso("servidor next start :" + PUERTO, await esperarServidor(90000));
 
+    // Dashboard: solo admin. Proveedor vuelve a instalaciones; el resto a cotizaciones.
+    const dashboard = async (clave) => {
+      const res = await fetch(`${BASE}/dashboard`, { headers: { cookie: usuarios[clave].cookie }, redirect: "manual" });
+      return { status: res.status, location: res.headers.get("location") || "" };
+    };
+    const rDashAdmin = await dashboard("admin");
+    aviso("admin /dashboard -> 200", rDashAdmin.status === 200, `HTTP ${rDashAdmin.status} ${rDashAdmin.location}`);
+    for (const [clave, destino] of [["provA", "/instalaciones"], ["sup", "/cotizaciones"], ["as1", "/cotizaciones"]]) {
+      const r = await dashboard(clave);
+      const redirige = [302, 303, 307, 308].includes(r.status) && r.location.includes(destino);
+      aviso(`${clave} /dashboard -> ${destino}`, redirige, `HTTP ${r.status} ${r.location}`);
+    }
+
     const op = async (clave, nombre, argumentos) => {
       const res = await fetch(BASE + "/api/operacion", {
         method: "POST",
