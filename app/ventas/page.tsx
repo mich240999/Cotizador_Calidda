@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
@@ -239,6 +239,7 @@ export default function VentasPage() {
   const [fHastaCot, setFHastaCot] = useState("");
   const [cots, setCots] = useState<CotBusqueda[]>([]);
   const [buscando, setBuscando] = useState(false);
+  const seqCot = useRef(0);
   const [pendientes, setPendientes] = useState<Venta[]>([]);
   const [cargandoPend, setCargandoPend] = useState(false);
   const [prefill, setPrefill] = useState<PrefillVenta | null>(null);
@@ -263,20 +264,30 @@ export default function VentasPage() {
   const [exportando, setExportando] = useState(false);
 
   const buscarCotizaciones = async () => {
+    const seq = ++seqCot.current;
     setBuscando(true);
     setError(null);
     try {
       const r = await apiOperacion<unknown>("buscarCotizacionesParaVenta", {
         q: qCot.trim(), estado: fEstCot, desde: fDesdeCot, hasta: fHastaCot, limit: 100,
       });
+      if (seq !== seqCot.current) return;
       setCots(Array.isArray(r) ? (r as CotBusqueda[]) : []);
     } catch (e) {
+      if (seq !== seqCot.current) return;
       setError(e instanceof Error ? e.message : "No se pudo buscar");
       setCots([]);
     } finally {
-      setBuscando(false);
+      if (seq === seqCot.current) setBuscando(false);
     }
   };
+
+  // Las cotizaciones por vender se listan solas; los filtros se aplican al cambiar.
+  useEffect(() => {
+    const t = setTimeout(() => { buscarCotizaciones(); }, 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qCot, fEstCot, fDesdeCot, fHastaCot]);
 
   const cargarPendientes = async () => {
     setCargandoPend(true);
@@ -477,7 +488,7 @@ export default function VentasPage() {
         {/* Mitad 1: buscar cotización y registrar venta */}
         <div className="card p-4 mt-4">
           <p className="font-bold">1. Buscar cotización para vender</p>
-          <p className="text-xs text-slate-400">Por DNI, nombre, cuenta contrato o código. Sin búsqueda se listan las solicitudes pendientes de generar PV.</p>
+          <p className="text-xs text-slate-400">Se listan todas las cotizaciones por vender; usa la búsqueda o los filtros para acotar.</p>
           <div className="flex flex-wrap gap-3 items-end mt-3">
             <div className="flex-1 min-w-[220px]">
               <label className="label">Buscar (DNI, nombre, cuenta contrato, código)</label>
@@ -502,50 +513,52 @@ export default function VentasPage() {
               <input type="date" className="input !w-auto" value={fHastaCot} onChange={(e) => setFHastaCot(e.target.value)} />
             </div>
             <button className="btn-green !py-2" onClick={buscarCotizaciones} disabled={buscando}>{buscando ? "Buscando…" : "Buscar"}</button>
-            <button className="btn-white !py-2" onClick={() => { setQCot(""); setFEstCot(""); setFDesdeCot(""); setFHastaCot(""); setCots([]); }}>Limpiar</button>
+            <button className="btn-white !py-2" onClick={() => { setQCot(""); setFEstCot(""); setFDesdeCot(""); setFHastaCot(""); }}>Limpiar</button>
           </div>
 
-          {qCot.trim() || cots.length > 0 ? (
-            <div className="table-wrap mt-3">
-              <table className="tabla">
-                <thead><tr><th>COTIZACIÓN</th><th>FECHA</th><th>CLIENTE</th><th>CTA. CTO.</th><th>ASESOR</th><th>TOTAL</th><th>ACCIÓN</th></tr></thead>
-                <tbody>
-                  {cots.length === 0 && !buscando && (
-                    <tr><td colSpan={7} className="text-center text-slate-400 py-6">Sin resultados para esa búsqueda.</td></tr>
-                  )}
-                  {cots.map((c) => (
-                    <tr key={c.id}>
-                      <td className="font-bold text-[#0099D8]">{c.codigo ?? c.id.slice(0, 8)}</td>
-                      <td className="whitespace-nowrap text-xs">{fmtFechaCorta(c.created_at)}</td>
-                      <td className="font-medium">{c.cliente_nombre ?? "—"}{c.cliente_doc ? <span className="block text-[11px] text-slate-400">Doc {c.cliente_doc}</span> : null}</td>
-                      <td>{c.cuenta_contrato ?? "—"}</td>
-                      <td>{c.asesor ?? "—"}</td>
-                      <td className="whitespace-nowrap font-bold">{formatoMoneda(c.total)}</td>
-                      <td>
-                        <button className="btn-green !py-1.5 !text-xs whitespace-nowrap" disabled={generando === c.id} onClick={() => generarSolicitud(c)}>
-                          {generando === c.id ? "Abriendo…" : "Generar solicitud"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="mt-3">
-              <p className="text-xs font-bold text-slate-500 mb-2">SOLICITUDES PENDIENTES DE GENERAR PV · {pendientesFiltrados.length}</p>
-              {cargandoPend ? (
-                <p className="text-sm text-[#0099D8] py-4">Cargando pendientes…</p>
-              ) : pendientesFiltrados.length === 0 ? (
-                <EmptyState titulo="Sin pendientes" detalle="No hay solicitudes en borrador." />
-              ) : (
-                <div className="table-wrap">
-                  <table className="tabla">
-                    <thead><tr><th>NÚMERO</th><th>COTIZACIÓN</th><th>CLIENTE</th><th>ASESOR</th><th>TOTAL</th><th>ACCIÓN</th></tr></thead>
-                    <tbody>
-                      {pendientesFiltrados.map((v, i) => {
-                        const r = v as Record<string, unknown>;
-                        return (
+          <div className="table-wrap mt-3">
+            <table className="tabla">
+              <thead><tr><th>COTIZACIÓN</th><th>FECHA</th><th>CLIENTE</th><th>CTA. CTO.</th><th>ASESOR</th><th>TOTAL</th><th>ACCIÓN</th></tr></thead>
+              <tbody>
+                {buscando && cots.length === 0 && (
+                  <tr><td colSpan={7} className="text-center text-[#0099D8] py-6">Cargando cotizaciones por vender…</td></tr>
+                )}
+                {cots.length === 0 && !buscando && (
+                  <tr><td colSpan={7} className="text-center text-slate-400 py-6">Sin cotizaciones por vender con esos filtros.</td></tr>
+                )}
+                {cots.map((c) => (
+                  <tr key={c.id}>
+                    <td className="font-bold text-[#0099D8]">{c.codigo ?? c.id.slice(0, 8)}</td>
+                    <td className="whitespace-nowrap text-xs">{fmtFechaCorta(c.created_at)}</td>
+                    <td className="font-medium">{c.cliente_nombre ?? "—"}{c.cliente_doc ? <span className="block text-[11px] text-slate-400">Doc {c.cliente_doc}</span> : null}</td>
+                    <td>{c.cuenta_contrato ?? "—"}</td>
+                    <td>{c.asesor ?? "—"}</td>
+                    <td className="whitespace-nowrap font-bold">{formatoMoneda(c.total)}</td>
+                    <td>
+                      <button className="btn-green !py-1.5 !text-xs whitespace-nowrap" disabled={generando === c.id} onClick={() => generarSolicitud(c)}>
+                        {generando === c.id ? "Abriendo…" : "Generar solicitud"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-4">
+            <p className="text-xs font-bold text-slate-500 mb-2">SOLICITUDES PENDIENTES DE GENERAR PV · {pendientesFiltrados.length}</p>
+            {cargandoPend ? (
+              <p className="text-sm text-[#0099D8] py-4">Cargando pendientes…</p>
+            ) : pendientesFiltrados.length === 0 ? (
+              <EmptyState titulo="Sin pendientes" detalle="No hay solicitudes en borrador." />
+            ) : (
+              <div className="table-wrap">
+                <table className="tabla">
+                  <thead><tr><th>NÚMERO</th><th>COTIZACIÓN</th><th>CLIENTE</th><th>ASESOR</th><th>TOTAL</th><th>ACCIÓN</th></tr></thead>
+                  <tbody>
+                    {pendientesFiltrados.map((v, i) => {
+                      const r = v as Record<string, unknown>;
+                      return (
                           <tr key={ventaId(v) || i}>
                             <td className="font-mono text-xs font-bold">{ventaNumero(v)}</td>
                             <td>{String(r.cotizacion_codigo ?? "—")}</td>
@@ -565,8 +578,7 @@ export default function VentasPage() {
                   </table>
                 </div>
               )}
-            </div>
-          )}
+          </div>
         </div>
 
         {error && <p className="card p-4 mt-4 text-sm text-red-700 bg-red-50 border-red-200">{error}</p>}
