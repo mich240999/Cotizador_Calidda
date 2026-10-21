@@ -1,6 +1,13 @@
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RolUsuario, SesionInfo } from "./auth";
+import { resolverAlcance, puedeVerCotizacion } from "./alcance";
+
+function lanzar(status: number, message: string): never {
+  const e = new Error(message) as Error & { status?: number };
+  e.status = status;
+  throw e;
+}
 
 /**
  * Mirror de `ejecutarOperacionSeguraPaso13D2` (GAS) adaptado a Next.js.
@@ -200,17 +207,19 @@ async function hCrearCotizacion(args: z.infer<typeof EsquemaCrearCotizacion>, ct
 
 async function hListarCotizaciones(args: z.infer<typeof EsquemaListarCotizaciones>, ctx: OperacionContext) {
   const { estado, cliente_id, limit } = args;
+  const a = await resolverAlcance(ctx.service, ctx.sesion);
   let query = ctx.service
     .from("cotizaciones")
     .select("*, clientes(id,nombres,dni,email)")
     .order("created_at", { ascending: false })
-    .limit(limit);
+    .limit(a.todo ? limit : Math.max(limit, 1000));
   const est = estado ? estado.toUpperCase() : "";
   if (est) query = query.eq("estado", est);
   if (cliente_id) query = query.eq("cliente_id", cliente_id);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  const rows = ((data ?? []) as Record<string, any>[]);
+  let rows = ((data ?? []) as Record<string, any>[]);
+  if (!a.todo) rows = rows.filter((r) => puedeVerCotizacion(a, r)).slice(0, limit);
   // Nombre del usuario de venta: created_by es UUID de profiles.
   // Se adjunta creador_nombre para no mostrar el UUID en la lista.
   try {
@@ -233,6 +242,14 @@ async function hListarCotizaciones(args: z.infer<typeof EsquemaListarCotizacione
 }
 
 async function hCambiarEstado(args: z.infer<typeof EsquemaCambiarEstado>, ctx: OperacionContext) {
+  const a = await resolverAlcance(ctx.service, ctx.sesion);
+  if (!a.todo) {
+    const { data: cot, error: eCot } = await ctx.service
+      .from("cotizaciones").select("id,created_by,asesor,proveedor").eq("id", args.id).maybeSingle();
+    if (eCot) throw new Error(eCot.message);
+    if (!cot) lanzar(404, "Cotización no encontrada");
+    if (!puedeVerCotizacion(a, cot as Record<string, any>)) lanzar(403, "Sin permiso sobre esta cotización");
+  }
   const { data, error } = await ctx.service
     .from("cotizaciones")
     .update({ estado: args.estado })
@@ -301,6 +318,8 @@ export async function completarNombresItems(
 async function hGenerarPDF(args: z.infer<typeof EsquemaGenerarPDF>, ctx: OperacionContext) {
   const { data: cot, error } = await ctx.service.from("cotizaciones").select("*, clientes(*)").eq("id", args.cotizacion_id).single();
   if (error || !cot) throw new Error("Cotización no encontrada");
+  const aPdf = await resolverAlcance(ctx.service, ctx.sesion);
+  if (!puedeVerCotizacion(aPdf, cot as Record<string, any>)) lanzar(403, "Sin permiso sobre esta cotización");
   const { data: itemsRaw } = await ctx.service
     .from("cotizacion_items")
     .select("*, materiales(codigo,nombre,unidad)")

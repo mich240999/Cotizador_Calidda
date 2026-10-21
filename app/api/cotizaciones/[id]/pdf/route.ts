@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { createSupabaseServiceRole } from "@/lib/supabaseServer";
 import { obtenerDatosPdf, buildCotizacionPdf } from "@/lib/cotizacionPdf";
+import { resolverAlcance, puedeVerCotizacion } from "@/lib/alcance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   try {
     const service = createSupabaseServiceRole();
+    const { data: cot } = await service.from("cotizaciones").select("id,created_by,asesor,proveedor").eq("id", id).maybeSingle();
+    if (!cot) return NextResponse.json({ ok: false, error: "Cotización no encontrada" }, { status: 404 });
+    const alcance = await resolverAlcance(service, sesion);
+    if (!puedeVerCotizacion(alcance, cot as Record<string, any>)) {
+      return NextResponse.json({ ok: false, error: "Sin permiso sobre esta cotización" }, { status: 403 });
+    }
     const datos = await obtenerDatosPdf(service, id);
     const doc = await buildCotizacionPdf(datos);
     const buf = Buffer.from(doc.output("arraybuffer"));

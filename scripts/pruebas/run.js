@@ -20,6 +20,7 @@ function compilar() {
   fs.mkdirSync(out, { recursive: true });
   const tsc = path.join(root, "node_modules", "typescript", "bin", "tsc");
   const archivos = [
+    "lib/alcance.ts",
     "lib/financiamiento.ts",
     "lib/detallesMueble.ts",
     "lib/materialMatch.ts",
@@ -50,11 +51,12 @@ function compilar() {
   const r1 = logica.ejecutar();
   const r2 = await backend.ejecutar();
   const r3 = process.env.PRUEBAS_E2E === "1" ? await require("./e2e").ejecutar() : { pass: 0, fail: 0, fallos: [], omitido: true };
-  const pass = r1.pass + r2.pass + r3.pass;
-  const fail = r1.fail + r2.fail + r3.fail;
-  const fallos = [...r1.fallos, ...r2.fallos, ...r3.fallos];
+  const r4 = process.env.PRUEBAS_E2E === "1" ? await require("./permisos").ejecutar() : { pass: 0, fail: 0, fallos: [], omitido: true };
+  const pass = r1.pass + r2.pass + r3.pass + r4.pass;
+  const fail = r1.fail + r2.fail + r3.fail + r4.fail;
+  const fallos = [...r1.fallos, ...r2.fallos, ...r3.fallos, ...r4.fallos];
   console.log("\n==============================");
-  console.log("RESUMEN: " + pass + " pass, " + fail + " fail" + (r2.omitido ? " (backend omitido: sin credenciales)" : "") + (r3.omitido && process.env.PRUEBAS_E2E === "1" ? " (e2e omitido)" : ""));
+  console.log("RESUMEN: " + pass + " pass, " + fail + " fail" + (r2.omitido ? " (backend omitido: sin credenciales)" : "") + (r3.omitido && process.env.PRUEBAS_E2E === "1" ? " (e2e omitido)" : "") + (r4.omitido && process.env.PRUEBAS_E2E === "1" ? " (permisos omitido)" : ""));
   if (fallos.length) fallos.forEach((f) => console.log(" - " + f));
   fs.rmSync(out, { recursive: true, force: true });
   process.exit(fail ? 1 : 0);

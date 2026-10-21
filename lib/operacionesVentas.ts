@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { RolUsuario } from "./auth";
 import type { OperacionContext } from "./operaciones";
+import { resolverAlcance, aplicarAlcanceVentas, puedeVerVenta, puedeVerCotizacion } from "./alcance";
 
 /**
  * lib/operacionesVentas.ts — Operaciones del módulo Ventas (prefijo VTA-).
@@ -135,20 +136,23 @@ function esAdmin(ctx: OperacionContext): boolean {
 }
 
 /**
- * Alcance de lectura de ventas según seg_roles:
- * - GLOBAL (admin): todo.
- * - EMPRESA (proveedor): ventas de su proveedor, o propias si no tiene.
- * - EQUIPO/PROPIO: solo propias (EQUIPO completo requiere matriz de equipos).
+ * Alcance de lectura de ventas (ver lib/alcance.ts):
+ * GLOBAL = todo; EMPRESA = su proveedor + lo propio; EQUIPO = lo propio y el
+ * de sus asesores; PROPIO = solo lo suyo.
  */
-function alcanceVentas(ctx: OperacionContext): { todo: boolean; proveedor: string | null } {
-  if (esAdmin(ctx) || ctx.sesion.alcance === "GLOBAL") return { todo: true, proveedor: null };
-  if (ctx.sesion.alcance === "EMPRESA" && ctx.sesion.idProveedor) {
-    return { todo: false, proveedor: ctx.sesion.idProveedor };
-  }
-  return { todo: false, proveedor: null };
-}
-
 type Fila = Record<string, any>;
+
+/** Carga la venta y exige que el usuario pueda verla (404 si no existe, 403 si es ajena). */
+async function ventaVisible(ctx: OperacionContext, id: string): Promise<Fila> {
+  const { data, error } = await ctx.service.from(T_SOL).select("*").eq("id", id).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) lanzar(404, `Solicitud no encontrada: ${id}`);
+  const a = await resolverAlcance(ctx.service, ctx.sesion);
+  if (!puedeVerVenta(a, data as Fila)) {
+    lanzar(403, "Sin permiso: la venta pertenece a otro usuario o empresa");
+  }
+  return data as Fila;
+}
 
 /** Resuelve nombres de cliente/proveedor/asesor/creador best-effort (mae_* primero, base después). */
 async function resolverNombres(
@@ -438,11 +442,8 @@ async function hListarVentas(args: z.infer<typeof EsquemaListarVentas>, ctx: Ope
   try {
     const desde = (args.page - 1) * args.pageSize;
     let q = ctx.service.from(T_SOL).select("*", { count: "exact" }).order("created_at", { ascending: false });
-    const sc = alcanceVentas(ctx);
-    if (!sc.todo) {
-      if (sc.proveedor) q = q.or(`id_proveedor.eq.${sc.proveedor},created_by.eq.${ctx.sesion.userId}`);
-      else q = q.eq("created_by", ctx.sesion.userId); // PROPIO (y EQUIPO por ahora)
-    }
+    const a = await resolverAlcance(ctx.service, ctx.sesion);
+    q = aplicarAlcanceVentas(q, a);
     if (args.estado) q = q.eq("estado", args.estado.toLowerCase());
     if (args.canal) q = q.eq("canal", args.canal.toLowerCase());
     if (args.q) {
@@ -463,10 +464,7 @@ async function hListarVentas(args: z.infer<typeof EsquemaListarVentas>, ctx: Ope
       if (error && /column|schema cache/i.test(error.message)) {
         // BD sin migración 03-04: reintenta sin columnas nuevas.
         let q2 = ctx.service.from(T_SOL).select("*", { count: "exact" }).order("created_at", { ascending: false });
-        if (!sc.todo) {
-          if (sc.proveedor) q2 = q2.or(`id_proveedor.eq.${sc.proveedor},created_by.eq.${ctx.sesion.userId}`);
-          else q2 = q2.eq("created_by", ctx.sesion.userId);
-        }
+        q2 = aplicarAlcanceVentas(q2, a);
         if (args.estado) q2 = q2.eq("estado", args.estado.toLowerCase());
         if (args.canal) q2 = q2.eq("canal", args.canal.toLowerCase());
         q2 = q2.or(base);
@@ -776,9 +774,7 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
 
 async function hRegistrarAbono(args: z.infer<typeof EsquemaRegistrarAbono>, ctx: OperacionContext) {
   try {
-    const { data: sol, error: eSol } = await ctx.service.from(T_SOL).select("id").eq("id", args.solicitud_id).maybeSingle();
-    if (eSol) throw new Error(eSol.message);
-    if (!sol) lanzar(404, `Solicitud no encontrada: ${args.solicitud_id}`);
+    await ventaVisible(ctx, args.solicitud_id);
     if (args.item_id) {
       const { data: it, error: eIt } = await ctx.service
         .from(T_ITEM)
@@ -934,9 +930,7 @@ async function hObservarSolicitud(args: z.infer<typeof EsquemaObservarSolicitud>
 
 async function hRegistrarInstalacion(args: z.infer<typeof EsquemaInstalacion>, ctx: OperacionContext) {
   try {
-    const { data: sol, error: eSol } = await ctx.service.from(T_SOL).select("id").eq("id", args.solicitud_id).maybeSingle();
-    if (eSol) throw new Error(eSol.message);
-    if (!sol) lanzar(404, `Solicitud no encontrada: ${args.solicitud_id}`);
+    await ventaVisible(ctx, args.solicitud_id);
     const { data: previa, error: ePrev } = await ctx.service
       .from(T_INS)
       .select("id")
@@ -1002,6 +996,7 @@ async function hRegistrarInstalacion(args: z.infer<typeof EsquemaInstalacion>, c
 
 async function hValidarInstalacionProveedor(args: z.infer<typeof EsquemaSoloSolicitud>, ctx: OperacionContext) {
   try {
+    await ventaVisible(ctx, args.solicitud_id);
     const { data: ins, error: eIns } = await ctx.service
       .from(T_INS)
       .select("id")
@@ -1070,6 +1065,7 @@ async function hValidacionFinal(args: z.infer<typeof EsquemaSoloSolicitud>, ctx:
 
 async function hObservarInstalacion(args: z.infer<typeof EsquemaObservarInstalacion>, ctx: OperacionContext) {
   try {
+    await ventaVisible(ctx, args.solicitud_id);
     const { data: ins, error: eIns } = await ctx.service
       .from(T_INS)
       .select("id")
@@ -1102,11 +1098,8 @@ async function hExportarVentas(args: z.infer<typeof EsquemaExportar>, ctx: Opera
   const columnas = ["numero", "cliente", "documento", "proveedor", "canal", "estado", "total", "cuotas", "fecha"];
   try {
     let q = ctx.service.from(T_SOL).select("id,id_cliente,id_proveedor,canal,estado,created_at").order("created_at", { ascending: false }).limit(5000);
-    const scExp = alcanceVentas(ctx);
-    if (!scExp.todo) {
-      if (scExp.proveedor) q = q.or(`id_proveedor.eq.${scExp.proveedor},created_by.eq.${ctx.sesion.userId}`);
-      else q = q.eq("created_by", ctx.sesion.userId);
-    }
+    const aExp = await resolverAlcance(ctx.service, ctx.sesion);
+    q = aplicarAlcanceVentas(q, aExp);
     if (args.estado) q = q.eq("estado", args.estado.toLowerCase());
     if (args.canal) q = q.eq("canal", args.canal.toLowerCase());
     const { data, error } = await q;
@@ -1199,15 +1192,15 @@ async function hListarInstalacionesPendientes(args: z.infer<typeof EsquemaQInsta
 
 async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionContext) {
   try {
-    const { data: cab, error: eCab } = await ctx.service.from(T_SOL).select("*").eq("id", args.id).single();
-    if (eCab || !cab) {
-      if (eCab && esTablaFaltante(new Error(eCab.message))) exigirTabla(eCab);
-      lanzar(404, `Venta no encontrada: ${args.id}`);
+    const { data: cab, error: eCab } = await ctx.service.from(T_SOL).select("*").eq("id", args.id).maybeSingle();
+    if (eCab) {
+      if (esTablaFaltante(new Error(eCab.message))) exigirTabla(eCab);
+      throw new Error(eCab.message);
     }
+    if (!cab) lanzar(404, `Venta no encontrada: ${args.id}`);
     const sol = cab as Fila;
-    const scOne = alcanceVentas(ctx);
-    const mismaEmpresa = !!scOne.proveedor && String(sol.id_proveedor ?? "") === scOne.proveedor;
-    if (!scOne.todo && !mismaEmpresa && String(sol.created_by ?? "") !== ctx.sesion.userId) {
+    const aVenta = await resolverAlcance(ctx.service, ctx.sesion);
+    if (!puedeVerVenta(aVenta, sol)) {
       lanzar(403, "Sin permiso: la venta pertenece a otro usuario o empresa");
     }
     const [rItems, rAbonos, rIns] = await Promise.all([
@@ -1307,50 +1300,15 @@ async function hBuscarCotizacionesParaVenta(args: z.infer<typeof EsquemaBuscarCo
   }
 }
 
-/** Visibilidad en solicitudes: la cotización de un proveedor solo la ven su
- *  asesor de venta, su jefe directo (supervisor) y los admin. Devuelve null
- *  = sin filtro (admin o alcance GLOBAL).
+/** Visibilidad de cotizaciones (ver lib/alcance.ts): admin todo; proveedor su
+ *  staff; supervisor su equipo; asesor solo lo propio. null = sin filtro.
  */
 async function filtroVisibilidadCotizacion(
   ctx: OperacionContext
 ): Promise<null | ((c: Fila) => boolean)> {
-  if (esAdmin(ctx) || ctx.sesion.alcance === "GLOBAL") return null;
-  const userId = String(ctx.sesion.userId ?? "");
-  const norm = (s: unknown) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-  try {
-    const email = String(ctx.sesion.email ?? "").toLowerCase().trim();
-    let yo: { id: string; nombre: string } | null = null;
-    const segPorNombre = new Map<string, string>();
-    try {
-      const { data: usuarios } = await ctx.service.from("seg_usuarios").select("id,nombre,correo").limit(2000);
-      for (const u of ((usuarios ?? []) as Record<string, any>[])) {
-        segPorNombre.set(norm(u.nombre), String(u.id));
-        if (email && String(u.correo ?? "").toLowerCase().trim() === email) {
-          yo = { id: String(u.id), nombre: String(u.nombre ?? "") };
-        }
-      }
-    } catch { /* sin maestro de usuarios */ }
-    const supervisados = new Set<string>();
-    if (yo) {
-      try {
-        const { data: asg } = await ctx.service.from("seg_asignaciones_asesores").select("id_asesor").eq("id_supervisor", yo.id);
-        for (const a of ((asg ?? []) as Record<string, any>[])) {
-          if (a.id_asesor) supervisados.add(String(a.id_asesor));
-        }
-      } catch { /* sin asignaciones */ }
-    }
-    const miNombre = yo ? norm(yo.nombre) : "";
-    return (c: Fila) => {
-      if (userId && String(c.created_by ?? "") === userId) return true; // propia
-      const idAsesorCot = segPorNombre.get(norm(c.asesor));
-      if (miNombre && norm(c.asesor) === miNombre) return true; // soy su asesor
-      if (idAsesorCot && supervisados.has(idAsesorCot)) return true; // soy su supervisor
-      return false;
-    };
-  } catch {
-    // Sin datos para filtrar: solo lo propio.
-    return (c: Fila) => (userId ? String(c.created_by ?? "") === userId : false);
-  }
+  const a = await resolverAlcance(ctx.service, ctx.sesion);
+  if (a.todo) return null;
+  return (c: Fila) => puedeVerCotizacion(a, c);
 }
 
 async function anotarConSolicitud(ctx: OperacionContext, cots: Fila[]): Promise<Fila[]> {
@@ -1698,13 +1656,10 @@ const EsquemaLiquidar = z.object({
 async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalaciones>, ctx: OperacionContext) {
   try {
     const desde = (args.page - 1) * args.pageSize;
-    const sc = alcanceVentas(ctx);
+    const aIns = await resolverAlcance(ctx.service, ctx.sesion);
     const armar = (conPV: boolean) => {
       let qq = ctx.service.from(T_SOL).select("*", { count: "exact" }).order("created_at", { ascending: false });
-      if (!sc.todo) {
-        if (sc.proveedor) qq = qq.or(`id_proveedor.eq.${sc.proveedor},created_by.eq.${ctx.sesion.userId}`);
-        else qq = qq.eq("created_by", ctx.sesion.userId);
-      }
+      qq = aplicarAlcanceVentas(qq, aIns);
       qq = qq.in("estado", ["generada", "aprobada", "en_instalacion", "instalada", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"]);
       if (args.estado_sol) qq = qq.eq("estado", args.estado_sol.toLowerCase());
       if (args.desde) qq = qq.gte("created_at", `${args.desde}T00:00:00`);
@@ -1742,10 +1697,7 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
         for (const r of ((extra ?? []) as Fila[])) {
           if (vistas.has(String(r.id))) continue;
           if (!estadosOK.includes(String(r.estado ?? "").toLowerCase())) continue;
-          if (!sc.todo) {
-            const mismaEmpresa = !!sc.proveedor && String(r.id_proveedor ?? "") === sc.proveedor;
-            if (!mismaEmpresa && String(r.created_by ?? "") !== ctx.sesion.userId) continue;
-          }
+          if (!puedeVerVenta(aIns, r)) continue;
           rows = [...rows, r];
           vistas.add(String(r.id));
         }
@@ -1788,20 +1740,12 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
 /** Proveedor registra 1 de 2 formas de solicitud de liquidación → pendiente_liquidar. */
 async function hRegistrarLiquidacion(args: z.infer<typeof EsquemaRegistrarLiquidacion>, ctx: OperacionContext) {
   try {
-    const { data: sol, error: eSol } = await ctx.service.from(T_SOL).select("*").eq("id", args.solicitud_id).maybeSingle();
-    if (eSol) throw new Error(eSol.message);
-    if (!sol) lanzar(404, `Solicitud no encontrada: ${args.solicitud_id}`);
-    const s = sol as Fila;
+    const s = await ventaVisible(ctx, args.solicitud_id);
     const est = String(s.estado ?? "").toLowerCase();
     if (![...ESTADOS_INSTALABLE, "pendiente_liquidar"].includes(est)) {
       lanzar(422, `La solicitud debe tener PV generado para registrar liquidación (está '${est}')`);
     }
     if (["liquidada", "cerrada"].includes(est)) lanzar(422, "La venta ya está liquidada o cerrada");
-    // Solo el proveedor dueño (o admin).
-    const sc = alcanceVentas(ctx);
-    if (!sc.todo && sc.proveedor && String(s.id_proveedor ?? "") !== sc.proveedor) {
-      lanzar(403, "Solo el proveedor de la venta puede registrar su liquidación");
-    }
     const U = (v: string | undefined) => String(v ?? "").trim();
     let fila: Fila;
     if (args.tipo === "anticipo") {
