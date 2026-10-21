@@ -73,6 +73,11 @@ const ITEMS = [
   { href: "/admin", label: "Administración", icon: "admin", roles: ["ADMIN"] },
 ];
 
+// Se conserva entre navegaciones del App Router para que el sidebar no se
+// despliegue un instante al montar de nuevo la página.
+let estadoPlegado: boolean | null = null;
+let estadoTema: boolean | null = null;
+
 function initials(email: string | null) {
   if (!email) return "MS";
   const u = email.split("@")[0];
@@ -85,8 +90,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
-  const [oscuro, setOscuro] = useState(false);
-  const [plegado, setPlegado] = useState(false);
+  const [oscuro, setOscuro] = useState(() => estadoTema ?? false);
+  const [plegado, setPlegado] = useState(() => estadoPlegado ?? false);
   const [miRol, setMiRol] = useState("");
 
   useEffect(() => {
@@ -108,16 +113,24 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    try {
-      const g = localStorage.getItem("sh-theme") === "dark";
-      setOscuro(g);
-      document.documentElement.classList.toggle("dark", g);
-      setPlegado(localStorage.getItem("sh-sidebar") === "off");
-    } catch { /* sin storage */ }
+    if (estadoTema === null) {
+      try {
+        estadoTema = localStorage.getItem("sh-theme") === "dark";
+      } catch { estadoTema = false; }
+    }
+    setOscuro(estadoTema);
+    document.documentElement.classList.toggle("dark", estadoTema);
+    if (estadoPlegado === null) {
+      try {
+        estadoPlegado = localStorage.getItem("sh-sidebar") === "off";
+      } catch { estadoPlegado = false; }
+    }
+    setPlegado(estadoPlegado);
   }, []);
 
   const alternarTema = () => {
     const n = !oscuro;
+    estadoTema = n;
     setOscuro(n);
     document.documentElement.classList.toggle("dark", n);
     try {
@@ -127,6 +140,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
   const alternarMenu = () => {
     const n = !plegado;
+    estadoPlegado = n;
     setPlegado(n);
     try {
       localStorage.setItem("sh-sidebar", n ? "off" : "on");
