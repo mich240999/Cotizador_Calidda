@@ -167,12 +167,19 @@ function VerInstalacion({ v, onClose }: { v: Fila; onClose: () => void }) {
             <p className="text-sm text-slate-500">El proveedor aún no sube evidencias (pendiente de instalar).</p>
           ) : (
             <div className="grid sm:grid-cols-2 gap-2">
-              {archivos.map(([t, u]) => (
-                <a key={t} href={String(u)} target="_blank" rel="noreferrer" className="rounded-xl border border-slate-200 p-3 hover:border-[#0099D8] block">
-                  <p className="font-bold text-sm">{t}</p>
-                  <p className="text-xs text-[#0099D8] mt-1 break-all">Abrir archivo →</p>
-                </a>
-              ))}
+              {archivos.map(([t, u]) => {
+                const href = /^https?:\/\//i.test(String(u ?? "").trim()) ? String(u).trim() : null;
+                return (
+                  <div key={t} className="rounded-xl border border-slate-200 p-3">
+                    <p className="font-bold text-sm">{t}</p>
+                    {href ? (
+                      <a href={href} target="_blank" rel="noreferrer" className="text-xs text-[#0099D8] mt-1 break-all block">Abrir archivo →</a>
+                    ) : (
+                      <p className="text-xs text-slate-400 mt-1">Enlace no válido</p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

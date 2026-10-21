@@ -347,6 +347,7 @@ ALTER TABLE public.ven_cotizaciones     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ven_cotizacion_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ven_financiamiento_sim ENABLE ROW LEVEL SECURITY;
 
+-- RLS: lectura solo para admin SGT (el backend usa service_role y no pasa por RLS).
 DO $$
 DECLARE t text;
 BEGIN
@@ -359,7 +360,7 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', 'sgt360_read_'||t, t);
     EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', 'sgt360_admin_'||t, t);
     EXECUTE format(
-      'CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING (true)',
+      'CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING (public.fn_sgt360_is_admin())',
       'sgt360_read_'||t, t);
     EXECUTE format(
       'CREATE POLICY %I ON public.%I FOR ALL TO authenticated USING (public.fn_sgt360_is_admin()) WITH CHECK (public.fn_sgt360_is_admin())',

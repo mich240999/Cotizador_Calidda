@@ -72,7 +72,8 @@ export const ESTADOS_INSTALACION = [
 const zLimit = z.coerce.number().int().min(1).max(500).default(100);
 const zPage = z.coerce.number().int().min(1).optional().default(1);
 const zPageSize = z.coerce.number().int().min(1).max(200).optional().default(25);
-const zUrlDoc = z.string().trim().min(8).max(2000);
+const esUrlHttp = (v: string) => /^https?:\/\//i.test(v);
+const zUrlDoc = z.string().trim().min(8).max(2000).refine(esUrlHttp, "URL inválida: debe iniciar con http:// o https://");
 
 // ---------------------------------------------------------------- utils
 
@@ -1633,7 +1634,8 @@ const EsquemaListarInstalaciones = z.object({
   pageSize: zPageSize,
 });
 
-const zUrlDocOpcional = z.string().trim().max(2000).optional().default("");
+const zUrlDocOpcional = z.string().trim().max(2000).optional().default("")
+  .refine((v) => !v || esUrlHttp(v), "URL inválida: debe iniciar con http:// o https://");
 
 const EsquemaRegistrarLiquidacion = z.object({
   solicitud_id: z.string().trim().min(1).max(20),

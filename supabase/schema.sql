@@ -184,6 +184,27 @@ CREATE TRIGGER trg_oficinas_updated BEFORE UPDATE ON public.oficinas
 DROP TRIGGER IF EXISTS trg_profiles_updated ON public.profiles;
 CREATE TRIGGER trg_profiles_updated BEFORE UPDATE ON public.profiles
   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+-- Defensa en profundidad: aunque se recree una policy de UPDATE en profiles,
+-- un JWT "authenticated" no puede tocar rol_id/oficina_id/activo/email/id.
+CREATE OR REPLACE FUNCTION public.fn_profiles_sin_escalada()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF auth.role() = 'authenticated' AND (
+       NEW.id         IS DISTINCT FROM OLD.id
+    OR NEW.email      IS DISTINCT FROM OLD.email
+    OR NEW.rol_id     IS DISTINCT FROM OLD.rol_id
+    OR NEW.oficina_id IS DISTINCT FROM OLD.oficina_id
+    OR NEW.activo     IS DISTINCT FROM OLD.activo
+  ) THEN
+    RAISE EXCEPTION 'Cambio no permitido en profiles' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_profiles_sin_escalada ON public.profiles;
+CREATE TRIGGER trg_profiles_sin_escalada BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.fn_profiles_sin_escalada();
 DROP TRIGGER IF EXISTS trg_proveedores_updated ON public.proveedores;
 CREATE TRIGGER trg_proveedores_updated BEFORE UPDATE ON public.proveedores
   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
@@ -420,9 +441,8 @@ DROP POLICY IF EXISTS profiles_select ON public.profiles;
 CREATE POLICY profiles_select ON public.profiles FOR SELECT TO authenticated
   USING (id = auth.uid() OR oficina_id = public.mi_oficina_id() OR public.es_admin());
 DROP POLICY IF EXISTS profiles_update ON public.profiles;
-CREATE POLICY profiles_update ON public.profiles FOR UPDATE TO authenticated
-  USING (id = auth.uid() OR public.es_admin())
-  WITH CHECK (id = auth.uid() OR public.es_admin());
+-- Sin policy de UPDATE para authenticated: la app actualiza profiles con
+-- service_role. Evita que un usuario se auto-asigne rol_id/oficina_id/activo.
 DROP POLICY IF EXISTS profiles_insert ON public.profiles;
 CREATE POLICY profiles_insert ON public.profiles FOR INSERT TO authenticated
   WITH CHECK (public.es_admin());

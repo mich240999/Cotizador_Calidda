@@ -5,6 +5,13 @@ import { cookies } from "next/headers";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Solo rutas internas: evita open redirect con https://, //host o /\host. */
+function destinoSeguro(next: string | null): string {
+  const v = (next ?? "").trim();
+  if (!v.startsWith("/") || v.startsWith("//") || v.includes("\\")) return "/dashboard";
+  return v;
+}
+
 /**
  * Callback de Supabase Auth (login, registro, recuperación).
  * Intercambia ?code= por sesión y redirige a ?next= (default /dashboard).
@@ -12,7 +19,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
-  const next = url.searchParams.get("next") || "/dashboard";
+  const next = destinoSeguro(url.searchParams.get("next"));
   // Supabase puede devolver el error aquí (ej. otp_expired): se reenvía al login.
   const errParam =
     url.searchParams.get("error_description") || url.searchParams.get("error") || "";

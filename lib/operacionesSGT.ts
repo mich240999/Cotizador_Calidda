@@ -31,6 +31,9 @@ function esTablaFaltante(e: unknown): boolean {
   return /does not exist|Could not find the table|relation .* does not exist|42P01/i.test(m);
 }
 
+/** Evita que comas/paréntesis/comodines rompan o inyecten en filtros .or() de PostgREST. */
+const limpiarBusqueda = (v: string) => v.replace(/[%(),*"\\]/g, " ").replace(/\s+/g, " ").trim();
+
 /** Intenta leer de la primera tabla existente de la lista. */
 async function leerPrimeraTabla(ctx: OperacionContext, tablas: string[], select = "*", order?: { col: string; asc?: boolean }, limit = 200) {
   let ultimoError: unknown = null;
@@ -244,7 +247,10 @@ async function hListarProveedoresSGT(args: z.infer<typeof EsquemaQ>, ctx: Operac
   // Maestro SGT primero (razón social real); fallback a tabla base.
   try {
     let q = ctx.service.from("mae_proveedores").select("*").order("razon_social").limit(args.limit);
-    if (args.q) q = q.or(`razon_social.ilike.%${args.q}%,nombre_comercial.ilike.%${args.q}%,ruc.ilike.%${args.q}%,interlocutor.ilike.%${args.q}%`);
+    if (args.q) {
+      const s = limpiarBusqueda(args.q);
+      if (s) q = q.or(`razon_social.ilike.%${s}%,nombre_comercial.ilike.%${s}%,ruc.ilike.%${s}%,interlocutor.ilike.%${s}%`);
+    }
     const { data, error } = await q;
     if (error) throw new Error(error.message);
     return ((data ?? []) as Record<string, unknown>[]).map((p) => ({
@@ -256,7 +262,10 @@ async function hListarProveedoresSGT(args: z.infer<typeof EsquemaQ>, ctx: Operac
     if (!esTablaFaltante(e)) throw e;
   }
   let q = ctx.service.from("proveedores").select("*").order("nombre").limit(args.limit);
-  if (args.q) q = q.or(`nombre.ilike.%${args.q}%,ruc.ilike.%${args.q}%`);
+  if (args.q) {
+    const s = limpiarBusqueda(args.q);
+    if (s) q = q.or(`nombre.ilike.%${s}%,ruc.ilike.%${s}%`);
+  }
   const { data, error } = await q;
   if (error) throw new Error(error.message);
   return ((data ?? []) as Record<string, unknown>[]).map((p: Record<string, unknown>) => ({
@@ -340,7 +349,10 @@ async function hListarOficinasVentas(args: z.infer<typeof EsquemaQ>, ctx: Operac
   // SGT real primero (mae_oficinas_ventas), fallback a tabla base.
   try {
     let q = ctx.service.from("mae_oficinas_ventas").select("*").order("nombre").limit(args.limit);
-    if (args.q) q = q.or(`nombre.ilike.%${args.q}%,codigo_sap.ilike.%${args.q}%,id.ilike.%${args.q}%`);
+    if (args.q) {
+      const s = limpiarBusqueda(args.q);
+      if (s) q = q.or(`nombre.ilike.%${s}%,codigo_sap.ilike.%${s}%,id.ilike.%${s}%`);
+    }
     const { data, error } = await q;
     if (error) throw new Error(error.message);
     return (data ?? []).map((o: Record<string, unknown>) => ({
@@ -399,7 +411,10 @@ async function hListarVinculaciones(args: z.infer<typeof EsquemaQ>, ctx: Operaci
     let q = ctx.service.from("rel_proveedor_oficinas")
       .select("*, mae_proveedores(id,interlocutor,ruc,razon_social,nombre_comercial), mae_oficinas_ventas(id,codigo_sap,nombre)")
       .order("created_at", { ascending: false }).limit(args.limit);
-    if (args.q) q = q.or(`id.ilike.%${args.q}%`);
+    if (args.q) {
+      const s = limpiarBusqueda(args.q);
+      if (s) q = q.or(`id.ilike.%${s}%`);
+    }
     const { data, error } = await q;
     if (error) throw new Error(error.message);
     return (data ?? []).map((v: Record<string, any>) => ({
@@ -483,7 +498,10 @@ async function hListarGruposVendedores(args: z.infer<typeof EsquemaQ>, ctx: Oper
     let q = ctx.service.from("mae_grupos_vendedores")
       .select("*, mae_proveedores(id,interlocutor,ruc,razon_social,nombre_comercial), mae_oficinas_ventas(id,codigo_sap,nombre)")
       .order("created_at", { ascending: false }).limit(args.limit);
-    if (args.q) q = q.or(`nombre.ilike.%${args.q}%,codigo_sap.ilike.%${args.q}%,id.ilike.%${args.q}%`);
+    if (args.q) {
+      const s = limpiarBusqueda(args.q);
+      if (s) q = q.or(`nombre.ilike.%${s}%,codigo_sap.ilike.%${s}%,id.ilike.%${s}%`);
+    }
     const { data, error } = await q;
     if (error) throw new Error(error.message);
     return (data ?? []).map((g: Record<string, any>) => ({
@@ -748,10 +766,19 @@ const EsquemaActualizarUsuarioSGT = z.object({
 
 async function hListarUsuariosSGT(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
   try {
+    // Solo admin ve la ficha completa (documento, proveedor, flags). El resto
+    // únicamente los campos que necesitan los selectores de cotización/venta.
+    const esAdmin = ctx.sesion.rol === "admin";
+    const columnas = esAdmin
+      ? "*, mae_proveedores(id,razon_social,nombre_comercial)"
+      : "id,nombre,correo,telefono,rol_codigo,estado,id_proveedor";
     let q = ctx.service.from("seg_usuarios")
-      .select("*, mae_proveedores(id,razon_social,nombre_comercial)")
+      .select(columnas)
       .order("created_at", { ascending: false }).limit(args.limit);
-    if (args.q) q = q.or(`nombre.ilike.%${args.q}%,correo.ilike.%${args.q}%,nro_doc.ilike.%${args.q}%,rol_codigo.ilike.%${args.q}%`);
+    if (args.q) {
+      const s = limpiarBusqueda(args.q);
+      if (s) q = q.or(`nombre.ilike.%${s}%,correo.ilike.%${s}%,nro_doc.ilike.%${s}%,rol_codigo.ilike.%${s}%`);
+    }
     const { data, error } = await q;
     if (error) throw new Error(error.message);
     return ((data ?? []) as Record<string, any>[]).map((u) => ({
@@ -949,7 +976,10 @@ async function hListarMaterialesSGT(args: z.infer<typeof EsquemaMaterialesSGT>, 
   try {
     let qm = ctx.service.from("mae_materiales").select("*, mae_proveedores(razon_social,nombre_comercial)").order("nombre").limit(args.limit);
     if (esp === "COTIZACION" || esp === "VENTAS") qm = qm.eq("espacio", esp);
-    if (args.q) qm = qm.or(`nombre.ilike.%${args.q}%,codigo_sap.ilike.%${args.q}%,id.ilike.%${args.q}%,espacio_remodelar.ilike.%${args.q}%`);
+    if (args.q) {
+      const s = limpiarBusqueda(args.q);
+      if (s) qm = qm.or(`nombre.ilike.%${s}%,codigo_sap.ilike.%${s}%,id.ilike.%${s}%,espacio_remodelar.ilike.%${s}%`);
+    }
     const { data: matsM, error: eM } = await qm;
     if (eM) throw new Error(eM.message);
     const ids = ((matsM ?? []) as Record<string, unknown>[]).map((m) => String(m.id));
@@ -977,7 +1007,10 @@ async function hListarMaterialesSGT(args: z.infer<typeof EsquemaMaterialesSGT>, 
     if (!esTablaFaltante(e)) throw e;
   }
   let q = ctx.service.from("materiales").select("*, proveedores(id,nombre)").order("nombre").limit(args.limit);
-  if (args.q) q = q.or(`nombre.ilike.%${args.q}%,codigo.ilike.%${args.q}%`);
+  if (args.q) {
+    const s = limpiarBusqueda(args.q);
+    if (s) q = q.or(`nombre.ilike.%${s}%,codigo.ilike.%${s}%`);
+  }
   const { data: mats, error } = await q;
   if (error) throw new Error(error.message);
   // Tarifas vigentes por fecha (tablas opcionales).
@@ -1508,7 +1541,7 @@ async function hListarClientesSGT(args: z.infer<typeof EsquemaFiltrosClientesSGT
   const armarQuery = (conCta: boolean, conVal = true) => {
     const desde = (args.page - 1) * args.pageSize;
     // Comas y paréntesis rompen la sintaxis or() de PostgREST.
-    const qOr = args.q.replace(/[,()*]/g, " ").replace(/\s+/g, " ").trim();
+    const qOr = args.q.replace(/[%(),*"\\]/g, " ").replace(/\s+/g, " ").trim();
     let qq = ctx.service.from("mae_clientes").select("*", { count: "exact" }).order("created_at", { ascending: false });
     if (qOr) qq = qq.or(conCta ? orConCta(qOr) : orSinCta(qOr));
     if (args.tipo_persona) qq = qq.eq("tipo_persona", args.tipo_persona.toUpperCase());

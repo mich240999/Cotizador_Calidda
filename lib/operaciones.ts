@@ -9,6 +9,9 @@ function lanzar(status: number, message: string): never {
   throw e;
 }
 
+/** Evita que comas/paréntesis/comodines rompan o inyecten en filtros .or() de PostgREST. */
+const limpiarBusqueda = (v: string) => v.replace(/[%(),*"\\]/g, " ").replace(/\s+/g, " ").trim();
+
 /**
  * Mirror de `ejecutarOperacionSeguraPaso13D2` (GAS) adaptado a Next.js.
  * Alineado a supabase/schema.sql: profiles+roles, clientes(nombres/dni),
@@ -133,7 +136,10 @@ const EsquemaAdminEliminar = z.object({
 async function hListarClientes(args: z.infer<typeof EsquemaListarClientes>, ctx: OperacionContext) {
   const { q, limit } = args;
   let query = ctx.service.from("clientes").select("*").order("created_at", { ascending: false }).limit(limit);
-  if (q) query = query.or(`nombres.ilike.%${q}%,dni.ilike.%${q}%,email.ilike.%${q}%`);
+  if (q) {
+    const s = limpiarBusqueda(q);
+    if (s) query = query.or(`nombres.ilike.%${s}%,dni.ilike.%${s}%,email.ilike.%${s}%`);
+  }
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   return data ?? [];
@@ -158,7 +164,10 @@ async function hListarMateriales(args: z.infer<typeof EsquemaListarMateriales>, 
   const { q, soloActivos, limit } = args;
   let query = ctx.service.from("materiales").select("*, proveedores(id,nombre)").order("nombre").limit(limit);
   if (soloActivos) query = query.eq("activo", true);
-  if (q) query = query.or(`nombre.ilike.%${q}%,codigo.ilike.%${q}%`);
+  if (q) {
+    const s = limpiarBusqueda(q);
+    if (s) query = query.or(`nombre.ilike.%${s}%,codigo.ilike.%${s}%`);
+  }
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   return data ?? [];
@@ -353,7 +362,10 @@ async function hEnviarCorreo(args: z.infer<typeof EsquemaEnviarCorreo>, _ctx: Op
 async function hListarProveedores(args: z.infer<typeof EsquemaListarProveedores>, ctx: OperacionContext) {
   const { q, limit } = args;
   let query = ctx.service.from("proveedores").select("*").order("nombre").limit(limit);
-  if (q) query = query.or(`nombre.ilike.%${q}%,ruc.ilike.%${q}%`);
+  if (q) {
+    const s = limpiarBusqueda(q);
+    if (s) query = query.or(`nombre.ilike.%${s}%,ruc.ilike.%${s}%`);
+  }
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   return data ?? [];
