@@ -96,6 +96,22 @@ function siguienteId(prefijo: string, existentes: (string | null | undefined)[],
   return `${prefijo}${String(max + 1).padStart(pad, "0")}`;
 }
 
+/**
+ * Ids recientes de un maestro, en orden descendente.
+ * Sin el orden desc, `limit(n)` devuelve las filas más antiguas y el
+ * correlativo se calcula sobre una muestra: con maestros grandes (p. ej.
+ * mae_clientes con >10k filas) el id nuevo choca con uno existente.
+ */
+async function idsParaCorrelativo(ctx: OperacionContext, tabla: string, limite = 5000): Promise<string[]> {
+  const { data } = await ctx.service.from(tabla).select("id").order("id", { ascending: false }).limit(limite);
+  return ((data ?? []) as { id?: string }[]).map((r) => String(r.id ?? ""));
+}
+
+/** true si el error de Postgres es una colisión de llave primaria (no de otro único). */
+function esChoqueDeId(mensaje: string): boolean {
+  return /duplicate key|llave duplicada/i.test(mensaje) && /_pkey|primary key/i.test(mensaje);
+}
+
 // ---------------------------------------------------------------- schemas
 
 const EsquemaQ = z.object({ q: z.string().trim().max(120).optional().default(""), limit: zLimit });
@@ -253,8 +269,7 @@ async function hListarProveedoresSGT(args: z.infer<typeof EsquemaQ>, ctx: Operac
 async function hCrearProveedorSGT(args: z.infer<typeof EsquemaProveedorSGT>, ctx: OperacionContext) {
   // Maestro mae_proveedores (PRVxxxx, razón social + RUC único).
   try {
-    const { data: ids } = await ctx.service.from("mae_proveedores").select("id").limit(5000);
-    const id = siguienteId("PRV", ((ids ?? []) as { id?: string }[]).map((r) => r.id));
+    const id = siguienteId("PRV", await idsParaCorrelativo(ctx, "mae_proveedores"));
     const { data, error } = await ctx.service.from("mae_proveedores").insert({
       id,
       interlocutor: args.interlocutor,
@@ -346,8 +361,7 @@ async function hListarOficinasVentas(args: z.infer<typeof EsquemaQ>, ctx: Operac
 
 async function hCrearOficina(args: z.infer<typeof EsquemaCrearOficina>, ctx: OperacionContext) {
   // ID correlativo OFVxxxx; codigo_sap único (409 si duplica).
-  const { data: ex } = await ctx.service.from("mae_oficinas_ventas").select("id").limit(500);
-  const id = siguienteId("OFV", ((ex ?? []) as { id?: string }[]).map((r) => r.id));
+  const id = siguienteId("OFV", await idsParaCorrelativo(ctx, "mae_oficinas_ventas"));
   const { data, error } = await ctx.service.from("mae_oficinas_ventas").insert({
     id,
     codigo_sap: args.codigo_sap,
@@ -425,8 +439,7 @@ async function hVincularProveedorOficina(args: z.infer<typeof EsquemaVinculo>, c
       const e = new Error(`Vínculo inmutable: ese proveedor ya está asignado a esa oficina`) as Error & { status?: number };
       e.status = 409; throw e;
     }
-    const { data: ids } = await ctx.service.from("rel_proveedor_oficinas").select("id").limit(500);
-    const id = siguienteId("POF", ((ids ?? []) as { id?: string }[]).map((r) => r.id));
+    const id = siguienteId("POF", await idsParaCorrelativo(ctx, "rel_proveedor_oficinas"));
     const { data, error: eIns } = await ctx.service.from("rel_proveedor_oficinas").insert({
       id, id_proveedor: args.proveedor_id, id_oficina: args.oficina_id, estado: "ACTIVO"
     }).select().single();
@@ -507,8 +520,7 @@ async function hCrearGrupoVendedores(args: z.infer<typeof EsquemaCrearGrupo>, ct
     const e = new Error("Debe existir al menos una vinculación activa entre proveedor y oficina antes de crear un grupo") as Error & { status?: number };
     e.status = 422; throw e;
   }
-  const { data: ids } = await ctx.service.from("mae_grupos_vendedores").select("id").limit(500);
-  const id = siguienteId("GVE", ((ids ?? []) as { id?: string }[]).map((r) => r.id));
+  const id = siguienteId("GVE", await idsParaCorrelativo(ctx, "mae_grupos_vendedores"));
   const { data, error } = await ctx.service.from("mae_grupos_vendedores").insert({
     id,
     codigo_sap: args.codigo_sap,
@@ -587,8 +599,7 @@ async function hCrearAsignacion(args: z.infer<typeof EsquemaCrearAsignacion>, ct
   const inicio = normalizarFecha(args.fecha_inicio);
   const fin = args.fecha_fin ? normalizarFecha(args.fecha_fin) : null;
   if (fin && fin < inicio) throw new Error("fecha_fin anterior a fecha_inicio");
-  const { data: ids } = await ctx.service.from("seg_asignaciones_asesores").select("id").limit(5000);
-  const id = siguienteId("ASG", ((ids ?? []) as { id?: string }[]).map((r) => r.id));
+  const id = siguienteId("ASG", await idsParaCorrelativo(ctx, "seg_asignaciones_asesores"));
   const { data, error } = await ctx.service.from("seg_asignaciones_asesores").insert({
     id,
     id_asesor: args.id_asesor,
@@ -780,13 +791,7 @@ async function hCrearUsuarioSGT(args: z.infer<typeof EsquemaCrearUsuarioSGT>, ct
   });
   if (eAu) throw new Error(eAu.message);
   // 2) Ficha seg_usuarios con correlativo U00xxx.
-  const { data: ids } = await ctx.service.from("seg_usuarios").select("id").limit(5000);
-  let max = 0;
-  for (const r of ((ids ?? []) as { id?: string }[])) {
-    const m = /^U(\d{5})$/.exec(String(r.id ?? ""));
-    if (m) max = Math.max(max, parseInt(m[1], 10));
-  }
-  const id = `U${String(max + 1).padStart(5, "0")}`;
+  const id = siguienteId("U", await idsParaCorrelativo(ctx, "seg_usuarios"), 5);
   const { data, error } = await ctx.service.from("seg_usuarios").insert({
     id,
     nombre: args.nombre,
@@ -1190,7 +1195,7 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
   const tabla = tablaSimulacion(capital, tea, PLAZOS_SIMULACION, true);
 
   // Correlativo COT-AMCA-xxxxx (tolerante a concurrencia media).
-  const { data: prev } = await ctx.service.from("cotizaciones").select("codigo").like("codigo", "COT-AMCA-%").limit(5000);
+  const { data: prev } = await ctx.service.from("cotizaciones").select("codigo").like("codigo", "COT-AMCA-%").order("codigo", { ascending: false }).limit(2000);
   const numero = siguienteCodigoAMCA(((prev ?? []) as { codigo: string }[]).map((r) => r.codigo));
 
   // Detalles del mueble obligatorios: se guardan como bloque estructurado
@@ -1643,8 +1648,8 @@ function filaClienteEtapa1(args: {
 }
 
 async function hCrearClienteSGT(args: z.infer<typeof EsquemaCrearClienteSGT>, ctx: OperacionContext) {
-  const { data: ex } = await ctx.service.from("mae_clientes").select("id").limit(500);
-  const id = siguienteId("CLI", ((ex ?? []) as { id?: string }[]).map((r) => r.id), 6);
+  const existentes = await idsParaCorrelativo(ctx, "mae_clientes");
+  let id = siguienteId("CLI", existentes, 6);
   const base = {
     id,
     tipo_persona: args.tipo_persona,
@@ -1662,6 +1667,13 @@ async function hCrearClienteSGT(args: z.infer<typeof EsquemaCrearClienteSGT>, ct
   if (ins.error && /column|schema cache/i.test(ins.error.message)) {
     // BD sin migración 03: reintenta sin las columnas nuevas.
     for (const k of COLUMNAS_CLI_ETAPA1) delete payload[k];
+    ins = await ctx.service.from("mae_clientes").insert(payload).select().single();
+  }
+  // El maestro tiene >10k filas: si otro proceso tomó el correlativo, se
+  // reintenta con el siguiente id en vez de reportar un falso "documento duplicado".
+  for (let intento = 0; ins.error && esChoqueDeId(ins.error.message) && intento < 5; intento++) {
+    id = siguienteId("CLI", [...existentes, id], 6);
+    payload = { ...payload, id };
     ins = await ctx.service.from("mae_clientes").insert(payload).select().single();
   }
   const { data, error } = ins;
@@ -2044,8 +2056,7 @@ async function hCargaMasivaMateriales(args: z.infer<typeof EsquemaCargaMateriale
   const { filas, errores } = parseCSVMateriales(args.csv);
   let insertadas = 0;
   const fallos: string[] = [...errores];
-  const { data: ex } = await ctx.service.from("mae_materiales").select("id").limit(5000);
-  let corr = ((ex ?? []) as { id?: string }[]).map((r) => r.id);
+  let corr = await idsParaCorrelativo(ctx, "mae_materiales");
   const resProv = async (v: string) => {
     if (!v || v.toLowerCase().startsWith("todos")) return null;
     const { data } = await ctx.service.from("mae_proveedores")
@@ -2129,8 +2140,7 @@ const EsquemaCrearMaterialSGT = z.object({
 });
 
 async function hCrearMaterialSGT(args: z.infer<typeof EsquemaCrearMaterialSGT>, ctx: OperacionContext) {
-  const { data: ex } = await ctx.service.from("mae_materiales").select("id").limit(5000);
-  const id = siguienteId("MAT-", ((ex ?? []) as { id?: string }[]).map((r) => r.id), 5);
+  const id = siguienteId("MAT-", await idsParaCorrelativo(ctx, "mae_materiales"), 5);
   const { data, error } = await ctx.service.from("mae_materiales").insert({
     id,
     codigo_tmp: null,
@@ -2203,12 +2213,9 @@ async function hCargaMasivaProveedores(args: z.infer<typeof EsquemaCargaProveedo
   const { filas, errores } = parseCSVProveedores(args.csv);
   let insertadas = 0, vinculadas = 0;
   const fallos = [...errores];
-  const { data: ex } = await ctx.service.from("mae_proveedores").select("id").limit(5000);
-  let corr = ((ex ?? []) as { id?: string }[]).map((r) => r.id);
-  const { data: exG } = await ctx.service.from("mae_grupos_vendedores").select("id").limit(5000);
-  let corrG = ((exG ?? []) as { id?: string }[]).map((r) => r.id);
-  const { data: exP } = await ctx.service.from("rel_proveedor_oficinas").select("id").limit(5000);
-  let corrP = ((exP ?? []) as { id?: string }[]).map((r) => r.id);
+  let corr = await idsParaCorrelativo(ctx, "mae_proveedores");
+  let corrG = await idsParaCorrelativo(ctx, "mae_grupos_vendedores");
+  let corrP = await idsParaCorrelativo(ctx, "rel_proveedor_oficinas");
   for (const f of filas) {
     try {
       const { data: ya } = await ctx.service.from("mae_proveedores").select("id").eq("interlocutor", f.bp).limit(1).maybeSingle();
@@ -2298,10 +2305,10 @@ async function hCargaMasivaAsesores(args: z.infer<typeof EsquemaCargaAsesores>, 
   const { filas, errores } = parseCSVAsesores(args.csv);
   let insertadas = 0;
   const fallos = [...errores];
-  const { data: ex } = await ctx.service.from("seg_usuarios").select("id").limit(5000);
+  const ex = await idsParaCorrelativo(ctx, "seg_usuarios");
   let max = 0;
-  for (const r of ((ex ?? []) as { id?: string }[])) {
-    const m = /^U(\d{5})$/.exec(String(r.id ?? ""));
+  for (const r of ex) {
+    const m = /^U(\d{5})$/.exec(r);
     if (m) max = Math.max(max, parseInt(m[1], 10));
   }
   for (const [i, f] of filas.entries()) {

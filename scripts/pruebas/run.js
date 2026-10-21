@@ -49,11 +49,12 @@ function compilar() {
   const backend = require("./backend");
   const r1 = logica.ejecutar();
   const r2 = await backend.ejecutar();
-  const pass = r1.pass + r2.pass;
-  const fail = r1.fail + r2.fail;
-  const fallos = [...r1.fallos, ...r2.fallos];
+  const r3 = process.env.PRUEBAS_E2E === "1" ? await require("./e2e").ejecutar() : { pass: 0, fail: 0, fallos: [], omitido: true };
+  const pass = r1.pass + r2.pass + r3.pass;
+  const fail = r1.fail + r2.fail + r3.fail;
+  const fallos = [...r1.fallos, ...r2.fallos, ...r3.fallos];
   console.log("\n==============================");
-  console.log("RESUMEN: " + pass + " pass, " + fail + " fail" + (r2.omitido ? " (backend omitido: sin credenciales)" : ""));
+  console.log("RESUMEN: " + pass + " pass, " + fail + " fail" + (r2.omitido ? " (backend omitido: sin credenciales)" : "") + (r3.omitido && process.env.PRUEBAS_E2E === "1" ? " (e2e omitido)" : ""));
   if (fallos.length) fallos.forEach((f) => console.log(" - " + f));
   fs.rmSync(out, { recursive: true, force: true });
   process.exit(fail ? 1 : 0);

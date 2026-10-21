@@ -119,6 +119,16 @@ function siguienteId(prefijo: string, existentes: (string | null | undefined)[],
   return `${prefijo}${String(max + 1).padStart(pad, "0")}`;
 }
 
+/**
+ * Ids recientes de un maestro, en orden descendente: sin el orden desc,
+ * `limit(n)` trae las filas más antiguas y el correlativo se calcula sobre
+ * una muestra (mae_clientes ya tiene >10k filas y el id nuevo choca).
+ */
+async function idsParaCorrelativo(ctx: OperacionContext, tabla: string, limite = 5000): Promise<string[]> {
+  const { data } = await ctx.service.from(tabla).select("id").order("id", { ascending: false }).limit(limite);
+  return ((data ?? []) as { id?: string }[]).map((r) => String(r.id ?? ""));
+}
+
 /** Scope por rol: asesor/oficina solo ven lo creado por ellos (created_by propio). */
 function esAdmin(ctx: OperacionContext): boolean {
   return ctx.sesion.rol === "admin";
@@ -570,8 +580,7 @@ async function resolverClienteSGT(ctx: OperacionContext, id: string): Promise<st
     const { data: previo } = await ctx.service.from("mae_clientes").select("id").eq("nro_doc", dni).limit(1).maybeSingle();
     if (previo) return (previo as { id: string }).id;
   }
-  const { data: ids } = await ctx.service.from("mae_clientes").select("id").limit(5000);
-  const nuevo = siguienteId("CLI", ((ids ?? []) as { id?: string }[]).map((r) => r.id), 6);
+  const nuevo = siguienteId("CLI", await idsParaCorrelativo(ctx, "mae_clientes"), 6);
   const { error } = await ctx.service.from("mae_clientes").insert({
     id: nuevo,
     tipo_persona: "NATURAL",
@@ -600,8 +609,7 @@ async function resolverProveedorSGT(ctx: OperacionContext, id: string): Promise<
     if (previo) return (previo as { id: string }).id;
   }
   if (!b.ruc) lanzar(422, "El proveedor base no tiene RUC: complétalo en Administración > Proveedores antes de vender");
-  const { data: ids } = await ctx.service.from("mae_proveedores").select("id").limit(5000);
-  const nuevo = siguienteId("PRV", ((ids ?? []) as { id?: string }[]).map((r) => r.id));
+  const nuevo = siguienteId("PRV", await idsParaCorrelativo(ctx, "mae_proveedores"));
   const { error } = await ctx.service.from("mae_proveedores").insert({
     id: nuevo,
     interlocutor: String(b.contacto ?? b.nombre ?? nuevo),
@@ -631,8 +639,7 @@ async function resolverMaterialSGT(ctx: OperacionContext, id: string): Promise<s
     const { data: previoN } = await ctx.service.from("mae_materiales").select("id").eq("nombre", String(b.nombre)).limit(1).maybeSingle();
     if (previoN) return (previoN as { id: string }).id;
   }
-  const { data: ids } = await ctx.service.from("mae_materiales").select("id").limit(5000);
-  const nuevo = siguienteId("MAT-", ((ids ?? []) as { id?: string }[]).map((r) => r.id), 5);
+  const nuevo = siguienteId("MAT-", await idsParaCorrelativo(ctx, "mae_materiales"), 5);
   const { error } = await ctx.service.from("mae_materiales").insert({
     id: nuevo,
     codigo_tmp: null,
@@ -700,9 +707,7 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
     it.id_material = await resolverMaterialSGT(ctx, it.id_material);
   }
   try {
-    const { data: prev, error: ePrev } = await ctx.service.from(T_SOL).select("id").limit(5000);
-    if (ePrev) throw new Error(ePrev.message);
-    const id = siguienteVTA(((prev ?? []) as { id?: string }[]).map((r) => r.id));
+    const id = siguienteVTA(await idsParaCorrelativo(ctx, T_SOL));
     const baseSol: Record<string, unknown> = {
       id,
       id_cliente: idClienteSGT,
