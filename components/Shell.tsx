@@ -264,24 +264,26 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           )}
         </aside>
 
-        {/* Mobile nav con scroll horizontal */}
-        <div className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-900 border-t border-slate-200 flex gap-1 overflow-x-auto px-2 py-2 [scrollbar-width:thin]">
-          {visibles.map((it) => {
-            const active = pathname === it.href || pathname?.startsWith(it.href + "/");
-            return (
-              <Link
-                key={it.href}
-                href={it.href}
-                title={it.label}
-                className={`flex flex-col items-center shrink-0 text-[10px] font-semibold px-3 py-1 rounded-lg ${
-                  active ? "text-[#0099D8] dark:text-sky-300" : "text-slate-400"
-                }`}
-              >
-                <span className="flex h-6 w-6 items-center justify-center">{ICONOS[it.icon] ?? it.icon}</span>
-                {it.label}
-              </Link>
-            );
-          })}
+        {/* Mobile nav: centrado y repartido; si hay muchos módulos, scroll horizontal */}
+        <div className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-900 border-t border-slate-200 overflow-x-auto [scrollbar-width:thin]">
+          <nav className="flex w-max min-w-full items-center justify-center gap-1 px-2 py-2">
+            {visibles.map((it) => {
+              const active = pathname === it.href || pathname?.startsWith(it.href + "/");
+              return (
+                <Link
+                  key={it.href}
+                  href={it.href}
+                  title={it.label}
+                  className={`flex min-w-[64px] flex-1 flex-col items-center justify-center whitespace-nowrap rounded-lg px-2 py-1 text-[10px] font-semibold ${
+                    active ? "text-[#0099D8] dark:text-sky-300" : "text-slate-400"
+                  }`}
+                >
+                  <span className="flex h-6 w-6 items-center justify-center">{ICONOS[it.icon] ?? it.icon}</span>
+                  {it.label}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
 
         {/* Content */}
