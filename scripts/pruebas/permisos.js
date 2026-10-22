@@ -302,6 +302,73 @@ async function ejecutar() {
       }
     }
 
+    // Revertir liquidación: operativo desde pendiente_liquidar; admin desde liquidada.
+    const estadoLiquidacion = async (clave) => {
+      const id = ventasClave(clave);
+      const [{ data: sol }, { data: ins }] = await Promise.all([
+        service.from("vta_solicitudes_venta").select("estado").eq("id", id).maybeSingle(),
+        service.from("vta_instalaciones").select("estado,tipo_liquidacion,voucher_url").eq("solicitud_id", id).maybeSingle(),
+      ]);
+      return { sol: String(sol?.estado ?? ""), ins: String(ins?.estado ?? ""), tipo: ins?.tipo_liquidacion ?? null, voucher: ins?.voucher_url ?? null };
+    };
+    const prepararLiquidacion = async (clave, estadoSol, estadoIns, extra = {}) => {
+      const id = ventasClave(clave);
+      const { error: e1 } = await service.from("vta_instalaciones").upsert({
+        solicitud_id: id, estado: estadoIns, tipo_liquidacion: "anticipo",
+        voucher_url: "https://example.com/voucher.pdf", ...extra,
+      }, { onConflict: "solicitud_id" });
+      if (e1) throw new Error("instalacion " + clave + ": " + e1.message);
+      const { error: e2 } = await service.from("vta_solicitudes_venta").update({ estado: estadoSol }).eq("id", id);
+      if (e2) throw new Error("venta " + clave + ": " + e2.message);
+    };
+
+    await prepararLiquidacion("V5", "pendiente_liquidar", "pendiente_liquidar");
+    const rRevProv = await op("provA", "revertirLiquidacion", { solicitud_id: ventasClave("V5") });
+    let e5 = await estadoLiquidacion("V5");
+    aviso("provA revierte pendiente_liquidar -> validada_proveedor",
+      rRevProv.status === 200 && e5.sol === "validada_proveedor" && e5.ins === "validada_proveedor" && e5.tipo === null,
+      `HTTP ${rRevProv.status} sol=${e5.sol} ins=${e5.ins} tipo=${String(e5.tipo)}`);
+
+    const rReg = await op("provA", "registrarLiquidacion", { solicitud_id: ventasClave("V5"), tipo: "anticipo", voucher_url: "https://example.com/voucher2.pdf" });
+    e5 = await estadoLiquidacion("V5");
+    aviso("provA re-registra liquidación tras revertir -> pendiente_liquidar",
+      rReg.status === 200 && e5.sol === "pendiente_liquidar" && e5.ins === "pendiente_liquidar",
+      `HTTP ${rReg.status} sol=${e5.sol} ins=${e5.ins}`);
+
+    const rLiq = await op("admin", "liquidarVenta", { solicitud_id: ventasClave("V5") });
+    e5 = await estadoLiquidacion("V5");
+    aviso("admin liquida V5 -> liquidada", rLiq.status === 200 && e5.sol === "liquidada" && e5.ins === "liquidada", `HTTP ${rLiq.status} sol=${e5.sol} ins=${e5.ins}`);
+
+    const rRevNoAdmin = await op("provA", "revertirLiquidacion", { solicitud_id: ventasClave("V5") });
+    e5 = await estadoLiquidacion("V5");
+    aviso("provA no revierte venta liquidada -> 403", rRevNoAdmin.status === 403 && e5.sol === "liquidada", `HTTP ${rRevNoAdmin.status} sol=${e5.sol}`);
+
+    const rRevAdmin = await op("admin", "revertirLiquidacion", { solicitud_id: ventasClave("V5") });
+    e5 = await estadoLiquidacion("V5");
+    aviso("admin revierte liquidada -> pendiente_liquidar (conserva la vía)",
+      rRevAdmin.status === 200 && e5.sol === "pendiente_liquidar" && e5.ins === "pendiente_liquidar" && e5.tipo === "anticipo",
+      `HTTP ${rRevAdmin.status} sol=${e5.sol} ins=${e5.ins} tipo=${String(e5.tipo)}`);
+
+    const rRevPend = await op("admin", "revertirLiquidacion", { solicitud_id: ventasClave("V5") });
+    e5 = await estadoLiquidacion("V5");
+    aviso("admin revierte pendiente_liquidar -> validada_proveedor (limpia datos de liquidación)",
+      rRevPend.status === 200 && e5.sol === "validada_proveedor" && e5.ins === "validada_proveedor" && e5.tipo === null && e5.voucher === null,
+      `HTTP ${rRevPend.status} sol=${e5.sol} ins=${e5.ins} tipo=${String(e5.tipo)}`);
+
+    // Cierre operativo (flujo antiguo): validada_proveedor -> cerrada + liquidada.
+    await prepararLiquidacion("V6", "validada_proveedor", "validada_proveedor", { tipo_liquidacion: null, voucher_url: null });
+    const rCierre = await op("admin", "validacionFinal", { solicitud_id: ventasClave("V6") });
+    let e6 = await estadoLiquidacion("V6");
+    aviso("admin valida y liquida V6 -> cerrada/liquidada", rCierre.status === 200 && e6.sol === "liquidada" && e6.ins === "cerrada", `HTTP ${rCierre.status} sol=${e6.sol} ins=${e6.ins}`);
+    const rRevCierre = await op("admin", "revertirLiquidacion", { solicitud_id: ventasClave("V6") });
+    e6 = await estadoLiquidacion("V6");
+    aviso("admin revierte cierre liquidado -> validada_proveedor", rRevCierre.status === 200 && e6.sol === "validada_proveedor" && e6.ins === "validada_proveedor", `HTTP ${rRevCierre.status} sol=${e6.sol} ins=${e6.ins}`);
+
+    const rRevOtra = await op("provB", "revertirLiquidacion", { solicitud_id: ventasClave("V5") });
+    aviso("provB no revierte venta de otro proveedor -> 403", rRevOtra.status === 403, `HTTP ${rRevOtra.status}`);
+    const rRevEstado = await op("admin", "revertirLiquidacion", { solicitud_id: ventasClave("V1") });
+    aviso("admin no revierte venta sin liquidación -> 422", rRevEstado.status === 422, `HTTP ${rRevEstado.status}`);
+
     // PDF: solo visible para admin, dueño, proveedor y supervisor del equipo.
     const pdfDe = async (clave, cotId) => {
       const res = await fetch(`${BASE}/api/cotizaciones/${cotId}/pdf`, { headers: { cookie: usuarios[clave].cookie }, redirect: "manual" });

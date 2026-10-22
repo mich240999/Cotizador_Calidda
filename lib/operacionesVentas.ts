@@ -1796,6 +1796,60 @@ async function hRegistrarLiquidacion(args: z.infer<typeof EsquemaRegistrarLiquid
   }
 }
 
+/**
+ * Revierte una liquidación registrada por error:
+ *  - pendiente_liquidar → validada_proveedor (operativo; borra solo datos exclusivos de liquidación)
+ *  - liquidada con acta/anticipo → pendiente_liquidar (solo admin)
+ *  - liquidada con cierre operativo → validada_proveedor (solo admin)
+ */
+async function hRevertirLiquidacion(args: z.infer<typeof EsquemaSoloSolicitud>, ctx: OperacionContext) {
+  try {
+    const s = await ventaVisible(ctx, args.solicitud_id);
+    const estSol = String(s.estado ?? "").toLowerCase();
+    const { data: ins, error: eIns } = await ctx.service
+      .from(T_INS)
+      .select("id,estado")
+      .eq("solicitud_id", args.solicitud_id)
+      .maybeSingle();
+    if (eIns) throw new Error(eIns.message);
+    if (!ins) lanzar(422, "La venta no tiene instalación o liquidación registrada");
+    const estIns = String((ins as Fila).estado ?? "").toLowerCase();
+
+    if (estSol === "liquidada") {
+      if (!esAdmin(ctx)) lanzar(403, "Solo admin puede revertir una venta liquidada");
+      const destino = estIns === "cerrada"
+        ? "validada_proveedor"
+        : estIns === "liquidada"
+          ? "pendiente_liquidar"
+          : "";
+      if (!destino) lanzar(422, `No se puede revertir una venta liquidada con instalación '${estIns}'`);
+      const u1 = await ctx.service.from(T_INS).update({ estado: destino }).eq("solicitud_id", args.solicitud_id);
+      if (u1.error) throw new Error(u1.error.message);
+      const u2 = await ctx.service.from(T_SOL).update({ estado: destino }).eq("id", args.solicitud_id);
+      if (u2.error) throw new Error(u2.error.message);
+      return { ok: true, estado: destino };
+    }
+
+    if (estSol !== "pendiente_liquidar") {
+      lanzar(422, `Solo se revierte una venta pendiente de liquidar o liquidada (está '${estSol}')`);
+    }
+    const u1 = await ctx.service.from(T_INS).update({
+      estado: "validada_proveedor",
+      tipo_liquidacion: null,
+      voucher_url: null,
+      foto_durante_url: null,
+      foto_dni_url: null,
+      foto_cliente_dni_url: null,
+    }).eq("solicitud_id", args.solicitud_id);
+    if (u1.error) throw new Error(u1.error.message);
+    const u2 = await ctx.service.from(T_SOL).update({ estado: "validada_proveedor" }).eq("id", args.solicitud_id);
+    if (u2.error) throw new Error(u2.error.message);
+    return { ok: true, estado: "validada_proveedor" };
+  } catch (e) {
+    exigirTabla(e);
+  }
+}
+
 /** Stephany liquida (ya lo hizo en SAP): verifica evidencias y cierra → liquidada. */
 async function hLiquidarVenta(args: z.infer<typeof EsquemaLiquidar>, ctx: OperacionContext) {
   try {
@@ -1864,6 +1918,7 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   listarInstalaciones: { descripcion: "Instalaciones: solicitudes post-PV con su instalación (scope proveedor)", roles: TODOS, schema: EsquemaListarInstalaciones, handler: hListarInstalaciones },
   registrarLiquidacion: { descripcion: "Instalaciones: proveedor registra anticipo o acta → pendiente_liquidar", roles: OPERATIVO, schema: EsquemaRegistrarLiquidacion, handler: hRegistrarLiquidacion },
   liquidarVenta: { descripcion: "Instalaciones: liquida tras verificar evidencias → liquidada", roles: SOLO_ADMIN, schema: EsquemaLiquidar, handler: hLiquidarVenta },
+  revertirLiquidacion: { descripcion: "Ventas: revierte por error pendiente_liquidar → validada_proveedor (operativo) o liquidada → paso previo (admin)", roles: OPERATIVO, schema: EsquemaSoloSolicitud, handler: hRevertirLiquidacion },
   buscarCotizacionesParaVenta: { descripcion: "Ventas: busca cotizaciones por DNI/nombre/cta-cto/código para generar solicitud", roles: TODOS, schema: EsquemaBuscarCotizaciones, handler: hBuscarCotizacionesParaVenta },
   obtenerCotizacionParaVenta: { descripcion: "Ventas: payload de cotización para prellenar la solicitud", roles: OPERATIVO, schema: EsquemaCotizacionParaVenta, handler: hObtenerCotizacionParaVenta },
 };

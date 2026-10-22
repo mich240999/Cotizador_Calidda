@@ -169,6 +169,11 @@ export default function VentaDetallePage() {
 
   const cerrar = () => correr(() => apiOperacion("validacionFinal", { solicitud_id: id }), "Stephany validó y liquidó la venta.");
 
+  const revertir = () => {
+    if (!window.confirm("¿Revertir la liquidación? La venta volverá al paso anterior.")) return;
+    void correr(() => apiOperacion("revertirLiquidacion", { solicitud_id: id }), "Liquidación revertida al paso anterior.");
+  };
+
   const validarInstalacion = () =>
     correr(() => apiOperacion("validarInstalacionProveedor", { solicitud_id: id }), "Instalación validada. Ya se puede liquidar.");
 
@@ -181,6 +186,7 @@ export default function VentaDetallePage() {
   const puedeInstalar = ["aprobada", "generada", "en_instalacion", "instalada", "observada"].includes(est);
   const puedeValidarInst = ["instalada", "en_instalacion"].includes(est);
   const puedeLiquidar = est === "validada_proveedor";
+  const puedeRevertir = est === "pendiente_liquidar" || (esAdmin && est === "liquidada");
 
   const abrirAprobar = () => {
     // Prellena los números actuales para poder modificarlos.
@@ -388,6 +394,7 @@ export default function VentaDetallePage() {
               {!esAdmin ? (
                 <div className="flex flex-wrap gap-2">
                   {veInstalacion && puedeInstalar && <button className="btn-white" onClick={() => setShowInst((s) => !s)}>Registrar instalación</button>}
+                  {veInstalacion && puedeRevertir && <button className="btn-white" onClick={revertir} disabled={busy}>Revertir liquidación</button>}
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -397,6 +404,7 @@ export default function VentaDetallePage() {
                   {puedeObservarSol && <button className="btn-white" onClick={() => setShowObservar((s) => !s)}>Observar</button>}
                   {puedeValidarInst && <button className="btn-white" onClick={validarInstalacion} disabled={busy}>Validar instalación</button>}
                   {puedeLiquidar && <button className="btn-white" onClick={cerrar} disabled={busy}>Validar y liquidar</button>}
+                  {puedeRevertir && <button className="btn-white" onClick={revertir} disabled={busy}>Revertir liquidación</button>}
                 </div>
               )}
 

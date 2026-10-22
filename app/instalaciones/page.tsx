@@ -205,6 +205,7 @@ export default function InstalacionesPage() {
   const [reg, setReg] = useState<Fila | null>(null);
   const [ver, setVer] = useState<Fila | null>(null);
   const [liquidando, setLiquidando] = useState<string | null>(null);
+  const [revirtiendo, setRevirtiendo] = useState<string | null>(null);
 
   const cargar = async (qry?: string) => {
     setLoading(true);
@@ -246,6 +247,10 @@ export default function InstalacionesPage() {
     return INSTALABLE.includes(est) && !["pendiente_liquidar", "liquidada"].includes(ei) && est !== "liquidada";
   };
   const puedeLiquidar = (v: Fila) => esAdmin && estadoInstDe(v) === "pendiente_liquidar" && String(v.estado ?? "").toLowerCase() !== "liquidada";
+  const puedeRevertir = (v: Fila) => {
+    const ei = estadoInstDe(v);
+    return ei === "pendiente_liquidar" || (esAdmin && ei === "liquidada");
+  };
 
   const liquidar = async (v: Fila) => {
     setError(null);
@@ -259,6 +264,23 @@ export default function InstalacionesPage() {
       setError(e instanceof Error ? e.message : "No se pudo liquidar");
     } finally {
       setLiquidando(null);
+    }
+  };
+
+  const revertir = async (v: Fila) => {
+    const id = String(v.id);
+    if (!window.confirm(`¿Revertir la liquidación de ${id}? La venta volverá al paso anterior.`)) return;
+    setError(null);
+    setInfo(null);
+    setRevirtiendo(id);
+    try {
+      const r = await apiOperacion<{ estado?: string }>("revertirLiquidacion", { solicitud_id: id });
+      setInfo(`Venta ${id} revertida a ${r?.estado ?? "validada_proveedor"}.`);
+      await cargar();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo revertir la liquidación");
+    } finally {
+      setRevirtiendo(null);
     }
   };
 
@@ -379,6 +401,11 @@ export default function InstalacionesPage() {
                       {puedeLiquidar(v) && (
                         <button className="btn-green !py-1 !px-3 !text-xs" title="Liquidar (ya liquidado en SAP)" disabled={liquidando === String(v.id)} onClick={() => liquidar(v)}>
                           {liquidando === String(v.id) ? "…" : "✓ Liquidar"}
+                        </button>
+                      )}
+                      {puedeRevertir(v) && (
+                        <button className="btn-white !py-1 !px-3 !text-xs" title="Revertir por error el paso a liquidar" disabled={revirtiendo === String(v.id)} onClick={() => revertir(v)}>
+                          {revirtiendo === String(v.id) ? "…" : "↩ Revertir"}
                         </button>
                       )}
                     </div>
