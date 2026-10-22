@@ -10,6 +10,7 @@ import { apiOperacion } from "@/components/Tablas";
 const CARDS = [
   ["usuarios", "Usuarios", "Cuentas, roles y estados de acceso."],
   ["auditoria", "Auditoría", "Inicios de sesión y cambios realizados."],
+  ["sesiones", "Sesiones", "Tiempos de sesión y equipos conectados."],
   ["proveedores", "Proveedores", "Interlocutor, RUC y razón social."],
   ["oficinas", "Oficinas de ventas", "Sedes y códigos de oficina."],
   ["vinculaciones", "Proveedores y oficinas", "Vínculo proveedor ↔ oficina (inmutable)."],

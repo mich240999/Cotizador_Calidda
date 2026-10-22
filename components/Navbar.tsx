@@ -30,8 +30,11 @@ export default function Navbar() {
   }, []);
 
   const logout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch { /* sin red */ }
     const sb = getSupabaseBrowser();
-    await sb.auth.signOut();
+    await sb.auth.signOut({ scope: "local" }).catch(() => undefined);
     router.push("/");
     router.refresh();
   };

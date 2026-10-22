@@ -12,10 +12,38 @@ import LogoCalidda from "./LogoCalidda";
  * - Heartbeat de sesión cada 120s + visibilitychange.
  */
 
-async function heartbeat() {
+async function heartbeat(): Promise<boolean> {
   try {
-    await fetch("/api/cron/heartbeat", { method: "GET", keepalive: true });
-  } catch {}
+    const res = await fetch("/api/sesion/heartbeat", { method: "POST", keepalive: true });
+    return res.status !== 401;
+  } catch {
+    return true;
+  }
+}
+
+function equipoDe(ua: string | null | undefined): string {
+  if (!ua) return "Equipo desconocido";
+  if (/Edg\//.test(ua)) return "Edge";
+  if (/OPR\/|Opera/.test(ua)) return "Opera";
+  if (/Chrome\//.test(ua)) return "Chrome";
+  if (/Firefox\//.test(ua)) return "Firefox";
+  if (/Safari\//.test(ua)) return "Safari";
+  if (/okhttp|Android/i.test(ua)) return "Android";
+  if (/iPhone|iPad/i.test(ua)) return "iOS";
+  return ua.slice(0, 36);
+}
+
+function fechaCorta(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("es-PE", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Lima",
+  });
 }
 
 /** Asterisco de 8 puntas (marca) en blanco. */
@@ -34,6 +62,23 @@ function Asterisco({ className }: { className?: string }) {
  *  al remontar el AuthGate en cada página (muy visible en celular). */
 let _emailCache: string | null | undefined;
 
+type ConflictoSesion = {
+  user_agent?: string | null;
+  ip?: string | null;
+  created_at?: string;
+  ultima_actividad?: string;
+  total?: number;
+};
+
+type RespuestaLogin = {
+  ok?: boolean;
+  error?: string;
+  codigo?: string;
+  usuario?: { email?: string };
+  sesion?: ConflictoSesion;
+  total?: number;
+};
+
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const supabase = getSupabaseBrowser();
   const [loading, setLoading] = useState(_emailCache === undefined);
@@ -46,6 +91,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recordarme, setRecordarme] = useState(true);
+  const [conflicto, setConflicto] = useState<ConflictoSesion | null>(null);
 
   useEffect(() => {
     try {
@@ -68,6 +114,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           : decodeURIComponent(e).replace(/\+/g, " ");
         setError(amable);
         setVista("recuperar");
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+      if (q.get("motivo") === "sesion_cerrada") {
+        setError("Tu sesión se cerró porque se inició en otro equipo.");
         window.history.replaceState({}, "", window.location.pathname);
       }
     } catch { /* sin URL */ }
@@ -102,19 +152,36 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!email) return;
-    heartbeat();
-    const id = setInterval(heartbeat, 120_000);
+    let vivo = true;
+
+    const latir = async () => {
+      const ok = await heartbeat();
+      if (ok || !vivo) return;
+      try {
+        await fetch("/api/auth/logout", { method: "POST" });
+      } catch { /* sin red */ }
+      try {
+        await supabase.auth.signOut({ scope: "local" });
+      } catch { /* la cookie ya no vale */ }
+      _emailCache = null;
+      setEmail(null);
+      setAviso("Tu sesión se cerró porque se inició en otro equipo.");
+    };
+
+    latir();
+    const id = setInterval(latir, 120_000);
     const onVis = () => {
-      if (document.visibilityState === "visible") heartbeat();
+      if (document.visibilityState === "visible") latir();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
+      vivo = false;
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [email]);
+  }, [email, supabase]);
 
-  const ingresar = useCallback(async () => {
+  const ingresar = useCallback(async (cerrarOtras = false) => {
     setError(null);
     setAviso(null);
     if (!correo.trim() || !clave) {
@@ -130,9 +197,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           email: correo.trim().toLowerCase(),
           password: clave,
           recordarme,
+          cerrarOtras,
         }),
       });
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; usuario?: { email?: string } };
+      const json = (await res.json().catch(() => ({}))) as RespuestaLogin;
+      if (res.status === 409 && json?.codigo === "SESION_ACTIVA") {
+        setConflicto({ ...(json.sesion ?? {}), total: json.total });
+        return;
+      }
       if (!res.ok || json?.ok === false) {
         throw new Error(json?.error || "No se pudo iniciar sesión");
       }
@@ -147,12 +219,20 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       await supabase.auth.getUser().catch(() => undefined);
       _emailCache = emailFinal;
       setEmail(emailFinal);
+      setConflicto(null);
+      setClave("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo iniciar sesión");
     } finally {
       setBusy(false);
     }
   }, [supabase, correo, clave, recordarme]);
+
+  const mantenerSesion = () => {
+    setConflicto(null);
+    setClave("");
+    setAviso("Mantuvimos la sesión abierta en el otro equipo.");
+  };
 
   const recuperar = useCallback(async () => {
     setError(null);
@@ -289,7 +369,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               {vista === "login" ? (
                 <button
                   className="w-full rounded-xl bg-[#0077B6] py-3.5 text-[15px] font-semibold text-white transition hover:bg-[#005B96] active:bg-[#004E89] disabled:opacity-60"
-                  onClick={ingresar}
+                  onClick={() => ingresar()}
                   disabled={busy}
                 >
                   {busy ? "Ingresando…" : "Ingresar ahora"}
@@ -305,6 +385,38 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               )}
             </div>
 
+            {conflicto && (
+              <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <p className="font-bold">Tu cuenta ya está abierta en otro equipo</p>
+                <p className="mt-1 text-xs text-amber-800">
+                  Equipo: {equipoDe(conflicto.user_agent)} · Última actividad: {fechaCorta(conflicto.ultima_actividad)}
+                  {conflicto.ip ? ` · IP ${conflicto.ip}` : ""}
+                </p>
+                <p className="mt-1 text-xs text-amber-800">
+                  {conflicto.total && conflicto.total > 1
+                    ? `Hay ${conflicto.total} sesiones activas.`
+                    : "Si entras aquí, la sesión de ese equipo se cerrará."}
+                </p>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={mantenerSesion}
+                    disabled={busy}
+                    className="flex-1 rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900 transition hover:bg-amber-100 disabled:opacity-60"
+                  >
+                    Mantener la sesión actual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => ingresar(true)}
+                    disabled={busy}
+                    className="flex-1 rounded-xl bg-[#0077B6] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#005B96] disabled:opacity-60"
+                  >
+                    Cerrar sesión anterior y entrar
+                  </button>
+                </div>
+              </div>
+            )}
             {error && (
               <p className="mt-5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-2.5">{error}</p>
             )}

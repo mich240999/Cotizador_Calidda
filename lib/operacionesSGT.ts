@@ -4,6 +4,15 @@ import type { OperacionContext } from "./operaciones";
 import { completarNombresItems } from "./operaciones";
 import { cuotaFrancesaConIgv, tablaSimulacion, temConIgv, PLAZOS_SIMULACION } from "./financiamiento";
 import { componerObservaciones } from "./detallesMueble";
+import {
+  esTablaFaltante as esTablaSesionesFaltante,
+  finSesion,
+  leerConfigSesiones,
+  marcarSesionCerrada,
+  normalizarConfig,
+  sesionVigente,
+  type SesionApp
+} from "./sesiones";
 
 /**
  * lib/operacionesSGT.ts — Operaciones Ambientes Cáliddos (prefijo SGT).
@@ -2480,6 +2489,7 @@ const PREFIJOS_CAMBIO = [
   "asignar", "cargaMasiva", "importar", "enviar", "regenerar", "revertir", "subir",
   "registrar", "validarSap", "aprobar", "observar", "validarAbono",
   "validarInstalacion", "validacion", "liquidar", "cfgCorteGuardar", "cfgCorteEnviar",
+  "cfgSesiones", "cerrarSesion", "cerrarTodasSesiones",
   "adminCrear", "adminActualizar", "adminEliminar"
 ];
 const FILTRO_CAMBIOS = PREFIJOS_CAMBIO.map((p) => `operacion.ilike.${p}%`).join(",");
@@ -2665,6 +2675,94 @@ async function hListarAuditoria(args: z.infer<typeof EsquemaAuditoria>, ctx: Ope
   };
 }
 
+const EsquemaCfgSesiones = z.object({
+  duracionMin: z.coerce.number().int().min(5).max(10080),
+  inactividadMin: z.coerce.number().int().min(1).max(1440),
+  recordarDias: z.coerce.number().int().min(1).max(365),
+  unaSesion: z.boolean().default(true)
+});
+
+const EsquemaCerrarSesion = z.object({
+  id: z.string().uuid()
+});
+
+type FilaSesionAdmin = SesionApp & {
+  usuario?: string | null;
+  email?: string | null;
+};
+
+async function hCfgSesionesListar(_args: unknown, ctx: OperacionContext) {
+  const { config, necesitaMigracion } = await leerConfigSesiones(ctx.service);
+  let filas: SesionApp[] = [];
+
+  let data: unknown = null;
+  let error: unknown = null;
+  ({ data, error } = await ctx.service
+    .from("sesiones_app")
+    .select("id,user_id,user_agent,ip,origen,ultima_actividad,created_at,expira_en,recordarme,activa")
+    .eq("activa", true)
+    .order("ultima_actividad", { ascending: false })
+    .limit(200));
+
+  if (error && esTablaSesionesFaltante(error)) {
+    ({ data, error } = await ctx.service
+      .from("sesiones_app")
+      .select("id,user_id,user_agent,origen,ultima_actividad,created_at,activa")
+      .eq("activa", true)
+      .order("ultima_actividad", { ascending: false })
+      .limit(200));
+  }
+  if (error && !esTablaSesionesFaltante(error)) throw error;
+  filas = ((data ?? []) as unknown as SesionApp[]).filter((s) => sesionVigente(s, config));
+
+  const ids = [...new Set(filas.map((s) => s.user_id))];
+  const perfiles = new Map<string, { nombre?: string | null; email?: string | null }>();
+  if (ids.length > 0) {
+    const { data: p } = await ctx.service.from("profiles").select("id,nombre,email").in("id", ids);
+    for (const fila of (p ?? []) as { id: string; nombre?: string | null; email?: string | null }[]) {
+      perfiles.set(fila.id, fila);
+    }
+  }
+
+  const sesiones: FilaSesionAdmin[] = filas.map((s) => ({
+    ...s,
+    usuario: perfiles.get(s.user_id)?.nombre ?? null,
+    email: perfiles.get(s.user_id)?.email ?? null,
+    expira_en: s.expira_en ?? finSesion(s, config).toISOString()
+  }));
+
+  return { config, sesiones, total: sesiones.length, necesitaMigracion };
+}
+
+async function hCfgSesionesGuardar(args: z.infer<typeof EsquemaCfgSesiones>, ctx: OperacionContext) {
+  const { data, error } = await ctx.service
+    .from("cfg_sesiones")
+    .upsert({
+      id: true,
+      duracion_min: args.duracionMin,
+      inactividad_min: args.inactividadMin,
+      recordar_dias: args.recordarDias,
+      una_sesion: args.unaSesion,
+      updated_at: new Date().toISOString()
+    })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(
+      esTablaSesionesFaltante(error)
+        ? "Falta la tabla cfg_sesiones: ejecuta supabase/migracion_sesiones_01.sql en Supabase."
+        : error.message
+    );
+  }
+  return { config: normalizarConfig(data as Record<string, unknown>) };
+}
+
+async function hCerrarSesionActiva(args: z.infer<typeof EsquemaCerrarSesion>, ctx: OperacionContext) {
+  await marcarSesionCerrada(ctx.service, args.id, "admin");
+  return { ok: true, id: args.id };
+}
+
 // ---------------------------------------------------------------- mapa
 export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarProveedoresSGT: { descripcion: "SGT: lista proveedores (+interlocutor)", roles: TODOS, schema: EsquemaQ, handler: hListarProveedoresSGT },
@@ -2700,6 +2798,9 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   actualizarRolSGT: { descripcion: "SGT: actualiza rol", roles: SOLO_ADMIN, schema: EsquemaActualizarRolSGT, handler: hActualizarRolSGT },
   listarUsuariosSGT: { descripcion: "SGT: lista usuarios reales (seg_usuarios)", roles: TODOS, schema: EsquemaQ, handler: hListarUsuariosSGT },
   listarAuditoria: { descripcion: "SGT: auditoría de inicios de sesión y cambios", roles: SOLO_ADMIN, schema: EsquemaAuditoria, handler: hListarAuditoria },
+  cfgSesionesListar: { descripcion: "Sesiones: configuración y equipos conectados", roles: SOLO_ADMIN, schema: EsquemaVacio, handler: hCfgSesionesListar },
+  cfgSesionesGuardar: { descripcion: "Sesiones: guarda tiempos y política de una sola sesión", roles: SOLO_ADMIN, schema: EsquemaCfgSesiones, handler: hCfgSesionesGuardar },
+  cerrarSesionActiva: { descripcion: "Sesiones: cierra la sesión de un equipo", roles: SOLO_ADMIN, schema: EsquemaCerrarSesion, handler: hCerrarSesionActiva },
   crearUsuarioSGT: { descripcion: "SGT: crea acceso Auth + ficha seg_usuarios", roles: SOLO_ADMIN, schema: EsquemaCrearUsuarioSGT, handler: hCrearUsuarioSGT },
   actualizarUsuarioSGT: { descripcion: "SGT: actualiza ficha de usuario", roles: SOLO_ADMIN, schema: EsquemaActualizarUsuarioSGT, handler: hActualizarUsuarioSGT },
   cambiarPasswordUsuario: { descripcion: "SGT: cambia contraseña (ADMIN o SUPERADMIN SGT)", roles: OPERATIVO, schema: EsquemaCambiarPassword, handler: hCambiarPasswordUsuario },

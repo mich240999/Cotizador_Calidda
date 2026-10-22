@@ -1,5 +1,7 @@
 import { createHash } from "crypto";
+import { cookies } from "next/headers";
 import { createSupabaseServer, createSupabaseServiceRole } from "./supabaseServer";
+import { leerConfigSesiones, validarSesionApp } from "./sesiones";
 
 export type RolUsuario = "admin" | "asesor" | "oficina";
 
@@ -55,6 +57,20 @@ export async function getSession(): Promise<SesionInfo | null> {
 
   const email = data.user.email.toLowerCase();
   if (!isEmailAllowed(email)) return null;
+
+  // Control de sesión por equipo: si la cookie existe, debe seguir activa.
+  // Sin cookie se permite (sesiones anteriores a esta función) hasta que venzan.
+  const sesionId = cookies().get("calidda_sesion")?.value;
+  if (sesionId) {
+    try {
+      const svc = createSupabaseServiceRole();
+      const { config } = await leerConfigSesiones(svc);
+      const vigente = await validarSesionApp(svc, sesionId, data.user.id, config);
+      if (!vigente) return null;
+    } catch {
+      /* Tabla de sesiones no disponible: no se bloquea el acceso. */
+    }
+  }
 
   // Rol desde profiles JOIN roles; si no existe, asesor por defecto (o admin si es primer usuario).
   const { data: perfil } = await supabase

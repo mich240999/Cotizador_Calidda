@@ -219,7 +219,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             </div>
               <button
                 onClick={async () => {
-                  await getSupabaseBrowser().auth.signOut();
+                  try {
+                    await fetch("/api/auth/logout", { method: "POST" });
+                  } catch { /* sin red */ }
+                  await getSupabaseBrowser().auth.signOut({ scope: "local" }).catch(() => undefined);
                   router.push("/");
                   router.refresh();
                 }}

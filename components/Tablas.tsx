@@ -18,8 +18,14 @@ export async function apiOperacion<T = unknown>(
     body: JSON.stringify({ operacion, argumentos }),
   });
   const json = await res.json().catch(() => ({}));
+  if (res.status === 401 && typeof window !== "undefined") {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch { /* sin red */ }
+    window.location.assign("/?motivo=sesion_cerrada");
+  }
   if (!res.ok || json?.ok === false) {
-    throw new Error(json?.error || `Error en operación ${operacion}`);
+    throw new Error(json?.error || `Error en operaci�n ${operacion}`);
   }
   // Backend real: { ok:true, datos } · compat: { ok, data } o data directa
   if (json && typeof json === "object" && "datos" in json) return json.datos as T;

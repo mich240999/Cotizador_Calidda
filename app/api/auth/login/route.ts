@@ -3,6 +3,14 @@ import { z } from "zod";
 import { createServerClient, type CookieOptions, type SetAllCookies } from "@supabase/ssr";
 import { isEmailAllowed } from "@/lib/auth";
 import { createSupabaseServiceRole } from "@/lib/supabaseServer";
+import {
+  CONFIG_SESIONES_DEFAULT,
+  crearSesionApp,
+  leerConfigSesiones,
+  listarSesionesActivas,
+  revocarOtrasSesiones,
+  type SesionApp
+} from "@/lib/sesiones";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,7 +18,8 @@ export const dynamic = "force-dynamic";
 const EsquemaLogin = z.object({
   email: z.string().trim().email().max(160),
   password: z.string().min(1).max(200),
-  recordarme: z.boolean().optional().default(true)
+  recordarme: z.boolean().optional().default(true),
+  cerrarOtras: z.boolean().optional().default(false)
 });
 
 type CookiePendiente = { name: string; value: string; options: CookieOptions };
@@ -59,6 +68,17 @@ async function auditar(operacion: string, userId: string | null, args: Record<st
     });
   } catch {
     /* La auditoría nunca debe bloquear el inicio de sesión. */
+  }
+}
+
+/** Revoca la sesión recién creada cuando el acceso se rechaza (cuenta inactiva, equipo ocupado, etc.). */
+async function revocarSesionNueva(accessToken: string | null | undefined) {
+  if (!accessToken) return;
+  try {
+    const service = createSupabaseServiceRole();
+    await service.auth.admin.signOut(accessToken, "local");
+  } catch {
+    /* best-effort: las cookies no se emiten y la sesión expira sola. */
   }
 }
 
@@ -116,6 +136,7 @@ export async function POST(req: NextRequest) {
   }
 
   const service = createSupabaseServiceRole();
+  const accessToken = data.session?.access_token ?? null;
   let perfil: PerfilLogin | null = null;
   try {
     const { data: p } = await service
@@ -129,6 +150,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (perfil && perfil.activo === false) {
+    await revocarSesionNueva(accessToken);
     await auditar("INICIO_SESION_DENEGADO", perfil.id, {
       ...base,
       motivo: "cuenta_desactivada",
@@ -150,6 +172,7 @@ export async function POST(req: NextRequest) {
     const f = ficha as { estado?: string; rol_codigo?: string; nombre?: string } | null;
     if (f) {
       if (String(f.estado ?? "").toUpperCase() !== "ACTIVO") {
+        await revocarSesionNueva(accessToken);
         await auditar("INICIO_SESION_DENEGADO", perfil?.id ?? null, {
           ...base,
           motivo: "usuario_sgt_inactivo",
@@ -169,11 +192,88 @@ export async function POST(req: NextRequest) {
 
   const cookiesSesion = pendientes.filter((c) => c.name.includes("-auth-token"));
   if (cookiesSesion.length === 0 || cookiesSesion.every((c) => !c.value)) {
+    await revocarSesionNueva(accessToken);
     await auditar("INICIO_SESION_FALLIDO", perfil?.id ?? null, { ...base, motivo: "cookie_sesion_no_emitida" });
     return NextResponse.json(
       { ok: false, error: "No se pudo establecer la sesión. Inténtalo nuevamente." },
       { status: 500 }
     );
+  }
+
+  let config = CONFIG_SESIONES_DEFAULT;
+  try {
+    ({ config } = await leerConfigSesiones(service));
+  } catch {
+    /* Si falla la lectura se usan los valores por defecto. */
+  }
+
+  let sesionesActivas: SesionApp[] = [];
+  if (perfil?.id) {
+    try {
+      sesionesActivas = await listarSesionesActivas(service, perfil.id, config);
+    } catch {
+      /* Sin registro de sesiones no se bloquea el acceso. */
+    }
+  }
+
+  if (perfil?.id && config.unaSesion && sesionesActivas.length > 0) {
+    const actual = sesionesActivas[0];
+    if (!body.cerrarOtras) {
+      await revocarSesionNueva(accessToken);
+      await auditar("INICIO_SESION_BLOQUEADO", perfil.id, {
+        ...base,
+        motivo: "sesion_activa",
+        sesiones_activas: sesionesActivas.length
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          codigo: "SESION_ACTIVA",
+          error: "Tu cuenta ya tiene una sesión activa en otro equipo.",
+          sesion: {
+            user_agent: actual.user_agent ?? null,
+            ip: actual.ip ?? null,
+            created_at: actual.created_at,
+            ultima_actividad: actual.ultima_actividad
+          },
+          total: sesionesActivas.length
+        },
+        { status: 409 }
+      );
+    }
+
+    if (accessToken) {
+      try {
+        await service.auth.admin.signOut(accessToken, "others");
+      } catch {
+        /* La marca local de sesiones sigue bloqueando al equipo anterior. */
+      }
+    }
+    try {
+      await revocarOtrasSesiones(service, perfil.id);
+    } catch {
+      /* best-effort */
+    }
+    await auditar("SESION_REEMPLAZADA", perfil.id, {
+      ...base,
+      motivo: "cerrar_otras",
+      sesiones_activas: sesionesActivas.length
+    });
+  }
+
+  let sesionCreada: { id: string; expiraEn: string } | null = null;
+  if (perfil?.id) {
+    try {
+      sesionCreada = await crearSesionApp(service, {
+        userId: perfil.id,
+        userAgent,
+        ip,
+        recordarme: body.recordarme,
+        config
+      });
+    } catch {
+      /* No se bloquea el login si falla el registro de sesión. */
+    }
   }
 
   const rol = rolSgt ?? rolDePerfil(perfil);
@@ -198,9 +298,24 @@ export async function POST(req: NextRequest) {
     sameSite: "lax",
     httpOnly: false,
     secure,
-    ...(body.recordarme ? { maxAge: 60 * 60 * 24 * 180 } : {})
+    ...(body.recordarme ? { maxAge: 60 * 60 * 24 * config.recordarDias } : {})
   });
 
-  await auditar("INICIO_SESION", perfil?.id ?? null, { ...base, nombre: perfil?.nombre ?? null, rol });
+  if (sesionCreada) {
+    res.cookies.set("calidda_sesion", sesionCreada.id, {
+      path: "/",
+      sameSite: "lax",
+      httpOnly: true,
+      secure,
+      ...(body.recordarme ? { maxAge: 60 * 60 * 24 * config.recordarDias } : {})
+    });
+  }
+
+  await auditar("INICIO_SESION", perfil?.id ?? null, {
+    ...base,
+    nombre: perfil?.nombre ?? null,
+    rol,
+    sesion_id: sesionCreada?.id ?? null
+  });
   return res;
 }
