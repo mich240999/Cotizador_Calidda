@@ -434,11 +434,12 @@ async function hAdminEliminar(args: z.infer<typeof EsquemaAdminEliminar>, ctx: O
 
 const TODOS: RolUsuario[] = ["admin", "asesor", "oficina"];
 const OPERATIVO: RolUsuario[] = ["admin", "asesor"];
+const GESTION_CLIENTES: RolUsuario[] = ["admin", "oficina"];
 const SOLO_ADMIN: RolUsuario[] = ["admin"];
 
 export const OPERACIONES: Record<string, DefOperacion> = {
   listarClientes: { descripcion: "Lista clientes (búsqueda opcional)", roles: TODOS, schema: EsquemaListarClientes, handler: hListarClientes },
-  crearCliente: { descripcion: "Crea un cliente", roles: OPERATIVO, schema: EsquemaCrearCliente, handler: hCrearCliente },
+  crearCliente: { descripcion: "Crea un cliente", roles: GESTION_CLIENTES, schema: EsquemaCrearCliente, handler: hCrearCliente },
   listarMateriales: { descripcion: "Lista materiales", roles: TODOS, schema: EsquemaListarMateriales, handler: hListarMateriales },
   crearMaterial: { descripcion: "Crea un material", roles: OPERATIVO, schema: EsquemaCrearMaterial, handler: hCrearMaterial },
   crearCotizacion: { descripcion: "Crea cotización + items (IGV 18% por trigger)", roles: OPERATIVO, schema: EsquemaCrearCotizacion, handler: hCrearCotizacion },

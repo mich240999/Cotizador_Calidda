@@ -318,11 +318,11 @@ function EditarClienteModal({ c, onClose, onGuardado }: { c: Cliente; onClose: (
   );
 }
 
-function VisualizarModal({ c, onClose, onCambio }: { c: Cliente; onClose: () => void; onCambio?: (nuevo: Cliente) => void }) {
+function VisualizarModal({ c, onClose, onCambio, puedeGestionar = false }: { c: Cliente; onClose: () => void; onCambio?: (nuevo: Cliente) => void; puedeGestionar?: boolean }) {
   const [validando, setValidando] = useState(false);
   const [msgVal, setMsgVal] = useState<string | null>(null);
   const rev = revisionDe(c);
-  const puedeValidar = !!c.codigo_sap && rev !== "Validado";
+  const puedeValidar = puedeGestionar && !!c.codigo_sap && rev !== "Validado";
 
   const validarSap = async () => {
     setMsgVal(null);
@@ -634,6 +634,18 @@ export default function ClientesPage() {
   const [showCarga, setShowCarga] = useState(false);
   const [ver, setVer] = useState<Cliente | null>(null);
   const [editar, setEditar] = useState<Cliente | null>(null);
+  // Asesor solo consulta: crear/editar/importar queda para admin y oficina.
+  const [puedeGestionar, setPuedeGestionar] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/mi-perfil")
+      .then((r) => r.json())
+      .then((j) => {
+        const rol = String(j?.rol ?? "").toUpperCase();
+        setPuedeGestionar(j?.ok === true && (rol === "ADMIN" || rol === "OFICINA"));
+      })
+      .catch(() => {});
+  }, []);
 
   const cargar = async (p = page, ps = pageSize) => {
     setLoading(true);
@@ -700,8 +712,12 @@ export default function ClientesPage() {
         desc="Registra, consulta y revisa personas naturales o jurídicas, incluyendo su vinculación posterior con el código de cliente SAP."
         actions={<>
           <button className="btn-white !text-[#0099D8]" onClick={() => cargar(page, pageSize)} disabled={loading}>{loading ? "Actualizando…" : "Actualizar"}</button>
-          <button className="btn-white !text-[#0099D8]" onClick={() => setShowCarga(true)}>Carga masiva</button>
-          <button className="btn-green" onClick={() => setShowNuevo(true)}>Nuevo cliente</button>
+          {puedeGestionar && (
+            <>
+              <button className="btn-white !text-[#0099D8]" onClick={() => setShowCarga(true)}>Carga masiva</button>
+              <button className="btn-green" onClick={() => setShowNuevo(true)}>Nuevo cliente</button>
+            </>
+          )}
         </>}
       />
 
@@ -764,7 +780,7 @@ export default function ClientesPage() {
         {loading ? (
           <p className="p-6 text-sm text-[#0099D8]">Cargando clientes…</p>
         ) : rows.length === 0 ? (
-          <div className="p-4"><EmptyState titulo="Sin clientes" detalle="No hay clientes con esos filtros. Crea uno o usa carga masiva." /></div>
+          <div className="p-4"><EmptyState titulo="Sin clientes" detalle={puedeGestionar ? "No hay clientes con esos filtros. Crea uno o usa carga masiva." : "No hay clientes con esos filtros."} /></div>
         ) : (
           <div className="overflow-x-auto"><table className="tabla">
             <thead><tr><th>ID</th><th>DOCUMENTO</th><th>CLIENTE</th><th>CTA. CONTRATO</th><th>CONTACTO</th><th>DISTRITO</th><th>CÓDIGO SAP</th><th>REVISIÓN</th><th>ESTADO</th><th>ACCIONES</th></tr></thead>
@@ -794,10 +810,14 @@ export default function ClientesPage() {
                     <td className="whitespace-nowrap">
                       <div className="flex gap-1.5">
                         <AccVer title="Visualizar cliente" onClick={() => setVer(c)} />
-                        <AccEditar title="Editar cliente" onClick={() => setEditar(c)} />
-                        {activo
-                          ? <AccDesactivar title="Inactivar cliente" onClick={() => cambiarEstado(c)} />
-                          : <AccActivar title="Activar cliente" onClick={() => cambiarEstado(c)} />}
+                        {puedeGestionar && (
+                          <>
+                            <AccEditar title="Editar cliente" onClick={() => setEditar(c)} />
+                            {activo
+                              ? <AccDesactivar title="Inactivar cliente" onClick={() => cambiarEstado(c)} />
+                              : <AccActivar title="Activar cliente" onClick={() => cambiarEstado(c)} />}
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -813,10 +833,10 @@ export default function ClientesPage() {
         </div>
       </div>
 
-      {showNuevo && <NuevoClienteModal onClose={() => setShowNuevo(false)} onGuardado={() => { setPage(1); cargar(1, pageSize); }} />}
-      {showCarga && <CargaMasivaModal onClose={() => setShowCarga(false)} onProcesado={() => { setPage(1); cargar(1, pageSize); }} />}
-      {ver && <VisualizarModal c={ver} onClose={() => setVer(null)} onCambio={(nuevo) => { setRows((prev) => prev.map((r) => String(r.id) === String(nuevo.id) ? { ...r, ...nuevo } : r)); setVer((prev) => (prev ? { ...prev, ...nuevo } : prev)); }} />}
-      {editar && <EditarClienteModal c={editar} onClose={() => setEditar(null)} onGuardado={() => cargar(page, pageSize)} />}
+      {puedeGestionar && showNuevo && <NuevoClienteModal onClose={() => setShowNuevo(false)} onGuardado={() => { setPage(1); cargar(1, pageSize); }} />}
+      {puedeGestionar && showCarga && <CargaMasivaModal onClose={() => setShowCarga(false)} onProcesado={() => { setPage(1); cargar(1, pageSize); }} />}
+      {ver && <VisualizarModal c={ver} onClose={() => setVer(null)} puedeGestionar={puedeGestionar} onCambio={(nuevo) => { setRows((prev) => prev.map((r) => String(r.id) === String(nuevo.id) ? { ...r, ...nuevo } : r)); setVer((prev) => (prev ? { ...prev, ...nuevo } : prev)); }} />}
+      {puedeGestionar && editar && <EditarClienteModal c={editar} onClose={() => setEditar(null)} onGuardado={() => cargar(page, pageSize)} />}
     </Shell></AuthGate>
   );
 }

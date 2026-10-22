@@ -239,6 +239,14 @@ async function ejecutar() {
       return { status: res.status, cuerpo };
     };
 
+    // Clientes: el asesor solo consulta; crear/editar/importar es de admin/oficina.
+    const rCli = await op("as1", "listarClientesSGT", { limit: 1, page: 1, pageSize: 1 });
+    aviso("as1 listarClientesSGT (consulta) -> 200", rCli.status === 200, `HTTP ${rCli.status}`);
+    for (const nombre of ["crearClienteSGT", "actualizarClienteSGT", "validarArchivoClientes", "cargaMasivaClientes", "crearCliente"]) {
+      const r = await op("as1", nombre, {});
+      aviso(`as1 ${nombre} -> 403`, r.status === 403, `HTTP ${r.status}`);
+    }
+
     const idsVentas = (datos) => filasDe(datos).map((r) => String(r.id)).filter((id) => id.startsWith("VTA-9"));
     const idsCots = (datos) => filasDe(datos).map((r) => String(r.id)).filter((id) => creados.cotizaciones.some((c) => c.id === id));
 

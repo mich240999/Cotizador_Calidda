@@ -18,6 +18,7 @@ interface DefOp { descripcion: string; roles: RolUsuario[]; schema: z.ZodTypeAny
 
 const TODOS: RolUsuario[] = ["admin", "asesor", "oficina"];
 const OPERATIVO: RolUsuario[] = ["admin", "asesor"];
+const GESTION_CLIENTES: RolUsuario[] = ["admin", "oficina"];
 const SOLO_ADMIN: RolUsuario[] = ["admin"];
 
 const zLimit = z.coerce.number().int().min(1).max(500).default(100);
@@ -2487,11 +2488,11 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   crearGrupoVendedores: { descripcion: "SGT: crea grupo (requiere vinculación activa)", roles: SOLO_ADMIN, schema: EsquemaCrearGrupo, handler: hCrearGrupoVendedores },
   actualizarGrupoVendedores: { descripcion: "SGT: actualiza grupo (proveedor/oficina inmutables)", roles: SOLO_ADMIN, schema: EsquemaActualizarGrupo, handler: hActualizarGrupoVendedores },
   listarClientesSGT: { descripcion: "SGT: lista clientes con filtros y paginación", roles: TODOS, schema: EsquemaFiltrosClientesSGT, handler: hListarClientesSGT },
-  crearClienteSGT: { descripcion: "SGT: crea cliente (documento único, SAP opcional)", roles: OPERATIVO, schema: EsquemaCrearClienteSGT, handler: hCrearClienteSGT },
-  actualizarClienteSGT: { descripcion: "SGT: actualiza cliente (estado/SAP/datos)", roles: OPERATIVO, schema: EsquemaActualizarClienteSGT, handler: hActualizarClienteSGT },
+  crearClienteSGT: { descripcion: "SGT: crea cliente (documento único, SAP opcional)", roles: GESTION_CLIENTES, schema: EsquemaCrearClienteSGT, handler: hCrearClienteSGT },
+  actualizarClienteSGT: { descripcion: "SGT: actualiza cliente (estado/SAP/datos)", roles: GESTION_CLIENTES, schema: EsquemaActualizarClienteSGT, handler: hActualizarClienteSGT },
   validarSapCliente: { descripcion: "SGT: valida el código SAP del cliente (revisión manual)", roles: ["admin", "oficina"], schema: EsquemaValidarSap, handler: hValidarSapCliente },
-  validarArchivoClientes: { descripcion: "SGT: valida CSV/XLSX de clientes sin guardar", roles: OPERATIVO, schema: EsquemaValidarClientes, handler: hValidarArchivoClientes },
-  cargaMasivaClientes: { descripcion: "SGT: carga masiva clientes (máx 500)", roles: OPERATIVO, schema: EsquemaCargaClientes, handler: hCargaMasivaClientes },
+  validarArchivoClientes: { descripcion: "SGT: valida CSV/XLSX de clientes sin guardar", roles: GESTION_CLIENTES, schema: EsquemaValidarClientes, handler: hValidarArchivoClientes },
+  cargaMasivaClientes: { descripcion: "SGT: carga masiva clientes (máx 500)", roles: GESTION_CLIENTES, schema: EsquemaCargaClientes, handler: hCargaMasivaClientes },
   validarArchivoMateriales: { descripcion: "SGT: valida CSV/XLSX de materiales sin guardar", roles: OPERATIVO, schema: EsquemaCargaMateriales, handler: hValidarArchivoMateriales },
   cargaMasivaMateriales: { descripcion: "SGT: carga masiva materiales + tarifa inicial (máx 500)", roles: OPERATIVO, schema: EsquemaCargaMateriales, handler: hCargaMasivaMateriales },
   crearMaterialSGT: { descripcion: "SGT: crea material en maestro + tarifa opcional", roles: OPERATIVO, schema: EsquemaCrearMaterialSGT, handler: hCrearMaterialSGT },
