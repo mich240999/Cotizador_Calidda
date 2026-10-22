@@ -8,6 +8,8 @@ import { createClient as createJsClient, type SupabaseClient } from "@supabase/s
  */
 export function createSupabaseServer() {
   const cookieStore = cookies();
+  // "Recuérdame" desmarcado: las cookies de sesión no llevan Max-Age/Expires.
+  const soloSesion = cookieStore.get("calidda_recordar")?.value === "0";
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,7 +21,12 @@ export function createSupabaseServer() {
         },
         set(name: string, value: string, options: CookieOptions) {
           try {
-            cookieStore.set({ name, value, ...options });
+            const opciones: CookieOptions = { ...options };
+            if (soloSesion) {
+              delete opciones.maxAge;
+              delete opciones.expires;
+            }
+            cookieStore.set({ name, value, ...opciones });
           } catch {
             // Route Handler con cookies readonly en ciertos contextos — se ignora
             // porque el middleware refresca la sesión.

@@ -2473,6 +2473,198 @@ async function hActualizarMaterialSGT(args: z.infer<typeof EsquemaActualizarMate
   return final;
 }
 
+// ---------------------------------------------------------------- auditoría
+const OPS_LOGIN = ["INICIO_SESION", "INICIO_SESION_FALLIDO", "INICIO_SESION_DENEGADO"] as const;
+const PREFIJOS_CAMBIO = [
+  "crear", "actualizar", "eliminar", "borrar", "cambiar", "guardar", "vincular",
+  "asignar", "cargaMasiva", "importar", "enviar", "regenerar", "revertir", "subir",
+  "registrar", "validarSap", "aprobar", "observar", "validarAbono",
+  "validarInstalacion", "validacion", "liquidar", "cfgCorteGuardar", "cfgCorteEnviar",
+  "adminCrear", "adminActualizar", "adminEliminar"
+];
+const FILTRO_CAMBIOS = PREFIJOS_CAMBIO.map((p) => `operacion.ilike.${p}%`).join(",");
+
+const EsquemaAuditoria = z.object({
+  tipo: z.enum(["logins", "cambios"]).default("logins"),
+  q: z.string().trim().max(120).optional().default(""),
+  desde: z.string().trim().max(20).optional().default(""),
+  hasta: z.string().trim().max(20).optional().default(""),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).max(100000).default(0)
+});
+
+/** Inicio del día en hora Perú (UTC-5). */
+function inicioDiaPeru(diasAtras = 0): string {
+  const fecha = new Date(Date.now() - 5 * 3600_000 - diasAtras * 86_400_000);
+  return `${fecha.toISOString().slice(0, 10)}T00:00:00-05:00`;
+}
+
+function isoDesde(v: string): string | null {
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T00:00:00-05:00` : null;
+}
+
+function isoHasta(v: string): string | null {
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T23:59:59.999-05:00` : null;
+}
+
+/** Resumen legible y sin datos sensibles de los argumentos auditados. */
+function resumenArgumentos(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const partes: string[] = [];
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (/password|clave|token|secret|authorization/i.test(k)) continue;
+    if (v === null || v === undefined || v === "") continue;
+    const texto = typeof v === "string" ? v : JSON.stringify(v);
+    if (!texto) continue;
+    partes.push(`${k}=${String(texto).replace(/\s+/g, " ").slice(0, 90)}`);
+    if (partes.length >= 6) break;
+  }
+  return partes.join(" · ").slice(0, 420);
+}
+
+type FilaAuditoria = {
+  id: number;
+  user_id: string | null;
+  operacion: string;
+  modulo: string | null;
+  argumentos: Record<string, unknown> | null;
+  created_at: string;
+};
+
+type PerfilAuditoria = {
+  id: string;
+  nombre?: string | null;
+  email?: string | null;
+  roles?: { nombre?: string | null } | { nombre?: string | null }[] | null;
+};
+
+function rolPerfilAuditoria(p: PerfilAuditoria | undefined): string | null {
+  const r = p?.roles;
+  const n = Array.isArray(r) ? r[0]?.nombre : r?.nombre;
+  return n ? String(n) : null;
+}
+
+async function hListarAuditoria(args: z.infer<typeof EsquemaAuditoria>, ctx: OperacionContext) {
+  const svc = ctx.service as unknown as { from(t: string): any };
+  const esLogin = args.tipo === "logins";
+  const s = limpiarBusqueda(args.q ?? "");
+
+  const construir = () => {
+    let q = svc.from("audit_log").select("id,user_id,operacion,modulo,argumentos,created_at", { count: "exact" });
+    q = esLogin ? q.in("operacion", OPS_LOGIN) : q.or(FILTRO_CAMBIOS);
+    const desde = isoDesde(args.desde);
+    const hasta = isoHasta(args.hasta);
+    if (desde) q = q.gte("created_at", desde);
+    if (hasta) q = q.lte("created_at", hasta);
+    return q;
+  };
+
+  let q = construir();
+  if (s) {
+    let ids: string[] = [];
+    try {
+      const { data: perfiles } = await svc
+        .from("profiles")
+        .select("id")
+        .or(`nombre.ilike.%${s}%,email.ilike.%${s}%`)
+        .limit(300);
+      ids = ((perfiles ?? []) as { id: string }[]).map((p) => p.id);
+    } catch {
+      /* sin profiles */
+    }
+    const partes = [`operacion.ilike.%${s}%`, `argumentos->>email.ilike.%${s}%`];
+    if (ids.length) partes.push(`user_id.in.(${ids.join(",")})`);
+    q = q.or(partes.join(","));
+  }
+
+  const { data, error, count } = await q
+    .order("created_at", { ascending: false })
+    .range(args.offset, args.offset + args.limit - 1);
+  if (error) throw new Error(error.message);
+
+  const filasBase = (data ?? []) as FilaAuditoria[];
+  const idsPagina = [...new Set(filasBase.map((f) => f.user_id).filter((v): v is string => !!v))];
+  let mapa = new Map<string, PerfilAuditoria>();
+  if (idsPagina.length) {
+    try {
+      const { data: perfiles } = await svc
+        .from("profiles")
+        .select("id,nombre,email,roles(nombre)")
+        .in("id", idsPagina);
+      mapa = new Map(((perfiles ?? []) as PerfilAuditoria[]).map((p) => [p.id, p]));
+    } catch {
+      /* sin profiles */
+    }
+  }
+
+  const filas = filasBase.map((f) => {
+    const perfil = f.user_id ? mapa.get(f.user_id) : undefined;
+    const a = (f.argumentos ?? {}) as Record<string, unknown>;
+    const errorArgs = typeof a._error === "string" ? a._error : null;
+    return {
+      id: f.id,
+      fecha: f.created_at,
+      usuario: perfil?.nombre ?? (typeof a.nombre === "string" ? a.nombre : null),
+      email: perfil?.email ?? (typeof a.email === "string" ? a.email : null),
+      rol: rolPerfilAuditoria(perfil) ?? (typeof a.rol === "string" ? a.rol : null),
+      operacion: f.operacion,
+      modulo: f.modulo,
+      detalle: esLogin ? null : resumenArgumentos(a),
+      error: errorArgs,
+      ip: typeof a.ip === "string" ? a.ip : null,
+      user_agent: typeof a.user_agent === "string" ? a.user_agent : null,
+      recordarme: typeof a.recordarme === "boolean" ? a.recordarme : null,
+      estado:
+        f.operacion === "INICIO_SESION"
+          ? "OK"
+          : f.operacion === "INICIO_SESION_FALLIDO"
+            ? "FALLIDO"
+            : f.operacion === "INICIO_SESION_DENEGADO"
+              ? "DENEGADO"
+              : errorArgs
+                ? "ERROR"
+                : "OK"
+    };
+  });
+
+  const hoy = inicioDiaPeru(0);
+  const contar = async (aplicar: (q: any) => any) => {
+    try {
+      const { count: n } = await aplicar(
+        svc.from("audit_log").select("id", { count: "exact", head: true })
+      ).gte("created_at", hoy);
+      return n ?? 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const [loginsHoy, fallidosHoy, cambiosHoy] = await Promise.all([
+    contar((x) => x.eq("operacion", "INICIO_SESION")),
+    contar((x) => x.in("operacion", ["INICIO_SESION_FALLIDO", "INICIO_SESION_DENEGADO"])),
+    contar((x) => x.or(FILTRO_CAMBIOS))
+  ]);
+
+  let usuariosHoy = 0;
+  try {
+    const { data: u } = await svc
+      .from("audit_log")
+      .select("user_id")
+      .gte("created_at", hoy)
+      .not("user_id", "is", null)
+      .limit(3000);
+    usuariosHoy = new Set(((u ?? []) as { user_id: string }[]).map((x) => x.user_id)).size;
+  } catch {
+    /* sin datos */
+  }
+
+  return {
+    filas,
+    total: count ?? filas.length,
+    resumen: { loginsHoy, fallidosHoy, cambiosHoy, usuariosHoy }
+  };
+}
+
 // ---------------------------------------------------------------- mapa
 export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarProveedoresSGT: { descripcion: "SGT: lista proveedores (+interlocutor)", roles: TODOS, schema: EsquemaQ, handler: hListarProveedoresSGT },
@@ -2507,6 +2699,7 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   crearRolSGT: { descripcion: "SGT: crea rol (requiere migracion_roles_01)", roles: SOLO_ADMIN, schema: EsquemaCrearRolSGT, handler: hCrearRolSGT },
   actualizarRolSGT: { descripcion: "SGT: actualiza rol", roles: SOLO_ADMIN, schema: EsquemaActualizarRolSGT, handler: hActualizarRolSGT },
   listarUsuariosSGT: { descripcion: "SGT: lista usuarios reales (seg_usuarios)", roles: TODOS, schema: EsquemaQ, handler: hListarUsuariosSGT },
+  listarAuditoria: { descripcion: "SGT: auditoría de inicios de sesión y cambios", roles: SOLO_ADMIN, schema: EsquemaAuditoria, handler: hListarAuditoria },
   crearUsuarioSGT: { descripcion: "SGT: crea acceso Auth + ficha seg_usuarios", roles: SOLO_ADMIN, schema: EsquemaCrearUsuarioSGT, handler: hCrearUsuarioSGT },
   actualizarUsuarioSGT: { descripcion: "SGT: actualiza ficha de usuario", roles: SOLO_ADMIN, schema: EsquemaActualizarUsuarioSGT, handler: hActualizarUsuarioSGT },
   cambiarPasswordUsuario: { descripcion: "SGT: cambia contraseña (ADMIN o SUPERADMIN SGT)", roles: OPERATIVO, schema: EsquemaCambiarPassword, handler: hCambiarPasswordUsuario },

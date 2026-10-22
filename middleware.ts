@@ -13,6 +13,8 @@ export async function middleware(req: NextRequest) {
   if (!protegida) return NextResponse.next();
 
   let res = NextResponse.next({ request: { headers: req.headers } });
+  // "Recuérdame" desmarcado: al refrescar el token no re-crear cookies persistentes.
+  const soloSesion = req.cookies.get("calidda_recordar")?.value === "0";
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,7 +25,10 @@ export async function middleware(req: NextRequest) {
           return req.cookies.get(name)?.value;
         },
         set(name: string, value: string, options: Record<string, unknown>) {
-          res.cookies.set(name, value, options as never);
+          const opciones = soloSesion
+            ? { ...options, maxAge: undefined, expires: undefined }
+            : options;
+          res.cookies.set(name, value, opciones as never);
         },
         remove(name: string, options: Record<string, unknown>) {
           res.cookies.set(name, "", options as never);

@@ -45,6 +45,16 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recordarme, setRecordarme] = useState(true);
+
+  useEffect(() => {
+    try {
+      const guardado = localStorage.getItem("calidda_correo");
+      if (guardado) setCorreo(guardado);
+    } catch {
+      /* almacenamiento no disponible */
+    }
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -113,17 +123,36 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     }
     setBusy(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: correo.trim().toLowerCase(),
-        password: clave,
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: correo.trim().toLowerCase(),
+          password: clave,
+          recordarme,
+        }),
       });
-      if (error) throw error;
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; usuario?: { email?: string } };
+      if (!res.ok || json?.ok === false) {
+        throw new Error(json?.error || "No se pudo iniciar sesión");
+      }
+      const emailFinal = json?.usuario?.email ?? correo.trim().toLowerCase();
+      try {
+        if (recordarme) localStorage.setItem("calidda_correo", emailFinal);
+        else localStorage.removeItem("calidda_correo");
+      } catch {
+        /* almacenamiento no disponible */
+      }
+      // Sincroniza el cliente con las cookies recién emitidas por el servidor.
+      await supabase.auth.getUser().catch(() => undefined);
+      _emailCache = emailFinal;
+      setEmail(emailFinal);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo iniciar sesión");
     } finally {
       setBusy(false);
     }
-  }, [supabase, correo, clave]);
+  }, [supabase, correo, clave, recordarme]);
 
   const recuperar = useCallback(async () => {
     setError(null);
@@ -245,6 +274,17 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                     {verClave ? "◠" : "👁"}
                   </button>
                 </div>
+              )}
+              {vista === "login" && (
+                <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={recordarme}
+                    onChange={(e) => setRecordarme(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 accent-[#0077B6]"
+                  />
+                  Recuérdame en este equipo
+                </label>
               )}
               {vista === "login" ? (
                 <button
