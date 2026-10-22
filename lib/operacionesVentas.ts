@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { RolUsuario } from "./auth";
 import type { OperacionContext } from "./operaciones";
 import { resolverAlcance, aplicarAlcanceVentas, puedeVerVenta, puedeVerCotizacion } from "./alcance";
+import { correoConfigurado, enviarCorreo } from "./mailer";
+import { CLAVE_CORREO_COTIZACION, obtenerConfigCorreoCotizacion } from "./correoCotizacion";
 
 /**
  * lib/operacionesVentas.ts — Operaciones del módulo Ventas (prefijo VTA-).
@@ -248,19 +250,11 @@ async function avisarAbonoAdmin(args: {
   abono_id: string;
 }): Promise<"enviado" | "omitido"> {
   try {
-    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, VENTAS_ADMIN_EMAIL, ADMIN_EMAIL } = process.env;
-    const destino = VENTAS_ADMIN_EMAIL || ADMIN_EMAIL || SMTP_FROM || SMTP_USER;
-    if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS || !destino) return "omitido";
-    const nodemailer = await import("nodemailer");
-    const transporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: Number(SMTP_PORT || 587),
-      secure: Number(SMTP_PORT || 587) === 465,
-      auth: { user: SMTP_USER, pass: SMTP_PASS },
-    });
-    await transporter.sendMail({
-      from: SMTP_FROM || SMTP_USER,
-      to: destino,
+    const { VENTAS_ADMIN_EMAIL, ADMIN_EMAIL, RESEND_ADMIN_EMAIL, SMTP_USER } = process.env;
+    const destinos = partirCorreos([VENTAS_ADMIN_EMAIL, ADMIN_EMAIL, RESEND_ADMIN_EMAIL, SMTP_USER].filter(Boolean).join(","));
+    if (!correoConfigurado() || destinos.length === 0) return "omitido";
+    await enviarCorreo({
+      to: destinos,
       subject: `Nuevo abono pendiente — solicitud ${args.solicitud_id}`,
       text: `Se registró un abono pendiente de validación.\n\nSolicitud: ${args.solicitud_id}\nAbono: ${args.abono_id}\nMonto: ${args.monto}\nMedio: ${args.medio}`,
     });
@@ -278,23 +272,14 @@ async function avisarObservacion(
   motivo: string
 ): Promise<"enviado" | "omitido"> {
   try {
-    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
-    if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return "omitido";
+    if (!correoConfigurado()) return "omitido";
     const { data: sol } = await ctx.service.from(T_SOL).select("created_by").eq("id", solicitudId).maybeSingle();
     const uid = (sol as { created_by?: string } | null)?.created_by;
     if (!uid) return "omitido";
     const { data: usr } = await ctx.service.auth.admin.getUserById(uid);
     const destino = usr?.user?.email;
     if (!destino) return "omitido";
-    const nodemailer = await import("nodemailer");
-    const transporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: Number(SMTP_PORT || 587),
-      secure: Number(SMTP_PORT || 587) === 465,
-      auth: { user: SMTP_USER, pass: SMTP_PASS },
-    });
-    await transporter.sendMail({
-      from: SMTP_FROM || SMTP_USER,
+    await enviarCorreo({
       to: destino,
       subject: `Subsanar ${etapa} — solicitud ${solicitudId}`,
       text: `Stephany observó ${etapa} de tu solicitud ${solicitudId} y hay algo por subsanar.\n\nMotivo: ${motivo}\n\nCorrige y vuelve a subir los sustentos correctos desde el detalle de la venta; el proceso continúa desde donde quedó.`,
@@ -1564,19 +1549,12 @@ export async function procesarCorte(
   const vars = { cantidad: conteo.cantidad, fecha: ahora.fecha, hora: ahora.hora, detalle };
   const para = partirCorreos(String(c.para ?? ""));
   if (para.length === 0) return { clave, enviado: false, motivo: "sin correo destino configurado", cantidad: conteo.cantidad };
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) throw new Error("SMTP no configurado (SMTP_HOST/SMTP_USER/SMTP_PASS)");
-  const nodemailer = await import("nodemailer");
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT || 587),
-    secure: Number(SMTP_PORT || 587) === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
-  await transporter.sendMail({
-    from: SMTP_FROM || SMTP_USER,
+  if (!correoConfigurado()) {
+    throw new Error("Correo no configurado: define RESEND_API_KEY (Resend) o SMTP_HOST/SMTP_USER/SMTP_PASS.");
+  }
+  await enviarCorreo({
     to: para,
-    cc: partirCorreos(String(c.copia ?? "")) || undefined,
+    cc: partirCorreos(String(c.copia ?? "")),
     subject: aplicarPlantilla(String(c.asunto ?? `Corte ${clave}`), vars),
     text: aplicarPlantilla(String(c.mensaje ?? "{cantidad} pendientes"), vars),
   });
@@ -1617,6 +1595,41 @@ async function hCorteEnviar(args: z.infer<typeof EsquemaEnviarCorte>, ctx: Opera
   } catch (e) {
     exigirTabla(e);
   }
+}
+
+// ------------------------------------------------ Plantilla del correo de cotización
+
+const EsquemaGuardarCorreoCotizacion = z.object({
+  asunto: z.string().trim().min(1, "El asunto es obligatorio").max(200),
+  mensaje: z.string().trim().min(1, "El mensaje es obligatorio").max(8000)
+});
+
+async function hCorreoCotizacionObtener(_args: unknown, ctx: OperacionContext) {
+  return obtenerConfigCorreoCotizacion(ctx.service);
+}
+
+async function hCorreoCotizacionGuardar(
+  args: z.infer<typeof EsquemaGuardarCorreoCotizacion>,
+  ctx: OperacionContext
+) {
+  const { data, error } = await ctx.service
+    .from("cfg_correos")
+    .upsert({
+      clave: CLAVE_CORREO_COTIZACION,
+      asunto: args.asunto,
+      mensaje: args.mensaje,
+      updated_at: new Date().toISOString()
+    })
+    .select("asunto,mensaje")
+    .single();
+
+  if (error) {
+    if (/42P01|does not exist|Could not find the table|no existe/i.test(`${error.code ?? ""} ${error.message ?? ""}`)) {
+      throw new Error("Falta la tabla cfg_correos: ejecuta supabase/migracion_correos_01.sql");
+    }
+    throw new Error(error.message);
+  }
+  return { config: data, necesitaMigracion: false };
 }
 
 // ---------------------------------------------------------------- Etapa 6: instalaciones y liquidación
@@ -1905,6 +1918,8 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   cfgCortesListar: { descripcion: "Cortes: lee configuración de cortes programados", roles: SOLO_ADMIN, schema: z.object({}).passthrough(), handler: hCortesListar },
   cfgCorteGuardar: { descripcion: "Cortes: guarda horas/correos/asunto/mensaje de un corte", roles: SOLO_ADMIN, schema: EsquemaGuardarCorte, handler: hCorteGuardar },
   cfgCorteEnviar: { descripcion: "Cortes: envía ahora un corte (prueba)", roles: SOLO_ADMIN, schema: EsquemaEnviarCorte, handler: hCorteEnviar },
+  cfgCorreoCotizacion: { descripcion: "Correo cotización: lee asunto/mensaje editables", roles: SOLO_ADMIN, schema: z.object({}).passthrough(), handler: hCorreoCotizacionObtener },
+  cfgCorreoCotizacionGuardar: { descripcion: "Correo cotización: guarda asunto/mensaje", roles: SOLO_ADMIN, schema: EsquemaGuardarCorreoCotizacion, handler: hCorreoCotizacionGuardar },
   actualizarNumerosPedido: { descripcion: "Ventas: edita n.º de pedido por ítem sin cambiar estado", roles: SOLO_ADMIN, schema: EsquemaAprobar, handler: hActualizarNumerosPedido },
   observarSolicitud: { descripcion: "Ventas: observa solicitud", roles: SOLO_ADMIN, schema: EsquemaObservarSolicitud, handler: hObservarSolicitud },
   registrarInstalacion: { descripcion: "Ventas: registra instalación (4 evidencias) → en_instalacion", roles: OPERATIVO, schema: EsquemaInstalacion, handler: hRegistrarInstalacion },
@@ -1932,7 +1947,7 @@ export const REGLAS_VENTAS = {
   adjuntos: "adjunto_cotizacion_url y adjunto_dni_url obligatorios al crear (400 sin ellos)",
   subtotal_item: "cantidad * precio_unit − descuento_monto (422 si el descuento supera el bruto)",
   correlativo: "id VTA-xxxxxx (6 dígitos)",
-  abonos: "registrarAbono deja estado 'pendiente' y avisa a admin por SMTP best-effort (aviso_email: enviado|omitido); validarAbono: validar → 'validado', observar → 'pendiente' + observacion (observacion obligatoria al observar)",
+  abonos: "registrarAbono deja estado 'pendiente' y avisa a admin por correo best-effort (aviso_email: enviado|omitido); validarAbono: validar → 'validado', observar → 'pendiente' + observacion (observacion obligatoria al observar)",
   aprobacion: "aprobarSolicitud exige al menos un número (venta o abono) por CADA ítem, sino 422; observarSolicitud → 'observado'",
   instalacion: "registrarInstalacion exige las 4 evidencias (+observación y foto extra opcionales) → solicitud 'instalada' + instalación 'registrada'; validarInstalacionProveedor → 'validada_proveedor'; validacionFinal (Stephany) solo desde 'validada_proveedor' sino 422 → 'liquidada'; observarInstalacion → 'observada'",
   exportar: "columnas fijas: numero, cliente, documento, proveedor, canal, estado, total, cuotas (n.º ítems financiados), fecha",

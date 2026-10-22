@@ -5,6 +5,8 @@ import { createSupabaseServiceRole } from "@/lib/supabaseServer";
 import { obtenerDatosPdf, buildCotizacionPdf } from "@/lib/cotizacionPdf";
 import { extraerDetalles } from "@/lib/detallesMueble";
 import { resolverAlcance, puedeVerCotizacion } from "@/lib/alcance";
+import { correoConfigurado, enviarCorreo } from "@/lib/mailer";
+import { interpolarPlantilla, obtenerConfigCorreoCotizacion } from "@/lib/correoCotizacion";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,8 +17,8 @@ const EsquemaBody = z.object({
 
 /**
  * POST /api/cotizaciones/[id]/enviar { para }
- * SOLO SERVER: genera el PDF con service_role y lo envía por SMTP
- * (nodemailer) con el PDF adjunto.
+ * SOLO SERVER: genera el PDF con service_role y lo envía por Resend (HTTPS)
+ * con el PDF adjunto. Si no hay RESEND_API_KEY, usa SMTP como respaldo.
  * Asunto: "Cotización COT-... Ambientes Cáliddos".
  */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
@@ -33,9 +35,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ ok: false, error: "Body inválido: { para: email }" }, { status: 400 });
   }
 
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    return NextResponse.json({ ok: false, error: "SMTP no configurado (SMTP_HOST/SMTP_USER/SMTP_PASS)" }, { status: 500 });
+  if (!correoConfigurado()) {
+    return NextResponse.json(
+      { ok: false, error: "Correo no configurado: define RESEND_API_KEY (Resend) o SMTP_HOST/SMTP_USER/SMTP_PASS." },
+      { status: 500 }
+    );
   }
 
   try {
@@ -51,18 +55,34 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const pdf = Buffer.from(doc.output("arraybuffer"));
     const filename = `cotizacion-${datos.codigo}.pdf`;
 
-    const nodemailer = await import("nodemailer");
-    const transporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: Number(SMTP_PORT || 587),
-      secure: Number(SMTP_PORT || 587) === 465,
-      auth: { user: SMTP_USER, pass: SMTP_PASS }
-    });
-    const info = await transporter.sendMail({
-      from: SMTP_FROM || SMTP_USER,
+    const { config } = await obtenerConfigCorreoCotizacion(service);
+    const fmt = (n: number) =>
+      Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const detalles = datos.detalles.length > 0
+      ? `Detalles del mueble:\n${datos.detalles.map((t) => `- ${t.etiqueta}: ${t.valor}`).join("\n")}`
+      : "";
+    const vars = {
+      cliente: datos.clienteNombre ?? "",
+      codigo: datos.codigo,
+      total: fmt(datos.total),
+      adelanto: fmt(datos.cuotaInicial),
+      cuota_inicial: fmt(datos.cuotaInicial),
+      capital: fmt(datos.capital),
+      valor_financiar: fmt(datos.capital),
+      tea: (datos.tea * 100).toFixed(2),
+      plazo: datos.plazo,
+      cuota: fmt(datos.cuotaMensual),
+      cuota_mensual: fmt(datos.cuotaMensual),
+      detalles,
+      observaciones: extraerDetalles(datos.observaciones).resto
+    };
+    const asunto = interpolarPlantilla(config.asunto, vars).trim();
+    const mensaje = interpolarPlantilla(config.mensaje, vars).trim();
+
+    const info = await enviarCorreo({
       to: body.para,
-      subject: `Cotización ${datos.codigo} Ambientes Cáliddos`,
-      text: `Estimado(a) ${datos.clienteNombre ?? ""}:\n\nAdjuntamos su cotización ${datos.codigo} de Ambientes Cáliddos por un total de S/ ${Number(datos.total || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.\n\nFinanciamiento: adelanto S/ ${Number(datos.cuotaInicial || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, valor a financiar S/ ${Number(datos.capital || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, TEA ${(datos.tea * 100).toFixed(2)}%, ${datos.plazo} cuotas de S/ ${Number(datos.cuotaMensual || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (cuota con IGV del interés incluido).${datos.detalles.length > 0 ? `\n\nDetalles del mueble:\n${datos.detalles.map((t) => `- ${t.etiqueta}: ${t.valor}`).join("\n")}` : ""}\n\n${extraerDetalles(datos.observaciones).resto}\n\nDocumento generado por Ambientes Cáliddos.`,
+      subject: asunto,
+      text: mensaje,
       attachments: [{ filename, content: pdf, contentType: "application/pdf" }]
     });
 
@@ -70,10 +90,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       user_id: sesion.userId,
       operacion: "enviarCotizacionPDF",
       modulo: "SGT",
-      argumentos: { cotizacion_id: id, para: body.para, messageId: info.messageId }
+      argumentos: { cotizacion_id: id, para: body.para, messageId: info.messageId, proveedor: info.proveedor }
     }).then(() => undefined, () => undefined);
 
-    return NextResponse.json({ ok: true, datos: { messageId: info.messageId, accepted: info.accepted, filename } });
+    return NextResponse.json({
+      ok: true,
+      datos: { messageId: info.messageId, accepted: info.accepted, filename, proveedor: info.proveedor }
+    });
   } catch (e) {
     const msg = (e as Error).message || "Error enviando correo";
     const status = /no encontrada/i.test(msg) ? 404 : 500;

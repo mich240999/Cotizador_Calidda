@@ -307,7 +307,7 @@ async function ejecutar() {
           headers: { "content-type": "application/json", cookie },
           body: JSON.stringify({ para: email }),
         });
-        const enviarOk = rEnviar.status === 404 || (rEnviar.status === 500 && /SMTP no configurado/i.test(String(rEnviar.cuerpo?.error ?? "")));
+        const enviarOk = rEnviar.status === 404 || (rEnviar.status === 500 && /no configurado/i.test(String(rEnviar.cuerpo?.error ?? "")));
         aviso("POST enviar (id inexistente) no manda correo", enviarOk, `${rEnviar.status} ${JSON.stringify(rEnviar.cuerpo?.error ?? "")}`);
       }
     } else {

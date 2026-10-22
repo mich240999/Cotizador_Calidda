@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RolUsuario, SesionInfo } from "./auth";
 import { resolverAlcance, puedeVerCotizacion } from "./alcance";
+import { correoConfigurado, enviarCorreo } from "./mailer";
 
 function lanzar(status: number, message: string): never {
   const e = new Error(message) as Error & { status?: number };
@@ -339,24 +340,15 @@ async function hGenerarPDF(args: z.infer<typeof EsquemaGenerarPDF>, ctx: Operaci
 }
 
 async function hEnviarCorreo(args: z.infer<typeof EsquemaEnviarCorreo>, _ctx: OperacionContext) {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    throw new Error("SMTP no configurado (SMTP_HOST/SMTP_USER/SMTP_PASS)");
+  if (!correoConfigurado()) {
+    throw new Error("Correo no configurado: define RESEND_API_KEY (Resend) o SMTP_HOST/SMTP_USER/SMTP_PASS.");
   }
-  const nodemailer = await import("nodemailer");
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT || 587),
-    secure: Number(SMTP_PORT || 587) === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS }
-  });
-  const info = await transporter.sendMail({
-    from: SMTP_FROM || SMTP_USER,
+  const info = await enviarCorreo({
     to: args.para,
     subject: args.asunto,
     text: args.mensaje + (args.cotizacion_id ? `\n\nCotización: ${args.cotizacion_id}` : "")
   });
-  return { messageId: info.messageId, accepted: info.accepted };
+  return { messageId: info.messageId, accepted: info.accepted, proveedor: info.proveedor };
 }
 
 async function hListarProveedores(args: z.infer<typeof EsquemaListarProveedores>, ctx: OperacionContext) {
@@ -446,7 +438,7 @@ export const OPERACIONES: Record<string, DefOperacion> = {
   listarCotizaciones: { descripcion: "Lista cotizaciones con cliente", roles: TODOS, schema: EsquemaListarCotizaciones, handler: hListarCotizaciones },
   cambiarEstadoCotizacion: { descripcion: "Cambia estado (BORRADOR/ENVIADA/APROBADA/RECHAZADA)", roles: OPERATIVO, schema: EsquemaCambiarEstado, handler: hCambiarEstado },
   generarPDF: { descripcion: "Payload de cotización + items listo para PDF", roles: TODOS, schema: EsquemaGenerarPDF, handler: hGenerarPDF },
-  enviarCorreo: { descripcion: "Envía correo vía SMTP", roles: OPERATIVO, schema: EsquemaEnviarCorreo, handler: hEnviarCorreo },
+  enviarCorreo: { descripcion: "Envía correo vía Resend o SMTP", roles: OPERATIVO, schema: EsquemaEnviarCorreo, handler: hEnviarCorreo },
   listarProveedores: { descripcion: "Lista proveedores", roles: TODOS, schema: EsquemaListarProveedores, handler: hListarProveedores },
   listarOficinas: { descripcion: "Lista oficinas", roles: TODOS, schema: EsquemaListarOficinas, handler: hListarOficinas },
   adminListarUsuarios: { descripcion: "Admin: listar profiles", roles: SOLO_ADMIN, schema: EsquemaVacio, handler: hAdminListar },
