@@ -5,7 +5,7 @@ import { createSupabaseServiceRole } from "@/lib/supabaseServer";
 import { obtenerDatosPdf, buildCotizacionPdf } from "@/lib/cotizacionPdf";
 import { extraerDetalles } from "@/lib/detallesMueble";
 import { resolverAlcance, puedeVerCotizacion } from "@/lib/alcance";
-import { correoConfigurado, enviarCorreo } from "@/lib/mailer";
+import { correoConfigurado, enviarCorreo, MSG_CORREO_NO_CONFIGURADO } from "@/lib/mailer";
 import { interpolarPlantilla, obtenerConfigCorreoCotizacion } from "@/lib/correoCotizacion";
 
 export const runtime = "nodejs";
@@ -17,8 +17,8 @@ const EsquemaBody = z.object({
 
 /**
  * POST /api/cotizaciones/[id]/enviar { para }
- * SOLO SERVER: genera el PDF con service_role y lo envía por Resend (HTTPS)
- * con el PDF adjunto. Si no hay RESEND_API_KEY, usa SMTP como respaldo.
+ * SOLO SERVER: genera el PDF con service_role y lo envía por SendGrid o Resend
+ * (HTTPS) con el PDF adjunto. Si no hay API key, usa SMTP como respaldo.
  * Asunto: "Cotización COT-... Ambientes Cáliddos".
  */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
@@ -36,10 +36,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   if (!correoConfigurado()) {
-    return NextResponse.json(
-      { ok: false, error: "Correo no configurado: define RESEND_API_KEY (Resend) o SMTP_HOST/SMTP_USER/SMTP_PASS." },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: MSG_CORREO_NO_CONFIGURADO }, { status: 500 });
   }
 
   try {

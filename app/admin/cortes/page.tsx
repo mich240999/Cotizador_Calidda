@@ -170,7 +170,7 @@ function CorreoCotizacionCard() {
       </div>
       <p className="text-xs text-slate-400 mt-1">
         Asunto y contenido que se usan al enviar el PDF desde Cotizaciones → detalle → Enviar por correo.
-        Los avisos por hora de arriba también se envían por Resend.
+        Los avisos por hora de arriba usan el proveedor configurado (SendGrid o Resend).
       </p>
       {necesitaMigracion && (
         <p className="mt-3 text-sm rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">
@@ -240,7 +240,7 @@ export default function CortesPage() {
       <ModHead
         eyebrow="CONSOLA ADMINISTRATIVA"
         title="Cortes y correos programados"
-        desc="Horas (Lima), destinatarios, asunto y mensaje de cada aviso. También puedes editar la plantilla del PDF de cotización. Los envíos usan Resend."
+        desc="Horas (Lima), destinatarios, asunto y mensaje de cada aviso. También puedes editar la plantilla del PDF de cotización. Los envíos usan SendGrid o Resend."
       />
       <div className="space-y-4 mt-4">
         {loading && <div className="card p-8 text-slate-500">Cargando…</div>}

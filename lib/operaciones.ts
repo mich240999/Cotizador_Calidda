@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RolUsuario, SesionInfo } from "./auth";
 import { resolverAlcance, puedeVerCotizacion } from "./alcance";
-import { correoConfigurado, enviarCorreo } from "./mailer";
+import { correoConfigurado, enviarCorreo, MSG_CORREO_NO_CONFIGURADO } from "./mailer";
 
 function lanzar(status: number, message: string): never {
   const e = new Error(message) as Error & { status?: number };
@@ -341,7 +341,7 @@ async function hGenerarPDF(args: z.infer<typeof EsquemaGenerarPDF>, ctx: Operaci
 
 async function hEnviarCorreo(args: z.infer<typeof EsquemaEnviarCorreo>, _ctx: OperacionContext) {
   if (!correoConfigurado()) {
-    throw new Error("Correo no configurado: define RESEND_API_KEY (Resend) o SMTP_HOST/SMTP_USER/SMTP_PASS.");
+    throw new Error(MSG_CORREO_NO_CONFIGURADO);
   }
   const info = await enviarCorreo({
     to: args.para,
@@ -438,7 +438,7 @@ export const OPERACIONES: Record<string, DefOperacion> = {
   listarCotizaciones: { descripcion: "Lista cotizaciones con cliente", roles: TODOS, schema: EsquemaListarCotizaciones, handler: hListarCotizaciones },
   cambiarEstadoCotizacion: { descripcion: "Cambia estado (BORRADOR/ENVIADA/APROBADA/RECHAZADA)", roles: OPERATIVO, schema: EsquemaCambiarEstado, handler: hCambiarEstado },
   generarPDF: { descripcion: "Payload de cotización + items listo para PDF", roles: TODOS, schema: EsquemaGenerarPDF, handler: hGenerarPDF },
-  enviarCorreo: { descripcion: "Envía correo vía Resend o SMTP", roles: OPERATIVO, schema: EsquemaEnviarCorreo, handler: hEnviarCorreo },
+  enviarCorreo: { descripcion: "Envía correo vía SendGrid, Resend o SMTP", roles: OPERATIVO, schema: EsquemaEnviarCorreo, handler: hEnviarCorreo },
   listarProveedores: { descripcion: "Lista proveedores", roles: TODOS, schema: EsquemaListarProveedores, handler: hListarProveedores },
   listarOficinas: { descripcion: "Lista oficinas", roles: TODOS, schema: EsquemaListarOficinas, handler: hListarOficinas },
   adminListarUsuarios: { descripcion: "Admin: listar profiles", roles: SOLO_ADMIN, schema: EsquemaVacio, handler: hAdminListar },

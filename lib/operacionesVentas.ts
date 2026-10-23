@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { RolUsuario } from "./auth";
 import type { OperacionContext } from "./operaciones";
 import { resolverAlcance, aplicarAlcanceVentas, puedeVerVenta, puedeVerCotizacion } from "./alcance";
-import { correoConfigurado, enviarCorreo } from "./mailer";
+import { correoConfigurado, enviarCorreo, MSG_CORREO_NO_CONFIGURADO } from "./mailer";
 import { CLAVE_CORREO_COTIZACION, obtenerConfigCorreoCotizacion } from "./correoCotizacion";
 
 /**
@@ -250,8 +250,10 @@ async function avisarAbonoAdmin(args: {
   abono_id: string;
 }): Promise<"enviado" | "omitido"> {
   try {
-    const { VENTAS_ADMIN_EMAIL, ADMIN_EMAIL, RESEND_ADMIN_EMAIL, SMTP_USER } = process.env;
-    const destinos = partirCorreos([VENTAS_ADMIN_EMAIL, ADMIN_EMAIL, RESEND_ADMIN_EMAIL, SMTP_USER].filter(Boolean).join(","));
+    const { VENTAS_ADMIN_EMAIL, ADMIN_EMAIL, RESEND_ADMIN_EMAIL, SENDGRID_ADMIN_EMAIL, SMTP_USER } = process.env;
+    const destinos = partirCorreos(
+      [VENTAS_ADMIN_EMAIL, ADMIN_EMAIL, RESEND_ADMIN_EMAIL, SENDGRID_ADMIN_EMAIL, SMTP_USER].filter(Boolean).join(",")
+    );
     if (!correoConfigurado() || destinos.length === 0) return "omitido";
     await enviarCorreo({
       to: destinos,
@@ -1550,7 +1552,7 @@ export async function procesarCorte(
   const para = partirCorreos(String(c.para ?? ""));
   if (para.length === 0) return { clave, enviado: false, motivo: "sin correo destino configurado", cantidad: conteo.cantidad };
   if (!correoConfigurado()) {
-    throw new Error("Correo no configurado: define RESEND_API_KEY (Resend) o SMTP_HOST/SMTP_USER/SMTP_PASS.");
+    throw new Error(MSG_CORREO_NO_CONFIGURADO);
   }
   await enviarCorreo({
     to: para,
