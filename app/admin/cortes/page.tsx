@@ -20,11 +20,11 @@ type Corte = {
 const TITULOS: Record<string, { titulo: string; desc: string }> = {
   ventas_pv: {
     titulo: "Solicitudes pendientes de generar PV",
-    desc: "Cuenta borradores y observados sin pedido. Avisan cuántos hay por generar PV a la hora del corte.",
+    desc: "Cuenta borradores y observados sin pedido. Solo envía el aviso si hay pendientes a la hora del corte.",
   },
   instalaciones_liq: {
     titulo: "Pedidos pendientes de liquidar",
-    desc: "Cuenta instalaciones listas para liquidar. Avisan cuántos hay pendientes a la hora del corte.",
+    desc: "Cuenta instalaciones listas para liquidar. Solo envía el aviso si hay pendientes a la hora del corte.",
   },
 };
 

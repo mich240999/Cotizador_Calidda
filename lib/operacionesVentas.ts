@@ -1545,6 +1545,9 @@ export async function procesarCorte(
   const conteo = clave === "ventas_pv"
     ? await contarPendientesPV(service)
     : await contarPendientesLiquidar(service);
+  if (conteo.cantidad === 0 && !forzar) {
+    return { clave, enviado: false, motivo: "sin pendientes", cantidad: 0 };
+  }
   const detalle = conteo.numeros.length > 0
     ? conteo.numeros.map((n) => `• ${n}`).join("\n") + (conteo.cantidad > conteo.numeros.length ? `\n• …y ${conteo.cantidad - conteo.numeros.length} más` : "")
     : "(sin pendientes)";
