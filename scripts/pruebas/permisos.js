@@ -272,6 +272,18 @@ async function ejecutar() {
       aviso(`${clave} /dashboard -> ${destino}`, redirige, `HTTP ${r.status} ${r.location}`);
     }
 
+    const adminPage = async (clave) => {
+      const res = await fetch(`${BASE}/admin`, { headers: { cookie: usuarios[clave].cookie }, redirect: "manual" });
+      return { status: res.status, location: res.headers.get("location") || "" };
+    };
+    const rAdminPage = await adminPage("admin");
+    aviso("admin /admin -> 200", rAdminPage.status === 200, `HTTP ${rAdminPage.status} ${rAdminPage.location}`);
+    for (const clave of ["provA", "sup", "as1"]) {
+      const r = await adminPage(clave);
+      const bloquea = [302, 303, 307, 308].includes(r.status) && !r.location.includes("/admin");
+      aviso(`${clave} /admin por URL -> bloqueado`, bloquea, `HTTP ${r.status} ${r.location}`);
+    }
+
     const op = async (clave, nombre, argumentos) => {
       const res = await fetch(BASE + "/api/operacion", {
         method: "POST",
