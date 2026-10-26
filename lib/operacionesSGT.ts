@@ -4,6 +4,7 @@ import type { OperacionContext } from "./operaciones";
 import { completarNombresItems } from "./operaciones";
 import { cuotaFrancesaConIgv, tablaSimulacion, temConIgv, PLAZOS_SIMULACION } from "./financiamiento";
 import { componerObservaciones } from "./detallesMueble";
+import { resolverAlcance } from "./alcance";
 import {
   esTablaFaltante as esTablaSesionesFaltante,
   finSesion,
@@ -43,6 +44,11 @@ function esTablaFaltante(e: unknown): boolean {
 
 /** Evita que comas/paréntesis/comodines rompan o inyecten en filtros .or() de PostgREST. */
 const limpiarBusqueda = (v: string) => v.replace(/[%(),*"\\]/g, " ").replace(/\s+/g, " ").trim();
+
+/** Proveedor al que está vinculado el usuario; admin nunca queda restringido. */
+function proveedorSesion(ctx: OperacionContext): string | null {
+  return ctx.sesion.rol === "admin" ? null : (ctx.sesion.idProveedor ?? null);
+}
 
 /** Intenta leer de la primera tabla existente de la lista. */
 async function leerPrimeraTabla(ctx: OperacionContext, tablas: string[], select = "*", order?: { col: string; asc?: boolean }, limit = 200) {
@@ -255,8 +261,10 @@ const EsquemaRegenerar = z.object({ cotizacion_id: z.string().uuid() });
 
 async function hListarProveedoresSGT(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
   // Maestro SGT primero (razón social real); fallback a tabla base.
+  const prov = proveedorSesion(ctx);
   try {
     let q = ctx.service.from("mae_proveedores").select("*").order("razon_social").limit(args.limit);
+    if (prov) q = q.eq("id", prov);
     if (args.q) {
       const s = limpiarBusqueda(args.q);
       if (s) q = q.or(`razon_social.ilike.%${s}%,nombre_comercial.ilike.%${s}%,ruc.ilike.%${s}%,interlocutor.ilike.%${s}%`);
@@ -272,6 +280,7 @@ async function hListarProveedoresSGT(args: z.infer<typeof EsquemaQ>, ctx: Operac
     if (!esTablaFaltante(e)) throw e;
   }
   let q = ctx.service.from("proveedores").select("*").order("nombre").limit(args.limit);
+  if (prov) q = q.eq("id", prov);
   if (args.q) {
     const s = limpiarBusqueda(args.q);
     if (s) q = q.or(`nombre.ilike.%${s}%,ruc.ilike.%${s}%`);
@@ -357,8 +366,23 @@ async function hActualizarVinculacion(args: z.infer<typeof EsquemaActualizarVinc
 
 async function hListarOficinasVentas(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
   // SGT real primero (mae_oficinas_ventas), fallback a tabla base.
+  const prov = proveedorSesion(ctx);
+  let permitidas: string[] | null = null;
+  if (prov) {
+    try {
+      const { data, error } = await ctx.service.from("rel_proveedor_oficinas")
+        .select("id_oficina").eq("id_proveedor", prov);
+      if (error) throw new Error(error.message);
+      permitidas = [...new Set(((data ?? []) as { id_oficina?: string }[]).map((r) => String(r.id_oficina ?? "")).filter(Boolean))];
+    } catch (e) {
+      if (!esTablaFaltante(e)) throw e;
+      return [];
+    }
+    if (permitidas.length === 0) return [];
+  }
   try {
     let q = ctx.service.from("mae_oficinas_ventas").select("*").order("nombre").limit(args.limit);
+    if (permitidas) q = q.in("id", permitidas);
     if (args.q) {
       const s = limpiarBusqueda(args.q);
       if (s) q = q.or(`nombre.ilike.%${s}%,codigo_sap.ilike.%${s}%,id.ilike.%${s}%`);
@@ -371,6 +395,7 @@ async function hListarOficinasVentas(args: z.infer<typeof EsquemaQ>, ctx: Operac
     }));
   } catch (e) {
     if (!esTablaFaltante(e)) throw e;
+    if (prov) return [];
     const r = await leerPrimeraTabla(ctx, ["oficinas_ventas", "oficinas"], "*", { col: "nombre" }, args.limit);
     let rows = r.data as Record<string, unknown>[];
     if (args.q) {
@@ -417,10 +442,12 @@ const TABLAS_VINCULO = ["rel_proveedor_oficinas", "proveedor_oficina", "proveedo
 
 async function hListarVinculaciones(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
   // SGT real con nombres de proveedor y oficina para la UI.
+  const prov = proveedorSesion(ctx);
   try {
     let q = ctx.service.from("rel_proveedor_oficinas")
       .select("*, mae_proveedores(id,interlocutor,ruc,razon_social,nombre_comercial), mae_oficinas_ventas(id,codigo_sap,nombre)")
       .order("created_at", { ascending: false }).limit(args.limit);
+    if (prov) q = q.eq("id_proveedor", prov);
     if (args.q) {
       const s = limpiarBusqueda(args.q);
       if (s) q = q.or(`id.ilike.%${s}%`);
@@ -440,6 +467,7 @@ async function hListarVinculaciones(args: z.infer<typeof EsquemaQ>, ctx: Operaci
     }));
   } catch (e) {
     if (!esTablaFaltante(e)) throw e;
+    if (prov) return [];
     // Fallback legacy: primera tabla vieja que exista.
     for (const t of TABLAS_VINCULO.slice(1)) {
       try {
@@ -504,10 +532,12 @@ async function hVincularProveedorOficina(args: z.infer<typeof EsquemaVinculo>, c
 
 async function hListarGruposVendedores(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
   // SGT real con proveedor y oficina para la tabla.
+  const prov = proveedorSesion(ctx);
   try {
     let q = ctx.service.from("mae_grupos_vendedores")
       .select("*, mae_proveedores(id,interlocutor,ruc,razon_social,nombre_comercial), mae_oficinas_ventas(id,codigo_sap,nombre)")
       .order("created_at", { ascending: false }).limit(args.limit);
+    if (prov) q = q.eq("id_proveedor", prov);
     if (args.q) {
       const s = limpiarBusqueda(args.q);
       if (s) q = q.or(`nombre.ilike.%${s}%,codigo_sap.ilike.%${s}%,id.ilike.%${s}%`);
@@ -530,6 +560,7 @@ async function hListarGruposVendedores(args: z.infer<typeof EsquemaQ>, ctx: Oper
     }));
   } catch (e) {
     if (!esTablaFaltante(e)) throw e;
+    if (prov) return [];
     const r = await leerPrimeraTabla(ctx, ["grupos_vendedores", "grupo_vendedores", "asesores"], "*", { col: "id" }, args.limit);
     return r.data;
   }
@@ -579,8 +610,24 @@ async function hActualizarGrupoVendedores(args: z.infer<typeof EsquemaActualizar
 }
 
 async function hListarAsignaciones(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
-  const { data, error } = await ctx.service.from("seg_asignaciones_asesores")
+  const alcance = await resolverAlcance(ctx.service, ctx.sesion);
+  let q = ctx.service.from("seg_asignaciones_asesores")
     .select("*").order("created_at", { ascending: false }).limit(args.limit);
+  if (!alcance.todo) {
+    if (alcance.proveedor) {
+      q = q.eq("id_proveedor", alcance.proveedor);
+    } else if (ctx.sesion.alcance === "EQUIPO" && ctx.sesion.segId) {
+      const equipo = alcance.equipoSeg.filter(Boolean);
+      const filtros = [`id_supervisor.eq.${ctx.sesion.segId}`];
+      if (equipo.length) filtros.push(`id_asesor.in.(${equipo.join(",")})`);
+      q = q.or(filtros.join(","));
+    } else if (ctx.sesion.segId) {
+      q = q.eq("id_asesor", ctx.sesion.segId);
+    } else {
+      return [];
+    }
+  }
+  const { data, error } = await q;
   if (error) {
     if (esTablaFaltante(new Error(error.message))) return []; // sin migración → vacío sin romper
     throw new Error(error.message);
@@ -782,9 +829,19 @@ async function hListarUsuariosSGT(args: z.infer<typeof EsquemaQ>, ctx: Operacion
     const columnas = esAdmin
       ? "*, mae_proveedores(id,razon_social,nombre_comercial)"
       : "id,nombre,correo,telefono,rol_codigo,estado,id_proveedor";
+    const alcance = await resolverAlcance(ctx.service, ctx.sesion);
     let q = ctx.service.from("seg_usuarios")
       .select(columnas)
       .order("created_at", { ascending: false }).limit(args.limit);
+    if (!alcance.todo) {
+      if (alcance.proveedor) {
+        q = q.eq("id_proveedor", alcance.proveedor);
+      } else if (ctx.sesion.alcance === "EQUIPO" && alcance.equipoSeg.length) {
+        q = q.in("id", alcance.equipoSeg);
+      } else if (ctx.sesion.segId) {
+        q = q.eq("id", ctx.sesion.segId);
+      }
+    }
     if (args.q) {
       const s = limpiarBusqueda(args.q);
       if (s) q = q.or(`nombre.ilike.%${s}%,correo.ilike.%${s}%,nro_doc.ilike.%${s}%,rol_codigo.ilike.%${s}%`);
@@ -2766,7 +2823,7 @@ async function hCerrarSesionActiva(args: z.infer<typeof EsquemaCerrarSesion>, ct
 // ---------------------------------------------------------------- mapa
 export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarProveedoresSGT: { descripcion: "SGT: lista proveedores (+interlocutor)", roles: TODOS, schema: EsquemaQ, handler: hListarProveedoresSGT },
-  crearProveedorSGT: { descripcion: "SGT: crea proveedor en maestro (PRVxxxx)", roles: OPERATIVO, schema: EsquemaProveedorSGT, handler: hCrearProveedorSGT },
+  crearProveedorSGT: { descripcion: "SGT: crea proveedor en maestro (PRVxxxx)", roles: SOLO_ADMIN, schema: EsquemaProveedorSGT, handler: hCrearProveedorSGT },
   actualizarProveedorSGT: { descripcion: "SGT: actualiza proveedor (RUC/razón inmutables)", roles: SOLO_ADMIN, schema: EsquemaActualizarProveedorSGT, handler: hActualizarProveedorSGT },
   listarOficinasVentas: { descripcion: "SGT: lista oficinas de ventas", roles: TODOS, schema: EsquemaQ, handler: hListarOficinasVentas },
   crearOficina: { descripcion: "SGT: crea oficina de ventas (codigo_sap único)", roles: SOLO_ADMIN, schema: EsquemaCrearOficina, handler: hCrearOficina },
@@ -2793,7 +2850,7 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   actualizarAsignacion: { descripcion: "SGT: actualiza asignación (estado/fechas/estructura)", roles: SOLO_ADMIN, schema: EsquemaActualizarAsignacion, handler: hActualizarAsignacion },
   listarRecursosVisuales: { descripcion: "SGT: lista recursos visuales", roles: TODOS, schema: EsquemaVacio, handler: hListarRecursosVisuales },
   actualizarRecursoVisual: { descripcion: "SGT: actualiza URL de recurso visual", roles: SOLO_ADMIN, schema: EsquemaActualizarRecurso, handler: hActualizarRecursoVisual },
-  listarRolesSGT: { descripcion: "SGT: lista roles con conteo", roles: TODOS, schema: EsquemaVacio, handler: hListarRolesSGT },
+  listarRolesSGT: { descripcion: "SGT: lista roles con conteo", roles: SOLO_ADMIN, schema: EsquemaVacio, handler: hListarRolesSGT },
   crearRolSGT: { descripcion: "SGT: crea rol (requiere migracion_roles_01)", roles: SOLO_ADMIN, schema: EsquemaCrearRolSGT, handler: hCrearRolSGT },
   actualizarRolSGT: { descripcion: "SGT: actualiza rol", roles: SOLO_ADMIN, schema: EsquemaActualizarRolSGT, handler: hActualizarRolSGT },
   listarUsuariosSGT: { descripcion: "SGT: lista usuarios reales (seg_usuarios)", roles: TODOS, schema: EsquemaQ, handler: hListarUsuariosSGT },
@@ -2805,7 +2862,7 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   actualizarUsuarioSGT: { descripcion: "SGT: actualiza ficha de usuario", roles: SOLO_ADMIN, schema: EsquemaActualizarUsuarioSGT, handler: hActualizarUsuarioSGT },
   cambiarPasswordUsuario: { descripcion: "SGT: cambia contraseña (ADMIN o SUPERADMIN SGT)", roles: OPERATIVO, schema: EsquemaCambiarPassword, handler: hCambiarPasswordUsuario },
   actualizarMaterialSGT: { descripcion: "SGT: actualiza material + tarifa nueva (historial)", roles: OPERATIVO, schema: EsquemaActualizarMaterialSGT, handler: hActualizarMaterialSGT },
-  getMatrizPermisos: { descripcion: "SGT: matriz de permisos por rol", roles: TODOS, schema: EsquemaVacio, handler: hGetMatrizPermisos },
+  getMatrizPermisos: { descripcion: "SGT: matriz de permisos por rol", roles: SOLO_ADMIN, schema: EsquemaVacio, handler: hGetMatrizPermisos },
   guardarMatrizPermisos: { descripcion: "SGT: guarda cambios de la matriz (admin)", roles: SOLO_ADMIN, schema: EsquemaGuardarMatriz, handler: hGuardarMatrizPermisos },
   listarMaterialesSGT: { descripcion: "SGT: materiales con tarifa vigente por fecha", roles: TODOS, schema: EsquemaMaterialesSGT, handler: hListarMaterialesSGT },
   crearTarifa: { descripcion: "SGT: crea tarifa (cierra vigencia solapada)", roles: OPERATIVO, schema: EsquemaCrearTarifa, handler: hCrearTarifa },

@@ -353,7 +353,9 @@ async function hEnviarCorreo(args: z.infer<typeof EsquemaEnviarCorreo>, _ctx: Op
 
 async function hListarProveedores(args: z.infer<typeof EsquemaListarProveedores>, ctx: OperacionContext) {
   const { q, limit } = args;
+  const prov = ctx.sesion.rol === "admin" ? null : (ctx.sesion.idProveedor ?? null);
   let query = ctx.service.from("proveedores").select("*").order("nombre").limit(limit);
+  if (prov) query = query.eq("id", prov);
   if (q) {
     const s = limpiarBusqueda(q);
     if (s) query = query.or(`nombre.ilike.%${s}%,ruc.ilike.%${s}%`);

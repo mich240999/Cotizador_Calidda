@@ -73,7 +73,10 @@ async function ejecutar() {
   const marca = "PRUEBA PERM " + sufijo;
 
   const usuarios = {};
-  const creados = { ventas: [], cotizaciones: [], seg: [], asignaciones: [], perfiles: [], auth: [], provs: [], clientes: [], maeClientes: [] };
+  const creados = {
+    ventas: [], cotizaciones: [], seg: [], asignaciones: [], perfiles: [], auth: [], provs: [],
+    oficinas: [], vinculos: [], grupos: [], clientes: [], maeClientes: []
+  };
   let servidor = null;
   let clienteLegacyId = null;
 
@@ -132,6 +135,47 @@ async function ejecutar() {
     });
     if (eAsg) throw new Error("asignacion: " + eAsg.message);
     creados.asignaciones.push("ASG9" + cola.slice(-3));
+
+    const idA = cola.slice(-3);
+    const idB = String((Number(cola) + 1) % 1000).padStart(3, "0");
+    const ofA = "OFV9" + idA, ofB = "OFV8" + idB;
+    const poA = "POF9" + idA, poB = "POF8" + idB;
+    const gvA = "GVE9" + idA, gvB = "GVE8" + idB;
+    const asgB = "ASG8" + idB;
+
+    for (const [id, codigo, nombre] of [
+      [ofA, "AMCA-" + sufijo + "-A", marca + " Oficina A"],
+      [ofB, "AMCA-" + sufijo + "-B", marca + " Oficina B"],
+    ]) {
+      const { error } = await service.from("mae_oficinas_ventas").insert({
+        id, codigo_sap: codigo, nombre, estado: "ACTIVO",
+      });
+      if (error) throw new Error("oficina " + id + ": " + error.message);
+      creados.oficinas.push(id);
+    }
+    for (const [id, prov, oficina] of [[poA, provA, ofA], [poB, provB, ofB]]) {
+      const { error } = await service.from("rel_proveedor_oficinas").insert({
+        id, id_proveedor: prov, id_oficina: oficina, estado: "ACTIVO",
+      });
+      if (error) throw new Error("vinculo " + id + ": " + error.message);
+      creados.vinculos.push(id);
+    }
+    for (const [id, codigo, nombre, prov, oficina] of [
+      [gvA, "GVE-" + sufijo + "-A", marca + " Grupo A", provA, ofA],
+      [gvB, "GVE-" + sufijo + "-B", marca + " Grupo B", provB, ofB],
+    ]) {
+      const { error } = await service.from("mae_grupos_vendedores").insert({
+        id, codigo_sap: codigo, nombre, id_proveedor: prov, id_oficina: oficina, estado: "ACTIVO",
+      });
+      if (error) throw new Error("grupo " + id + ": " + error.message);
+      creados.grupos.push(id);
+    }
+    const { error: eAsgB } = await service.from("seg_asignaciones_asesores").insert({
+      id: asgB, id_asesor: usuarios.asB.segId, id_supervisor: null, id_proveedor: provB,
+      id_oficina: ofB, id_grupo: gvB, fecha_inicio: new Date().toISOString().slice(0, 10), estado: "VIGENTE",
+    });
+    if (eAsgB) throw new Error("asignacion B: " + eAsgB.message);
+    creados.asignaciones.push(asgB);
 
     // Cliente legacy + maestro (para cotizaciones y ventas).
     const { data: cliLegacy, error: eCli } = await service.from("clientes").insert({
@@ -292,6 +336,95 @@ async function ejecutar() {
       aviso(`${clave} listarInstalaciones ve ${fmt(expI)}`, rI.status === 200 && iguales(gotI, expI), `HTTP ${rI.status} ve ${fmt(gotI)}`);
     }
 
+    // ------------------------------------------------ aislamiento de maestros y seguridad
+    const idsDe = (datos) => filasDe(datos).map((r) => String(r.id)).filter(Boolean);
+    const idsCreados = (...ids) => new Set(ids);
+    const soloEstos = (got, permitidos, prohibidos = []) =>
+      permitidos.every((x) => got.has(x)) && prohibidos.every((x) => !got.has(x));
+
+    const proveedoresPrueba = idsCreados(provA, provB);
+    for (const [clave, permitidos, prohibidos] of [
+      ["admin", [provA, provB], []],
+      ["provA", [provA], [provB]],
+      ["provB", [provB], [provA]],
+      ["as1", [provA], [provB]],
+    ]) {
+      const r = await op(clave, "listarProveedoresSGT", { limit: 500 });
+      const got = new Set(idsDe(r.cuerpo?.datos).filter((id) => proveedoresPrueba.has(id)));
+      aviso(`${clave} listarProveedoresSGT solo ve los suyos`, r.status === 200 && soloEstos(got, permitidos, prohibidos), `HTTP ${r.status} ve ${fmt(got)}`);
+    }
+
+    for (const [clave, permitidos, prohibidos] of [
+      ["admin", [ofA, ofB], []],
+      ["provA", [ofA], [ofB]],
+      ["provB", [ofB], [ofA]],
+    ]) {
+      const r = await op(clave, "listarOficinasVentas", { limit: 500 });
+      const got = new Set(idsDe(r.cuerpo?.datos).filter((id) => creados.oficinas.includes(id)));
+      aviso(`${clave} listarOficinasVentas solo ve las suyas`, r.status === 200 && soloEstos(got, permitidos, prohibidos), `HTTP ${r.status} ve ${fmt(got)}`);
+    }
+
+    for (const [clave, permitidos, prohibidos] of [
+      ["admin", [poA, poB], []],
+      ["provA", [poA], [poB]],
+      ["provB", [poB], [poA]],
+    ]) {
+      const r = await op(clave, "listarVinculaciones", { limit: 500 });
+      const got = new Set(idsDe(r.cuerpo?.datos).filter((id) => creados.vinculos.includes(id)));
+      aviso(`${clave} listarVinculaciones solo ve las suyas`, r.status === 200 && soloEstos(got, permitidos, prohibidos), `HTTP ${r.status} ve ${fmt(got)}`);
+    }
+
+    for (const [clave, permitidos, prohibidos] of [
+      ["admin", [gvA, gvB], []],
+      ["provA", [gvA], [gvB]],
+      ["provB", [gvB], [gvA]],
+    ]) {
+      const r = await op(clave, "listarGruposVendedores", { limit: 500 });
+      const got = new Set(idsDe(r.cuerpo?.datos).filter((id) => creados.grupos.includes(id)));
+      aviso(`${clave} listarGruposVendedores solo ve los suyos`, r.status === 200 && soloEstos(got, permitidos, prohibidos), `HTTP ${r.status} ve ${fmt(got)}`);
+    }
+
+    const asgA = "ASG9" + cola.slice(-3);
+    for (const [clave, permitidos, prohibidos] of [
+      ["admin", [asgA, asgB], []],
+      ["provA", [asgA], [asgB]],
+      ["provB", [asgB], [asgA]],
+      ["sup", [asgA], [asgB]],
+      ["as1", [asgA], [asgB]],
+    ]) {
+      const r = await op(clave, "listarAsignaciones", { limit: 500 });
+      const got = new Set(idsDe(r.cuerpo?.datos).filter((id) => creados.asignaciones.includes(id)));
+      aviso(`${clave} listarAsignaciones solo ve las suyas`, r.status === 200 && soloEstos(got, permitidos, prohibidos), `HTTP ${r.status} ve ${fmt(got)}`);
+    }
+
+    const segsPrueba = new Set(creados.seg);
+    for (const [clave, permitidos, prohibidos] of [
+      ["admin", creados.seg, []],
+      ["provA", [usuarios.provA.segId, usuarios.sup.segId, usuarios.as1.segId, usuarios.as2.segId], [usuarios.provB.segId, usuarios.asB.segId]],
+      ["provB", [usuarios.provB.segId, usuarios.asB.segId], [usuarios.provA.segId, usuarios.as1.segId]],
+      ["sup", [usuarios.sup.segId, usuarios.as1.segId], [usuarios.as2.segId, usuarios.asB.segId]],
+      ["as1", [usuarios.as1.segId], [usuarios.as2.segId, usuarios.provA.segId]],
+      ["as2", [usuarios.as2.segId], [usuarios.as1.segId, usuarios.provA.segId]],
+    ]) {
+      const r = await op(clave, "listarUsuariosSGT", { limit: 500 });
+      const got = new Set(idsDe(r.cuerpo?.datos).filter((id) => segsPrueba.has(id)));
+      aviso(`${clave} listarUsuariosSGT solo ve los suyos`, r.status === 200 && soloEstos(got, permitidos, prohibidos), `HTTP ${r.status} ve ${fmt(got)}`);
+    }
+
+    const soloAdmin = [
+      "listarRolesSGT", "getMatrizPermisos", "listarAuditoria",
+      "crearProveedorSGT", "actualizarProveedorSGT", "crearOficina", "actualizarOficina",
+      "vincularProveedorOficina", "actualizarVinculacion",
+      "crearGrupoVendedores", "actualizarGrupoVendedores",
+      "crearAsignacion", "actualizarAsignacion",
+      "crearRolSGT", "actualizarRolSGT", "crearUsuarioSGT", "actualizarUsuarioSGT",
+      "cfgSesionesListar", "cfgSesionesGuardar",
+    ];
+    for (const nombre of soloAdmin) {
+      const r = await op("provA", nombre, {});
+      aviso(`provA ${nombre} -> 403`, r.status === 403, `HTTP ${r.status} ${JSON.stringify(r.cuerpo?.error ?? "")}`);
+    }
+
     // getVenta: solo las visibles de cada uno.
     for (const clave of Object.keys(esperado)) {
       const visibles = new Set(esperado[clave].ventas);
@@ -401,6 +534,9 @@ async function ejecutar() {
       if (creados.clientes.length) await service.from("clientes").delete().in("id", creados.clientes);
       if (creados.maeClientes.length) await service.from("mae_clientes").delete().in("id", creados.maeClientes);
       if (creados.asignaciones.length) await service.from("seg_asignaciones_asesores").delete().in("id", creados.asignaciones);
+      if (creados.grupos.length) await service.from("mae_grupos_vendedores").delete().in("id", creados.grupos);
+      if (creados.vinculos.length) await service.from("rel_proveedor_oficinas").delete().in("id", creados.vinculos);
+      if (creados.oficinas.length) await service.from("mae_oficinas_ventas").delete().in("id", creados.oficinas);
       if (creados.seg.length) await service.from("seg_usuarios").delete().in("id", creados.seg);
       if (creados.perfiles.length) {
         await service.from("sesiones_app").delete().in("user_id", creados.perfiles);
