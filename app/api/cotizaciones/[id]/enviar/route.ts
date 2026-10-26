@@ -74,7 +74,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       observaciones: extraerDetalles(datos.observaciones).resto
     };
     const asunto = interpolarPlantilla(config.asunto, vars).trim();
-    const mensaje = interpolarPlantilla(config.mensaje, vars).trim();
+    const mensaje = interpolarPlantilla(config.mensaje, vars)
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
 
     const info = await enviarCorreo({
       to: body.para,

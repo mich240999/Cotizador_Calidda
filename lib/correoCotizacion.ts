@@ -7,15 +7,28 @@ export const ASUNTO_COTIZACION_DEFAULT = "Cotización {codigo} Ambientes Cálidd
 export const MENSAJE_COTIZACION_DEFAULT = [
   "Estimado(a) {cliente}:",
   "",
-  "Adjuntamos su cotización {codigo} de Ambientes Cáliddos por un total de S/ {total}.",
+  "Adjuntamos la cotización {codigo} elaborada por Ambientes Cáliddos.",
   "",
-  "Financiamiento: adelanto S/ {adelanto}, valor a financiar S/ {capital}, TEA {tea}%, {plazo} cuotas de S/ {cuota} (cuota con IGV del interés incluido).",
+  "RESUMEN DE LA COTIZACIÓN",
+  "• Total cotizado: S/ {total}",
+  "• Adelanto: S/ {adelanto}",
+  "• Valor a financiar: S/ {capital}",
+  "• TEA: {tea}%",
+  "• Plazo: {plazo} cuotas",
+  "• Cuota mensual referencial: S/ {cuota}",
   "",
   "{detalles}",
   "",
   "{observaciones}",
   "",
-  "Documento generado por Ambientes Cáliddos."
+  "La cuota mensual incluye el IGV correspondiente al interés. La propuesta está sujeta a evaluación y disponibilidad de stock.",
+  "",
+  "Quedamos atentos a cualquier consulta.",
+  "",
+  "Atentamente,",
+  "Ambientes Cáliddos",
+  "",
+  "Este correo fue generado automáticamente."
 ].join("\n");
 
 export type ConfigCorreoCotizacion = {
