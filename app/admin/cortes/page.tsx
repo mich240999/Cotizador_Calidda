@@ -40,12 +40,16 @@ function CorteCard({ c, onGuardado }: { c: Corte; onGuardado: () => void }) {
   const [ok, setOk] = useState<string | null>(null);
   const [trabajando, setTrabajando] = useState(false);
 
+  const guardarConfig = async () => {
+    await apiOperacion("cfgCorteGuardar", {
+      clave: c.clave, horas, para, copia, asunto, mensaje, activo,
+    });
+  };
+
   const guardar = async () => {
     setMsg(null); setOk(null); setTrabajando(true);
     try {
-      await apiOperacion("cfgCorteGuardar", {
-        clave: c.clave, horas, para, copia, asunto, mensaje, activo,
-      });
+      await guardarConfig();
       setOk("Configuración guardada.");
       onGuardado();
     } catch (e) {
@@ -56,8 +60,14 @@ function CorteCard({ c, onGuardado }: { c: Corte; onGuardado: () => void }) {
   };
 
   const enviarAhora = async () => {
-    setMsg(null); setOk(null); setTrabajando(true);
+    setMsg(null); setOk(null);
+    if (!/@[a-z]/i.test(para.trim())) {
+      setMsg("Escribe un correo destino válido antes de enviar la prueba.");
+      return;
+    }
+    setTrabajando(true);
     try {
+      await guardarConfig();
       const r = await apiOperacion<{ enviado?: boolean; motivo?: string; cantidad?: number }>("cfgCorteEnviar", { clave: c.clave });
       setOk(r?.enviado ? `Correo enviado (${r.cantidad ?? 0} pendientes).` : `No enviado: ${r?.motivo ?? ""}`);
       onGuardado();
@@ -217,8 +227,8 @@ export default function CortesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const cargar = async () => {
-    setLoading(true);
+  const cargar = async (silencioso = false) => {
+    if (!silencioso) setLoading(true);
     setError(null);
     try {
       const r = await apiOperacion<{ cortes?: Corte[]; necesitaMigracion?: boolean }>("cfgCortesListar", {});
@@ -251,7 +261,7 @@ export default function CortesPage() {
           </p>
         )}
         {!loading && !necesitaMigracion && cortes.map((c) => (
-          <CorteCard key={c.clave} c={c} onGuardado={cargar} />
+          <CorteCard key={c.clave} c={c} onGuardado={() => cargar(true)} />
         ))}
         {!loading && <CorreoCotizacionCard />}
       </div>
