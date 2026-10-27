@@ -2,11 +2,11 @@
 -- Cortes programados con pg_cron + pg_net (usa solo tu Supabase).
 -- PASO A PASO:
 --  1) Supabase Dashboard > Database > Extensions: activa pg_cron y pg_net.
---  2) En Vercel (y en tu .env.local): agrega la variable CRON_SECRET con un
---     valor largo al azar, ej: CRON_SECRET=tu-secreto-largo-aqui
+--  2) En Render (y en tu .env.local): agrega la variable CRON_SECRET con un
+--     valor largo al azar. Nunca guardes el secreto real en este archivo.
 --     Redeploy para que tome la variable.
 --  3) Reemplaza TU-APP y TU-SECRETO abajo y ejecuta este archivo en el
---     SQL Editor (una sola vez).
+--     SQL Editor (una sola vez). No subas el secreto real al repositorio.
 --  4) Las horas (Lima) y correos se configuran en la web:
 --     Administración > Cortes. pg_cron solo despierta al endpoint cada
 --     15 min; el endpoint decide si toca enviar según tu configuración.
@@ -25,7 +25,7 @@ SELECT cron.schedule(
   $$
   SELECT net.http_post(
     url := 'https://cotizador-calidda.onrender.com/api/cron/cortes?tipo=todos',
-    headers := '{"Authorization": "Bearer a8acf600aaa175ef2711afc4c08e97f1"}'::jsonb
+    headers := '{"Authorization": "Bearer TU-SECRETO"}'::jsonb
   );
   $$
 );

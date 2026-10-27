@@ -84,6 +84,7 @@ async function ejecutar() {
     const { data: roles } = await service.from("roles").select("id,nombre");
     const rolAdmin = (roles ?? []).find((r) => String(r.nombre).toLowerCase() === "admin");
     const rolAsesor = (roles ?? []).find((r) => String(r.nombre).toLowerCase() === "asesor");
+    const rolOficina = (roles ?? []).find((r) => String(r.nombre).toLowerCase() === "oficina");
     if (!rolAdmin || !rolAsesor) throw new Error("tabla roles sin admin/asesor");
 
     const crear = async (clave, rolSgt, idProveedor, nombre) => {
@@ -93,15 +94,16 @@ async function ejecutar() {
       if (eAu) throw eAu;
       creados.auth.push(au.user.id);
       const esAdmin = rolSgt === "ADMIN";
+      const esOficina = rolSgt === "OFICINA";
       const { error: eP } = await service.from("profiles").insert({
-        id: au.user.id, email, nombre, rol_id: esAdmin ? rolAdmin.id : rolAsesor.id, activo: true,
+        id: au.user.id, email, nombre, rol_id: esAdmin ? rolAdmin.id : esOficina && rolOficina ? rolOficina.id : rolAsesor.id, activo: true,
       });
       if (eP) throw eP;
       creados.perfiles.push(au.user.id);
       const segId = "U9" + cola.slice(-3) + String(creados.seg.length + 1);
       const { error: eS } = await service.from("seg_usuarios").insert({
         id: segId, nombre, tipo_doc: "DNI", nro_doc: "9" + cola.slice(-3) + String(creados.seg.length + 1), correo: email,
-        rol_codigo: rolSgt, id_proveedor: idProveedor, estado: "ACTIVO",
+        rol_codigo: esOficina ? "ASESOR" : rolSgt, id_proveedor: idProveedor, estado: "ACTIVO",
       });
       if (eS) throw eS;
       creados.seg.push(segId);
@@ -128,6 +130,7 @@ async function ejecutar() {
     await crear("as1", "ASESOR", provA, marca + " As1");
     await crear("as2", "ASESOR", provA, marca + " As2");
     await crear("asB", "ASESOR", provB, marca + " AsB");
+    if (rolOficina) await crear("ofi", "OFICINA", null, marca + " Oficina");
 
     const { error: eAsg } = await service.from("seg_asignaciones_asesores").insert({
       id: "ASG9" + cola.slice(-3), id_asesor: usuarios.as1.segId, id_supervisor: usuarios.sup.segId,
@@ -266,7 +269,9 @@ async function ejecutar() {
     };
     const rDashAdmin = await dashboard("admin");
     aviso("admin /dashboard -> 200", rDashAdmin.status === 200, `HTTP ${rDashAdmin.status} ${rDashAdmin.location}`);
-    for (const [clave, destino] of [["provA", "/instalaciones"], ["sup", "/cotizaciones"], ["as1", "/cotizaciones"]]) {
+    const destinosDashboard = [["provA", "/instalaciones"], ["sup", "/cotizaciones"], ["as1", "/cotizaciones"]];
+    if (usuarios.ofi) destinosDashboard.push(["ofi", "/cotizaciones"]);
+    for (const [clave, destino] of destinosDashboard) {
       const r = await dashboard(clave);
       const redirige = [302, 303, 307, 308].includes(r.status) && r.location.includes(destino);
       aviso(`${clave} /dashboard -> ${destino}`, redirige, `HTTP ${r.status} ${r.location}`);
@@ -278,7 +283,9 @@ async function ejecutar() {
     };
     const rAdminPage = await adminPage("admin");
     aviso("admin /admin -> 200", rAdminPage.status === 200, `HTTP ${rAdminPage.status} ${rAdminPage.location}`);
-    for (const clave of ["provA", "sup", "as1"]) {
+    const noAdmin = ["provA", "sup", "as1"];
+    if (usuarios.ofi) noAdmin.push("ofi");
+    for (const clave of noAdmin) {
       const r = await adminPage(clave);
       const bloquea = [302, 303, 307, 308].includes(r.status) && !r.location.includes("/admin");
       aviso(`${clave} /admin por URL -> bloqueado`, bloquea, `HTTP ${r.status} ${r.location}`);
@@ -316,6 +323,7 @@ async function ejecutar() {
       as2: { ventas: ["V2"], cots: ["C2"], inst: [] },
       asB: { ventas: ["V3", "V6"], cots: ["C3"], inst: ["V6"] },
     };
+    if (usuarios.ofi) esperado.ofi = { ventas: [], cots: [], inst: [] };
     const setDe = (claves, fn) => new Set(claves.map((k) => fn(k)));
     const iguales = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
     const fmt = (s) => [...s].sort().join(",") || "-";
@@ -355,12 +363,14 @@ async function ejecutar() {
       permitidos.every((x) => got.has(x)) && prohibidos.every((x) => !got.has(x));
 
     const proveedoresPrueba = idsCreados(provA, provB);
-    for (const [clave, permitidos, prohibidos] of [
+    const proveedoresCasos = [
       ["admin", [provA, provB], []],
       ["provA", [provA], [provB]],
       ["provB", [provB], [provA]],
       ["as1", [provA], [provB]],
-    ]) {
+    ];
+    if (usuarios.ofi) proveedoresCasos.push(["ofi", [provA, provB], []]);
+    for (const [clave, permitidos, prohibidos] of proveedoresCasos) {
       const r = await op(clave, "listarProveedoresSGT", { limit: 500 });
       const got = new Set(idsDe(r.cuerpo?.datos).filter((id) => proveedoresPrueba.has(id)));
       aviso(`${clave} listarProveedoresSGT solo ve los suyos`, r.status === 200 && soloEstos(got, permitidos, prohibidos), `HTTP ${r.status} ve ${fmt(got)}`);
@@ -410,14 +420,16 @@ async function ejecutar() {
     }
 
     const segsPrueba = new Set(creados.seg);
-    for (const [clave, permitidos, prohibidos] of [
+    const usuariosCasos = [
       ["admin", creados.seg, []],
       ["provA", [usuarios.provA.segId, usuarios.sup.segId, usuarios.as1.segId, usuarios.as2.segId], [usuarios.provB.segId, usuarios.asB.segId]],
       ["provB", [usuarios.provB.segId, usuarios.asB.segId], [usuarios.provA.segId, usuarios.as1.segId]],
       ["sup", [usuarios.sup.segId, usuarios.as1.segId], [usuarios.as2.segId, usuarios.asB.segId]],
       ["as1", [usuarios.as1.segId], [usuarios.as2.segId, usuarios.provA.segId]],
       ["as2", [usuarios.as2.segId], [usuarios.as1.segId, usuarios.provA.segId]],
-    ]) {
+    ];
+    if (usuarios.ofi) usuariosCasos.push(["ofi", [usuarios.ofi.segId], [usuarios.provA.segId, usuarios.asB.segId]]);
+    for (const [clave, permitidos, prohibidos] of usuariosCasos) {
       const r = await op(clave, "listarUsuariosSGT", { limit: 500 });
       const got = new Set(idsDe(r.cuerpo?.datos).filter((id) => segsPrueba.has(id)));
       aviso(`${clave} listarUsuariosSGT solo ve los suyos`, r.status === 200 && soloEstos(got, permitidos, prohibidos), `HTTP ${r.status} ve ${fmt(got)}`);
@@ -522,6 +534,7 @@ async function ejecutar() {
     const pdfEsperado = {
       admin: { C1: 200 }, provA: { C1: 200 }, provB: { C1: 403 }, sup: { C1: 200 }, as1: { C1: 200 }, as2: { C1: 403 }, asB: { C1: 403 },
     };
+    if (usuarios.ofi) pdfEsperado.ofi = { C1: 403 };
     for (const [clave, casos] of Object.entries(pdfEsperado)) {
       for (const [cot, status] of Object.entries(casos)) {
         const got = await pdfDe(clave, cotClave(cot));

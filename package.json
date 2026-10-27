@@ -10,7 +10,9 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/pruebas/run.js",
-    "test:e2e": "node scripts/pruebas/e2e.js"
+    "test:e2e": "node scripts/pruebas/e2e.js",
+    "test:permisos": "node scripts/pruebas/permisos.js",
+    "test:carga": "node scripts/pruebas/carga.js"
   },
   "dependencies": {
     "@supabase/ssr": "^0.4.0",
