@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { RolUsuario } from "./auth";
+import { asegurarPerfilUsuario, type RolUsuario } from "./auth";
 import type { OperacionContext } from "./operaciones";
 import { completarNombresItems } from "./operaciones";
 import { cuotaFrancesaConIgv, tablaSimulacion, temConIgv, PLAZOS_SIMULACION } from "./financiamiento";
@@ -884,6 +884,17 @@ async function hCrearUsuarioSGT(args: z.infer<typeof EsquemaCrearUsuarioSGT>, ct
     user_metadata: { rol: args.rol_codigo.toUpperCase(), nombre: args.nombre },
   });
   if (eAu) throw new Error(eAu.message);
+  try {
+    await asegurarPerfilUsuario(ctx.service, {
+      id: au.user.id,
+      email: args.correo,
+      nombre: args.nombre,
+      rol: args.rol_codigo.toUpperCase() === "ADMIN" ? "admin" : "asesor",
+    });
+  } catch (e) {
+    await ctx.service.auth.admin.deleteUser(au.user.id).catch(() => undefined);
+    throw e;
+  }
   // 2) Ficha seg_usuarios con correlativo U00xxx.
   const id = siguienteId("U", await idsParaCorrelativo(ctx, "seg_usuarios"), 5);
   const { data, error } = await ctx.service.from("seg_usuarios").insert({

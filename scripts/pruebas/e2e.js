@@ -240,6 +240,10 @@ async function ejecutar() {
     aviso("listarClientesSGT encuentra el cliente nuevo", filasBuscar.some((x) => String(x.nro_doc ?? x.dni ?? "") === nroDoc), filasBuscar.length + " filas");
 
     if (creado.clienteSgtId) {
+      // Simula cuentas Auth/SGT antiguas que no tienen fila en profiles:
+      // la siguiente petición debe provisionarla antes de escribir created_by.
+      const { error: ePerfilAusente } = await service.from("profiles").delete().eq("id", userId);
+      aviso("preparar usuario sin profile", !ePerfilAusente, ePerfilAusente?.message ?? "perfil temporalmente ausente");
       const rCot = await op("crearCotizacionSGT", {
         cliente_id: creado.clienteSgtId,
         items: [{ codigo: "PRUEBA-HUMO", descripcion: "ITEM DE PRUEBA", cantidad: 1, precio_unit: 100, descuento_pct: 0 }],
@@ -260,6 +264,13 @@ async function ejecutar() {
       creado.cotizacionId = rCot.cuerpo?.datos?.id ?? null;
       const codigoCot = rCot.cuerpo?.datos?.codigo ?? "";
       aviso("crearCotizacionSGT", rCot.status === 200 && Boolean(creado.cotizacionId), `HTTP ${rCot.status} ${JSON.stringify(rCot.cuerpo?.error ?? "")}`);
+      const { data: perfilReparado } = await service.from("profiles").select("id").eq("id", userId).maybeSingle();
+      aviso(
+        "crea cotización con profile ausente y conserva created_by",
+        rCot.status === 200 && perfilReparado?.id === userId && rCot.cuerpo?.datos?.created_by === userId,
+        `perfil=${Boolean(perfilReparado)} creador=${rCot.cuerpo?.datos?.created_by ?? "null"}`
+      );
+      if (rolAdmin) await service.from("profiles").update({ rol_id: rolAdmin.id }).eq("id", userId);
 
       if (creado.cotizacionId) {
         const rLista = await op("listarCotizaciones", {});

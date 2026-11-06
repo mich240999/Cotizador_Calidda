@@ -18,6 +18,41 @@ export interface SesionInfo {
 }
 
 /**
+ * Crea el perfil app que algunos usuarios SGT antiguos/nuevos no tienen.
+ * cotizaciones.created_by referencia profiles.id (que es el mismo UUID de
+ * Supabase Auth), por lo que el perfil debe existir antes de guardar datos.
+ */
+export async function asegurarPerfilUsuario(
+  service: ReturnType<typeof createSupabaseServiceRole>,
+  usuario: { id: string; email: string; nombre?: string | null; rol: RolUsuario }
+): Promise<void> {
+  const { data: existente, error: eBuscar } = await service
+    .from("profiles")
+    .select("id")
+    .eq("id", usuario.id)
+    .maybeSingle();
+  if (eBuscar) throw new Error(`No se pudo validar el perfil del usuario: ${eBuscar.message}`);
+  if (existente) return;
+
+  const { data: rol } = await service.from("roles").select("id").eq("nombre", usuario.rol).maybeSingle();
+  const { error } = await service.from("profiles").insert({
+    id: usuario.id,
+    email: usuario.email.toLowerCase(),
+    nombre: String(usuario.nombre ?? "").trim() || usuario.email,
+    rol_id: (rol as { id?: number } | null)?.id ?? null,
+    activo: true,
+  });
+
+  // Dos peticiones simultáneas pueden intentar crear el mismo perfil. En ese
+  // caso la segunda confirma que ya existe y continúa sin alterar sus datos.
+  if (error?.code === "23505") {
+    const { data: creado } = await service.from("profiles").select("id").eq("id", usuario.id).maybeSingle();
+    if (creado) return;
+  }
+  if (error) throw new Error(`No se pudo crear el perfil del usuario: ${error.message}`);
+}
+
+/**
  * Dominios permitidos vía AUTH_ALLOWED_DOMAINS="a.com,b.com".
  * Vacío = sin restricción.
  */
@@ -75,7 +110,7 @@ export async function getSession(): Promise<SesionInfo | null> {
   // Rol desde profiles JOIN roles; si no existe, asesor por defecto (o admin si es primer usuario).
   const { data: perfil } = await supabase
     .from("profiles")
-    .select("activo, oficina_id, roles!inner(nombre)")
+    .select("activo, oficina_id, roles(nombre)")
     .eq("id", data.user.id)
     .maybeSingle();
 
@@ -89,6 +124,8 @@ export async function getSession(): Promise<SesionInfo | null> {
   let alcance = rol === "admin" ? "GLOBAL" : "PROPIO";
   let segId: string | null = null;
   let idProveedor: string | null = null;
+  let nombreSgt: string | null = null;
+  let rolSgt = "";
 
   // SGT360: ficha por correo (Stephany y el equipo viven ahí).
   // ADMIN SGT ⇒ admin de la app con alcance de su rol (normalmente GLOBAL).
@@ -97,21 +134,35 @@ export async function getSession(): Promise<SesionInfo | null> {
     const svc = createSupabaseServiceRole();
     const { data: ficha } = await svc
       .from("seg_usuarios")
-      .select("id,rol_codigo,estado,id_proveedor")
+      .select("id,nombre,rol_codigo,estado,id_proveedor")
       .eq("correo", email)
       .maybeSingle();
-    const f = ficha as { id?: string; rol_codigo?: string; estado?: string; id_proveedor?: string | null } | null;
+    const f = ficha as { id?: string; nombre?: string; rol_codigo?: string; estado?: string; id_proveedor?: string | null } | null;
     if (f) {
       if (String(f.estado ?? "").toUpperCase() !== "ACTIVO") return null; // inactivo SGT
       segId = f.id ?? null;
+      nombreSgt = f.nombre ?? null;
+      rolSgt = String(f.rol_codigo ?? "").toUpperCase();
       idProveedor = f.id_proveedor ?? null;
-      const rc = String(f.rol_codigo ?? "").toUpperCase();
-      if (rc === "ADMIN") rol = "admin";
-      const { data: r } = await svc.from("seg_roles").select("alcance").eq("codigo", rc).maybeSingle();
+      if (rolSgt === "ADMIN") rol = "admin";
+      const { data: r } = await svc.from("seg_roles").select("alcance").eq("codigo", rolSgt).maybeSingle();
       const al = String((r as { alcance?: string } | null)?.alcance ?? "").toUpperCase();
       if (al) alcance = al;
     }
   } catch { /* sin tablas SGT: se mantiene el rol/alcance base */ }
+
+  // Usuarios creados desde Administración > Usuarios SGT pueden tener Auth y
+  // seg_usuarios, pero no profiles. Provisionarlo aquí repara cuentas ya
+  // existentes y evita la violación de cotizaciones_created_by_fkey al guardar.
+  if (!perfil) {
+    const nombreAuth = data.user.user_metadata?.nombre ?? data.user.user_metadata?.name;
+    await asegurarPerfilUsuario(createSupabaseServiceRole(), {
+      id: data.user.id,
+      email,
+      nombre: String(nombreSgt ?? nombreAuth ?? "").trim() || email,
+      rol,
+    });
+  }
 
   return {
     userId: data.user.id,
