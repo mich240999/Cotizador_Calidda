@@ -80,8 +80,15 @@ let estadoTema: boolean | null = null;
 // Se conserva el rol entre navegaciones para que los módulos restringidos no
 // aparezcan y desaparezcan mientras /api/mi-perfil responde.
 let rolCache: string | null = null;
+let nombreCache: string | null = null;
+let emailPerfilCache: string | null = null;
 
-function initials(email: string | null) {
+function initials(nombre: string | null, email: string | null) {
+  const partesNombre = String(nombre ?? "").trim().split(/\s+/).filter(Boolean);
+  if (partesNombre.length >= 2) {
+    return (partesNombre[0][0] + partesNombre[partesNombre.length - 1][0]).toUpperCase();
+  }
+  if (partesNombre.length === 1) return partesNombre[0].slice(0, 2).toUpperCase();
   if (!email) return "MS";
   const u = email.split("@")[0];
   const parts = u.split(/[._-]+/);
@@ -93,34 +100,53 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
+  const [nombre, setNombre] = useState(() => nombreCache ?? "");
   const [oscuro, setOscuro] = useState(() => estadoTema ?? false);
   const [plegado, setPlegado] = useState(() => estadoPlegado ?? false);
   const [miRol, setMiRol] = useState(() => rolCache ?? "");
 
   useEffect(() => {
     const sb = getSupabaseBrowser();
-    const cargarRol = () => {
-      fetch("/api/mi-perfil")
+    const cargarPerfil = () => {
+      fetch("/api/mi-perfil", { cache: "no-store" })
         .then((r) => r.json())
         .then((j) => {
-          if (!j?.ok || !j.rol) return;
-          const rol = String(j.rol).toUpperCase();
-          rolCache = rol;
-          setMiRol(rol);
+          if (!j?.ok) return;
+          const rol = String(j.rol ?? "").toUpperCase();
+          const nombreUsuario = String(j.nombre ?? "").trim();
+          if (rol) {
+            rolCache = rol;
+            setMiRol(rol);
+          }
+          if (nombreUsuario) {
+            nombreCache = nombreUsuario;
+            setNombre(nombreUsuario);
+          }
         })
         .catch(() => {});
     };
     sb.auth.getSession().then(({ data }) => setEmail(data.session?.user?.email ?? null));
     const { data: sub } = sb.auth.onAuthStateChange((_e, s) => {
-      setEmail(s?.user?.email ?? null);
+      const emailSesion = s?.user?.email?.toLowerCase() ?? null;
+      setEmail(emailSesion);
       if (!s) {
+        emailPerfilCache = null;
         rolCache = null;
+        nombreCache = null;
         setMiRol("");
+        setNombre("");
         return;
       }
-      if (!rolCache) cargarRol();
+      if (emailPerfilCache !== emailSesion) {
+        emailPerfilCache = emailSesion;
+        rolCache = null;
+        nombreCache = null;
+        setMiRol("");
+        setNombre("");
+      }
+      if (!rolCache || !nombreCache) cargarPerfil();
     });
-    cargarRol();
+    cargarPerfil();
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -209,13 +235,13 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               <span aria-hidden>{oscuro ? "☀" : "🌙"}</span>
             </button>
             <div className="text-right hidden sm:block">
-              <p className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-none">MS ADMIN</p>
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-none max-w-[220px] truncate">{nombre || email?.split("@")[0] || "Usuario"}</p>
               <p className="text-[11px] text-slate-400 max-w-[220px] truncate">
                 {email ?? "usuario@calidda.com.pe"}
               </p>
             </div>
             <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[#0B5FA5] to-[#00A9CE] text-white flex items-center justify-center text-xs font-bold shadow-sm">
-              {initials(email)}
+              {initials(nombre, email)}
             </div>
               <button
                 onClick={async () => {

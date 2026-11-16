@@ -138,10 +138,16 @@ function esAdmin(ctx: OperacionContext): boolean {
   return ctx.sesion.rol === "admin";
 }
 
+function exigirAdminOProveedor(ctx: OperacionContext): void {
+  if (esAdmin(ctx) || ctx.sesion.alcance === "GLOBAL") return;
+  if (ctx.sesion.alcance === "EMPRESA" && ctx.sesion.idProveedor) return;
+  lanzar(403, "Solo el administrador o el proveedor asignado puede acceder a instalaciones");
+}
+
 /**
  * Alcance de lectura de ventas (ver lib/alcance.ts):
- * GLOBAL = todo; EMPRESA = su proveedor + lo propio; EQUIPO = lo propio y el
- * de sus asesores; PROPIO = solo lo suyo.
+ * GLOBAL = todo; EMPRESA = solo su proveedor; EQUIPO = asesores asignados de
+ * la misma empresa; PROPIO = registros propios identificados por UUID.
  */
 type Fila = Record<string, any>;
 
@@ -918,6 +924,7 @@ async function hObservarSolicitud(args: z.infer<typeof EsquemaObservarSolicitud>
 
 async function hRegistrarInstalacion(args: z.infer<typeof EsquemaInstalacion>, ctx: OperacionContext) {
   try {
+    exigirAdminOProveedor(ctx);
     await ventaVisible(ctx, args.solicitud_id);
     const { data: previa, error: ePrev } = await ctx.service
       .from(T_INS)
@@ -984,6 +991,7 @@ async function hRegistrarInstalacion(args: z.infer<typeof EsquemaInstalacion>, c
 
 async function hValidarInstalacionProveedor(args: z.infer<typeof EsquemaSoloSolicitud>, ctx: OperacionContext) {
   try {
+    exigirAdminOProveedor(ctx);
     await ventaVisible(ctx, args.solicitud_id);
     const { data: ins, error: eIns } = await ctx.service
       .from(T_INS)
@@ -1053,6 +1061,7 @@ async function hValidacionFinal(args: z.infer<typeof EsquemaSoloSolicitud>, ctx:
 
 async function hObservarInstalacion(args: z.infer<typeof EsquemaObservarInstalacion>, ctx: OperacionContext) {
   try {
+    exigirAdminOProveedor(ctx);
     await ventaVisible(ctx, args.solicitud_id);
     const { data: ins, error: eIns } = await ctx.service
       .from(T_INS)
@@ -1142,12 +1151,9 @@ const EsquemaQInstalaciones = z.object({
 async function hListarInstalacionesPendientes(args: z.infer<typeof EsquemaQInstalaciones>, ctx: OperacionContext) {
   // Vista del proveedor: TODAS sus ventas con info de instalación (no solo pendientes).
   // Admin ve todo. Otros roles: vacío.
-  let idProveedor: string | null = null;
-  if (!esAdmin(ctx)) {
-    const { data: ficha } = await ctx.service.from("seg_usuarios").select("id_proveedor").eq("correo", (ctx.sesion.email ?? "").toLowerCase()).maybeSingle();
-    idProveedor = (ficha as { id_proveedor?: string } | null)?.id_proveedor ?? null;
-    if (!idProveedor) return { rows: [], total: 0, proveedor: null };
-  }
+  const alcance = await resolverAlcance(ctx.service, ctx.sesion);
+  if (!alcance.todo && !alcance.proveedor) return { rows: [], total: 0, proveedor: null };
+  const idProveedor = alcance.proveedor;
   let q = ctx.service.from(T_SOL)
     .select("id,id_cliente,id_proveedor,canal,estado,created_at,updated_at", { count: "exact" })
     .order("updated_at", { ascending: false }).limit(args.limit);
@@ -1191,6 +1197,7 @@ async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionCo
     if (!puedeVerVenta(aVenta, sol)) {
       lanzar(403, "Sin permiso: la venta pertenece a otro usuario o empresa");
     }
+    const puedeVerInstalacion = aVenta.todo || (aVenta.empresaScope && !!aVenta.proveedor);
     const [rItems, rAbonos, rIns] = await Promise.all([
       ctx.service.from(T_ITEM).select("*").eq("solicitud_id", args.id),
       ctx.service.from(T_ABO).select("*").eq("solicitud_id", args.id).order("created_at", { ascending: false }),
@@ -1236,7 +1243,7 @@ async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionCo
       },
       items,
       abonos: rAbonos.data ?? [],
-      instalacion: rIns.data ?? null,
+      instalacion: puedeVerInstalacion ? rIns.data ?? null : null,
     };
   } catch (e) {
     exigirTabla(e);
@@ -1677,6 +1684,11 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
   try {
     const desde = (args.page - 1) * args.pageSize;
     const aIns = await resolverAlcance(ctx.service, ctx.sesion);
+    // Las instalaciones son información operativa del proveedor asignado;
+    // asesores y supervisores no la reciben ni siquiera por llamada directa.
+    if (!aIns.todo && !aIns.proveedor) {
+      return { rows: [], total: 0, page: args.page, pageSize: args.pageSize };
+    }
     const armar = (conPV: boolean) => {
       let qq = ctx.service.from(T_SOL).select("*", { count: "exact" }).order("created_at", { ascending: false });
       qq = aplicarAlcanceVentas(qq, aIns);
@@ -1760,6 +1772,7 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
 /** Proveedor registra 1 de 2 formas de solicitud de liquidación → pendiente_liquidar. */
 async function hRegistrarLiquidacion(args: z.infer<typeof EsquemaRegistrarLiquidacion>, ctx: OperacionContext) {
   try {
+    exigirAdminOProveedor(ctx);
     const s = await ventaVisible(ctx, args.solicitud_id);
     const est = String(s.estado ?? "").toLowerCase();
     if (![...ESTADOS_INSTALABLE, "pendiente_liquidar"].includes(est)) {
@@ -1947,7 +1960,7 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
 export const REGLAS_VENTAS = {
   tablas: [T_SOL, T_ITEM, T_ABO, T_INS],
   schema_sql: "supabase/schema_ventas.sql",
-  scope_por_rol: "GLOBAL (admin): todo. EMPRESA (proveedor): ventas de su empresa + propias. EQUIPO/PROPIO: solo propias (EQUIPO completo requiere matriz de equipos). Instalaciones: admin todo, proveedor las suyas",
+  scope_por_rol: "GLOBAL (admin): todo. EMPRESA (proveedor): solo su empresa. EQUIPO (supervisor): solo asesores asignados de su empresa. PROPIO (asesor): solo propios por UUID, sin confiar en nombres. Instalaciones: solo admin/proveedor, con límite por empresa.",
   tea: "default 40; solo admin puede crear con TEA ≠ 40 (403) y solo admin puede actualizarla",
   adjuntos: "adjunto_cotizacion_url y adjunto_dni_url obligatorios al crear (400 sin ellos)",
   subtotal_item: "cantidad * precio_unit − descuento_monto (422 si el descuento supera el bruto)",

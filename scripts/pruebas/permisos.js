@@ -95,8 +95,9 @@ async function ejecutar() {
       creados.auth.push(au.user.id);
       const esAdmin = rolSgt === "ADMIN";
       const esOficina = rolSgt === "OFICINA";
+      const nombrePerfil = "Perfil " + nombre;
       const { error: eP } = await service.from("profiles").insert({
-        id: au.user.id, email, nombre, rol_id: esAdmin ? rolAdmin.id : esOficina && rolOficina ? rolOficina.id : rolAsesor.id, activo: true,
+        id: au.user.id, email, nombre: nombrePerfil, rol_id: esAdmin ? rolAdmin.id : esOficina && rolOficina ? rolOficina.id : rolAsesor.id, activo: true,
       });
       if (eP) throw eP;
       creados.perfiles.push(au.user.id);
@@ -107,7 +108,7 @@ async function ejecutar() {
       });
       if (eS) throw eS;
       creados.seg.push(segId);
-      usuarios[clave] = { email, password, userId: au.user.id, segId, nombre };
+      usuarios[clave] = { email, password, userId: au.user.id, segId, nombre, nombrePerfil };
     };
 
     // Proveedores A y B.
@@ -179,6 +180,13 @@ async function ejecutar() {
     });
     if (eAsgB) throw new Error("asignacion B: " + eAsgB.message);
     creados.asignaciones.push(asgB);
+    const asgCruce = "ASG7" + idB;
+    const { error: eAsgCruce } = await service.from("seg_asignaciones_asesores").insert({
+      id: asgCruce, id_asesor: usuarios.asB.segId, id_supervisor: usuarios.sup.segId, id_proveedor: provB,
+      id_oficina: ofB, id_grupo: gvB, fecha_inicio: new Date().toISOString().slice(0, 10), estado: "VIGENTE",
+    });
+    if (eAsgCruce) throw new Error("asignacion cruzada: " + eAsgCruce.message);
+    creados.asignaciones.push(asgCruce);
 
     // Cliente legacy + maestro (para cotizaciones y ventas).
     const { data: cliLegacy, error: eCli } = await service.from("clientes").insert({
@@ -206,7 +214,8 @@ async function ejecutar() {
         subtotal: 100, igv: 18, total: 118,
         observaciones: marca,
         created_by: usuarios[quien].userId,
-        asesor: usuarios[quien].nombre,
+        // Nombre homónimo de otro proveedor: nunca debe sustituir la identidad Auth.
+        asesor: clave === "C3" ? usuarios.as1.nombre : usuarios[quien].nombre,
         proveedor: clave === "C3" ? marca + " B" : marca + " A",
       }).select("id").single();
       if (error) throw new Error("cotizacion " + clave + ": " + error.message);
@@ -232,8 +241,23 @@ async function ejecutar() {
       if (error) throw new Error("venta " + clave + ": " + error.message);
       creados.ventas.push({ clave, id, prov, estado, creador: quien });
     }
+    const idV7 = "VTA-9" + cola.slice(-4) + "7";
+    const { error: eV7 } = await service.from("vta_solicitudes_venta").insert({
+      id: idV7, id_cliente: cliMae, id_proveedor: provB, canal: "proveedor", pago_modo: "financiado_total",
+      tea: 40, estado: "generada", observaciones: marca + " V7",
+      created_by: usuarios.as1.userId, id_asesor: usuarios.as1.segId,
+      asesor_nombre: usuarios.as1.nombre, ambiente: marca,
+    });
+    if (eV7) throw new Error("venta de empresa cruzada V7: " + eV7.message);
+    creados.ventas.push({ clave: "V7", id: idV7, prov: provB, estado: "generada", creador: "as1" });
     const ventasClave = (clave) => creados.ventas.find((v) => v.clave === clave).id;
     const cotClave = (clave) => creados.cotizaciones.find((c) => c.clave === clave).id;
+    for (const clave of ["V5", "V6", "V7"]) {
+      const { error } = await service.from("vta_instalaciones").insert({
+        solicitud_id: ventasClave(clave), estado: "registrada",
+      });
+      if (error) throw new Error("instalación " + clave + ": " + error.message);
+    }
 
     // ------------------------------------------------ sesiones -> cookies
     for (const [clave, u] of Object.entries(usuarios)) {
@@ -261,6 +285,13 @@ async function ejecutar() {
     servidor.stdout.on("data", () => undefined);
     servidor.stderr.on("data", (d) => { if (VERBOSO) process.stderr.write(d); });
     aviso("servidor next start :" + PUERTO, await esperarServidor(90000));
+
+    for (const [clave, u] of Object.entries(usuarios)) {
+      const res = await fetch(`${BASE}/api/mi-perfil`, { headers: { cookie: u.cookie, "cache-control": "no-cache" } });
+      const perfil = await res.json().catch(() => null);
+      const rolEsperado = { admin: "ADMIN", provA: "PROVEEDOR", provB: "PROVEEDOR", sup: "SUPERVISOR", as1: "ASESOR", as2: "ASESOR", asB: "ASESOR", ofi: "OFICINA" }[clave];
+      aviso(`${clave} mi-perfil muestra nombre de profile y rol SGT`, res.status === 200 && perfil?.nombre === u.nombrePerfil && perfil?.rol === rolEsperado, `HTTP ${res.status} nombre=${perfil?.nombre} rol=${perfil?.rol}`);
+    }
 
     // Dashboard: solo admin. Proveedor vuelve a instalaciones; el resto a cotizaciones.
     const dashboard = async (clave) => {
@@ -315,13 +346,13 @@ async function ejecutar() {
 
     // Matriz esperada.
     const esperado = {
-      admin: { ventas: ["V1", "V2", "V3", "V4", "V5", "V6"], cots: ["C1", "C2", "C3", "C4"], inst: ["V5", "V6"] },
+      admin: { ventas: ["V1", "V2", "V3", "V4", "V5", "V6", "V7"], cots: ["C1", "C2", "C3", "C4"], inst: ["V5", "V6", "V7"] },
       provA: { ventas: ["V1", "V2", "V4", "V5"], cots: ["C1", "C2", "C4"], inst: ["V5"] },
-      provB: { ventas: ["V3", "V6"], cots: ["C3"], inst: ["V6"] },
-      sup: { ventas: ["V1", "V4", "V5"], cots: ["C1", "C4"], inst: ["V5"] },
-      as1: { ventas: ["V1", "V5"], cots: ["C1"], inst: ["V5"] },
+      provB: { ventas: ["V3", "V6", "V7"], cots: ["C3"], inst: ["V6", "V7"] },
+      sup: { ventas: ["V1", "V5"], cots: ["C1"], inst: [] },
+      as1: { ventas: ["V1", "V5"], cots: ["C1"], inst: [] },
       as2: { ventas: ["V2"], cots: ["C2"], inst: [] },
-      asB: { ventas: ["V3", "V6"], cots: ["C3"], inst: ["V6"] },
+      asB: { ventas: ["V3", "V6"], cots: ["C3"], inst: [] },
     };
     if (usuarios.ofi) esperado.ofi = { ventas: [], cots: [], inst: [] };
     const setDe = (claves, fn) => new Set(claves.map((k) => fn(k)));
@@ -354,7 +385,31 @@ async function ejecutar() {
       const gotI = new Set(idsVentas(rI.cuerpo?.datos));
       const expI = setDe(exp.inst, ventasClave);
       aviso(`${clave} listarInstalaciones ve ${fmt(expI)}`, rI.status === 200 && iguales(gotI, expI), `HTTP ${rI.status} ve ${fmt(gotI)}`);
+
+      const rIP = await op(clave, "listarInstalacionesPendientes", { limit: 100 });
+      const puedeVerBandejaInst = clave === "admin" || clave === "provA" || clave === "provB";
+      const ventasProveedor = clave === "admin"
+        ? creados.ventas.map((v) => v.clave)
+        : clave === "provA" ? ["V1", "V2", "V4", "V5"] : clave === "provB" ? ["V3", "V6", "V7"] : [];
+      const gotIP = new Set(idsVentas(rIP.cuerpo?.datos));
+      const expIP = setDe(ventasProveedor, ventasClave);
+      aviso(`${clave} listarInstalacionesPendientes ${puedeVerBandejaInst ? `ve ${fmt(expIP)}` : "no expone instalaciones"}`,
+        rIP.status === 200 && iguales(gotIP, expIP), `HTTP ${rIP.status} ve ${fmt(gotIP)}`);
     }
+
+    const detalleInstAsesor = await op("as1", "getVenta", { id: ventasClave("V5") });
+    const detalleInstProveedor = await op("provA", "getVenta", { id: ventasClave("V5") });
+    aviso("getVenta no expone instalación a asesor", detalleInstAsesor.status === 200 && detalleInstAsesor.cuerpo?.datos?.instalacion == null);
+    aviso("getVenta expone instalación al proveedor asignado", detalleInstProveedor.status === 200 && detalleInstProveedor.cuerpo?.datos?.instalacion?.solicitud_id === ventasClave("V5"));
+    const registrarInstNoAdmin = await op("as1", "registrarInstalacion", {
+      solicitud_id: ventasClave("V5"), foto_antes_url: "https://example.com/a.jpg", foto_despues_url: "https://example.com/b.jpg",
+      boleta_url: "https://example.com/b.pdf", acta_url: "https://example.com/c.pdf",
+    });
+    const liquidarInstNoAdmin = await op("as1", "registrarLiquidacion", {
+      solicitud_id: ventasClave("V5"), tipo: "anticipo", voucher_url: "https://example.com/v.pdf",
+    });
+    aviso("asesor no puede registrar instalación -> 403", registrarInstNoAdmin.status === 403, `HTTP ${registrarInstNoAdmin.status}`);
+    aviso("asesor no puede registrar liquidación de instalación -> 403", liquidarInstNoAdmin.status === 403, `HTTP ${liquidarInstNoAdmin.status}`);
 
     // ------------------------------------------------ aislamiento de maestros y seguridad
     const idsDe = (datos) => filasDe(datos).map((r) => String(r.id)).filter(Boolean);
@@ -408,11 +463,12 @@ async function ejecutar() {
 
     const asgA = "ASG9" + cola.slice(-3);
     for (const [clave, permitidos, prohibidos] of [
-      ["admin", [asgA, asgB], []],
-      ["provA", [asgA], [asgB]],
-      ["provB", [asgB], [asgA]],
-      ["sup", [asgA], [asgB]],
-      ["as1", [asgA], [asgB]],
+      ["admin", [asgA, asgB, asgCruce], []],
+      ["provA", [asgA], [asgB, asgCruce]],
+      ["provB", [asgB, asgCruce], [asgA]],
+      ["sup", [asgA], [asgB, asgCruce]],
+      ["as1", [asgA], [asgB, asgCruce]],
+      ["asB", [asgB, asgCruce], [asgA]],
     ]) {
       const r = await op(clave, "listarAsignaciones", { limit: 500 });
       const got = new Set(idsDe(r.cuerpo?.datos).filter((id) => creados.asignaciones.includes(id)));
@@ -424,7 +480,7 @@ async function ejecutar() {
       ["admin", creados.seg, []],
       ["provA", [usuarios.provA.segId, usuarios.sup.segId, usuarios.as1.segId, usuarios.as2.segId], [usuarios.provB.segId, usuarios.asB.segId]],
       ["provB", [usuarios.provB.segId, usuarios.asB.segId], [usuarios.provA.segId, usuarios.as1.segId]],
-      ["sup", [usuarios.sup.segId, usuarios.as1.segId], [usuarios.as2.segId, usuarios.asB.segId]],
+      ["sup", [usuarios.as1.segId], [usuarios.sup.segId, usuarios.as2.segId, usuarios.asB.segId]],
       ["as1", [usuarios.as1.segId], [usuarios.as2.segId, usuarios.provA.segId]],
       ["as2", [usuarios.as2.segId], [usuarios.as1.segId, usuarios.provA.segId]],
     ];
@@ -532,9 +588,15 @@ async function ejecutar() {
       return res.status;
     };
     const pdfEsperado = {
-      admin: { C1: 200 }, provA: { C1: 200 }, provB: { C1: 403 }, sup: { C1: 200 }, as1: { C1: 200 }, as2: { C1: 403 }, asB: { C1: 403 },
+      admin: { C1: 200, C3: 200 },
+      provA: { C1: 200, C3: 403 },
+      provB: { C1: 403, C3: 200 },
+      sup: { C1: 200, C3: 403 },
+      as1: { C1: 200, C3: 403 },
+      as2: { C1: 403, C3: 403 },
+      asB: { C1: 403, C3: 200 },
     };
-    if (usuarios.ofi) pdfEsperado.ofi = { C1: 403 };
+    if (usuarios.ofi) pdfEsperado.ofi = { C1: 403, C3: 403 };
     for (const [clave, casos] of Object.entries(pdfEsperado)) {
       for (const [cot, status] of Object.entries(casos)) {
         const got = await pdfDe(clave, cotClave(cot));

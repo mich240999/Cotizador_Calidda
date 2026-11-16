@@ -617,6 +617,8 @@ async function hListarAsignaciones(args: z.infer<typeof EsquemaQ>, ctx: Operacio
     if (alcance.proveedor) {
       q = q.eq("id_proveedor", alcance.proveedor);
     } else if (ctx.sesion.alcance === "EQUIPO" && ctx.sesion.segId) {
+      if (!alcance.empresa) return [];
+      q = q.eq("id_proveedor", alcance.empresa);
       const equipo = alcance.equipoSeg.filter(Boolean);
       const filtros = [`id_supervisor.eq.${ctx.sesion.segId}`];
       if (equipo.length) filtros.push(`id_asesor.in.(${equipo.join(",")})`);
