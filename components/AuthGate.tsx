@@ -21,31 +21,6 @@ async function heartbeat(): Promise<boolean> {
   }
 }
 
-function equipoDe(ua: string | null | undefined): string {
-  if (!ua) return "Equipo desconocido";
-  if (/Edg\//.test(ua)) return "Edge";
-  if (/OPR\/|Opera/.test(ua)) return "Opera";
-  if (/Chrome\//.test(ua)) return "Chrome";
-  if (/Firefox\//.test(ua)) return "Firefox";
-  if (/Safari\//.test(ua)) return "Safari";
-  if (/okhttp|Android/i.test(ua)) return "Android";
-  if (/iPhone|iPad/i.test(ua)) return "iOS";
-  return ua.slice(0, 36);
-}
-
-function fechaCorta(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("es-PE", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "America/Lima",
-  });
-}
-
 /** Asterisco de 8 puntas (marca) en blanco. */
 function Asterisco({ className }: { className?: string }) {
   return (
@@ -62,21 +37,11 @@ function Asterisco({ className }: { className?: string }) {
  *  al remontar el AuthGate en cada página (muy visible en celular). */
 let _emailCache: string | null | undefined;
 
-type ConflictoSesion = {
-  user_agent?: string | null;
-  ip?: string | null;
-  created_at?: string;
-  ultima_actividad?: string;
-  total?: number;
-};
-
 type RespuestaLogin = {
   ok?: boolean;
   error?: string;
   codigo?: string;
   usuario?: { email?: string };
-  sesion?: ConflictoSesion;
-  total?: number;
 };
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
@@ -91,7 +56,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recordarme, setRecordarme] = useState(true);
-  const [conflicto, setConflicto] = useState<ConflictoSesion | null>(null);
+  const [conflicto, setConflicto] = useState(false);
 
   useEffect(() => {
     try {
@@ -202,7 +167,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       });
       const json = (await res.json().catch(() => ({}))) as RespuestaLogin;
       if (res.status === 409 && json?.codigo === "SESION_ACTIVA") {
-        setConflicto({ ...(json.sesion ?? {}), total: json.total });
+        setConflicto(true);
         return;
       }
       if (!res.ok || json?.ok === false) {
@@ -219,7 +184,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       await supabase.auth.getUser().catch(() => undefined);
       _emailCache = emailFinal;
       setEmail(emailFinal);
-      setConflicto(null);
+      setConflicto(false);
       setClave("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo iniciar sesión");
@@ -229,7 +194,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }, [supabase, correo, clave, recordarme]);
 
   const mantenerSesion = () => {
-    setConflicto(null);
+    setConflicto(false);
     setClave("");
     setAviso("Mantuvimos la sesión abierta en el otro equipo.");
   };
@@ -385,38 +350,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               )}
             </div>
 
-            {conflicto && (
-              <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                <p className="font-bold">Tu cuenta ya está abierta en otro equipo</p>
-                <p className="mt-1 text-xs text-amber-800">
-                  Equipo: {equipoDe(conflicto.user_agent)} · Última actividad: {fechaCorta(conflicto.ultima_actividad)}
-                  {conflicto.ip ? ` · IP ${conflicto.ip}` : ""}
-                </p>
-                <p className="mt-1 text-xs text-amber-800">
-                  {conflicto.total && conflicto.total > 1
-                    ? `Hay ${conflicto.total} sesiones activas.`
-                    : "Si entras aquí, la sesión de ese equipo se cerrará."}
-                </p>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  <button
-                    type="button"
-                    onClick={mantenerSesion}
-                    disabled={busy}
-                    className="flex-1 rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900 transition hover:bg-amber-100 disabled:opacity-60"
-                  >
-                    Mantener la sesión actual
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => ingresar(true)}
-                    disabled={busy}
-                    className="flex-1 rounded-xl bg-[#0077B6] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#005B96] disabled:opacity-60"
-                  >
-                    Cerrar sesión anterior y entrar
-                  </button>
-                </div>
-              </div>
-            )}
             {error && (
               <p className="mt-5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-2.5">{error}</p>
             )}
@@ -433,6 +366,46 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             </p>
           </div>
         </div>
+        {conflicto && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm sm:p-6">
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="conflicto-sesion-titulo"
+              className="w-full max-w-xl rounded-2xl border border-amber-200 bg-[#fffdf5] p-5 text-amber-950 shadow-2xl sm:p-7"
+            >
+              <div className="flex items-start gap-3">
+                <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xl">!</span>
+                <div>
+                  <h2 id="conflicto-sesion-titulo" className="text-lg font-extrabold sm:text-xl">
+                    Tu cuenta ya tiene una sesión activa
+                  </h2>
+                  <p className="mt-2 text-sm leading-relaxed text-amber-900/80">
+                    Si continúas, se cerrará la sesión anterior. ¿Cómo deseas proceder?
+                  </p>
+                </div>
+              </div>
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={mantenerSesion}
+                  disabled={busy}
+                  className="min-h-12 flex-1 rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-bold text-amber-950 transition hover:bg-amber-50 disabled:opacity-60"
+                >
+                  Mantener la sesión actual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => ingresar(true)}
+                  disabled={busy}
+                  className="min-h-12 flex-1 rounded-xl bg-[#0077B6] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#005B96] disabled:opacity-60"
+                >
+                  {busy ? "Ingresando…" : "Cerrar sesión anterior y entrar"}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
       </div>
     );
   }

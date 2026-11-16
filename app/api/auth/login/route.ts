@@ -217,7 +217,6 @@ export async function POST(req: NextRequest) {
   }
 
   if (perfil?.id && config.unaSesion && sesionesActivas.length > 0) {
-    const actual = sesionesActivas[0];
     if (!body.cerrarOtras) {
       await revocarSesionNueva(accessToken);
       await auditar("INICIO_SESION_BLOQUEADO", perfil.id, {
@@ -230,13 +229,6 @@ export async function POST(req: NextRequest) {
           ok: false,
           codigo: "SESION_ACTIVA",
           error: "Tu cuenta ya tiene una sesión activa en otro equipo.",
-          sesion: {
-            user_agent: actual.user_agent ?? null,
-            ip: actual.ip ?? null,
-            created_at: actual.created_at,
-            ultima_actividad: actual.ultima_actividad
-          },
-          total: sesionesActivas.length
         },
         { status: 409 }
       );

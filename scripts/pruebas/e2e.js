@@ -165,6 +165,29 @@ async function ejecutar() {
       });
     const filasDe = (d) => (Array.isArray(d) ? d : d && Array.isArray(d.rows) ? d.rows : []);
 
+    // Dos intentos de login consecutivos: si el límite de una sesión está
+    // activo, el 409 no debe revelar IP, navegador ni datos de la sesión previa.
+    const loginBody = JSON.stringify({ email, password, recordarme: false });
+    const login1 = await pedir("/api/auth/login", {
+      method: "POST", headers: { "content-type": "application/json" }, body: loginBody,
+    });
+    if (login1.status === 200) {
+      const login2 = await pedir("/api/auth/login", {
+        method: "POST", headers: { "content-type": "application/json" }, body: loginBody,
+      });
+      if (login2.status === 409 && login2.cuerpo?.codigo === "SESION_ACTIVA") {
+        const clavesSensibles = /ip|user.?agent|device|sesion/i;
+        const exponeDatos = Object.keys(login2.cuerpo ?? {}).some((k) => clavesSensibles.test(k));
+        aviso("conflicto de sesión no expone IP ni dispositivo", !exponeDatos, JSON.stringify(login2.cuerpo));
+      } else if (login2.status === 200) {
+        omitidoLog("redacción de conflicto de sesión", "la política de una sola sesión está desactivada");
+      } else {
+        aviso("segundo login detecta sesión activa", false, `HTTP ${login2.status} ${JSON.stringify(login2.cuerpo?.error ?? "")}`);
+      }
+    } else {
+      aviso("primer login para probar conflicto de sesión", false, `HTTP ${login1.status} ${JSON.stringify(login1.cuerpo?.error ?? "")}`);
+    }
+
     // ------------------------------------------------ 1) middleware sin sesion
     for (const ruta of ["/dashboard", "/cotizaciones", "/clientes", "/materiales", "/admin", "/ventas", "/instalaciones"]) {
       const r = await pedir(ruta);
