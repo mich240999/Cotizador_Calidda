@@ -232,6 +232,21 @@ function VisorVenta({ id, onClose }: { id: string; onClose: () => void }) {
 }
 
 export default function VentasPage() {
+  const [esAdmin, setEsAdmin] = useState(false);
+
+  useEffect(() => {
+    let vigente = true;
+    fetch("/api/mi-perfil", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((perfil) => {
+        if (vigente) setEsAdmin(perfil?.ok === true && String(perfil.rol ?? "").toUpperCase() === "ADMIN");
+      })
+      .catch(() => {
+        if (vigente) setEsAdmin(false);
+      });
+    return () => { vigente = false; };
+  }, []);
+
   // ---- Mitad 1: buscar cotización / pendientes ----
   const [qCot, setQCot] = useState("");
   const [fEstCot, setFEstCot] = useState("");
@@ -567,7 +582,7 @@ export default function VentasPage() {
                             <td className="whitespace-nowrap font-bold">{formatoMoneda(Number(r.monto_total ?? ventaTotal(v)))}</td>
                             <td className="whitespace-nowrap">
                               <div className="flex gap-1.5">
-                                {puedePV(v) && <AccAprobar title="Registrar PV" onClick={() => setPvDe(v)} />}
+                                {esAdmin && puedePV(v) && <AccAprobar title="Registrar PV" onClick={() => setPvDe(v)} />}
                                 <AccVer title="Ver solicitud" onClick={() => setVisorId(ventaId(v))} />
                               </div>
                             </td>
@@ -642,7 +657,7 @@ export default function VentasPage() {
                         <td className="whitespace-nowrap text-xs">{f.fecha ? formatoFecha(f.fecha) : "—"}</td>
                         <td className="whitespace-nowrap">
                           <div className="flex gap-1.5">
-                            {puedePV(v) && <AccAprobar title="Registrar PV" onClick={() => setPvDe(v)} />}
+                            {esAdmin && puedePV(v) && <AccAprobar title="Registrar PV" onClick={() => setPvDe(v)} />}
                             <AccVer title="Ver solicitud" onClick={() => setVisorId(ventaId(v))} />
                           </div>
                         </td>
@@ -658,7 +673,7 @@ export default function VentasPage() {
         {abrirModal && prefill && (
           <VentaModal prefill={prefill} onClose={() => { setAbrirModal(false); setPrefill(null); refrescarTodo(); }} />
         )}
-        {pvDe && (
+        {esAdmin && pvDe && (
           <PVModal v={pvDe} onClose={() => setPvDe(null)} onHecho={() => refrescarTodo()} />
         )}
         {visorId && (

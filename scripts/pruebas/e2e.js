@@ -348,6 +348,13 @@ async function ejecutar() {
       await service.from("profiles").update({ rol_id: rolAsesor.id }).eq("id", userId);
       const r403 = await op("crearRolSGT", { nombre: marca, descripcion: "prueba" });
       aviso("op solo-admin con rol asesor -> 403", r403.status === 403, `HTTP ${r403.status} ${JSON.stringify(r403.cuerpo?.error ?? "")}`);
+      const rPv403 = await op("registrarPV", {
+        solicitud_id: "PRUEBA-NO-AUTORIZADA",
+        codigo_llamada: "PRUEBA",
+        numero_pedido_venta: "PV-PRUEBA",
+        numero_pedido_abono: "",
+      });
+      aviso("registrarPV solo-admin con rol asesor -> 403", rPv403.status === 403, `HTTP ${rPv403.status} ${JSON.stringify(rPv403.cuerpo?.error ?? "")}`);
       const rPermitida = await op("listarClientesSGT", { limit: 3, pageSize: 3 });
       aviso("op operativa con rol asesor -> 200", rPermitida.status === 200, `HTTP ${rPermitida.status}`);
       await service.from("profiles").update({ rol_id: rolAdmin ? rolAdmin.id : null }).eq("id", userId);
