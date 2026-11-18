@@ -365,7 +365,7 @@ function VisualizarModal({ c, onClose, onCambio, puedeGestionar = false }: { c: 
           {filas.map(([k, v]) => (
             <div key={k} className="flex justify-between gap-3 border-b border-slate-100 py-1">
               <dt className="text-slate-400 shrink-0">{k}</dt>
-              <dd className="font-semibold text-right break-all">{v}</dd>
+              <dd className={`font-semibold text-right ${k === "ID" ? "max-w-[68%] overflow-x-auto whitespace-nowrap font-mono text-xs" : "break-all"}`}>{v}</dd>
             </div>
           ))}
         </dl>
@@ -790,7 +790,7 @@ export default function ClientesPage() {
                 const rev = revisionDe(c);
                 return (
                   <tr key={String(c.id)}>
-                    <td className="font-mono text-xs break-all">{String(c.id)}</td>
+                    <td className="font-mono text-xs whitespace-nowrap" title={String(c.id)}>{String(c.id)}</td>
                     <td><p className="font-bold">{docDe(c)}</p><p className="text-[11px] text-slate-400">{tipoDocDe(c)}</p></td>
                     <td><p className="font-bold uppercase">{nombreDe(c)}</p><p className="text-[11px] text-slate-400 uppercase">{c.contacto || ""}</p></td>
                     <td className="font-bold">{c.cuenta_contrato || "—"}</td>
