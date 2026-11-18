@@ -4,34 +4,27 @@ import { useEffect, useMemo, useState } from "react";
 import { apiOperacion } from "./Tablas";
 import { AccQuitar } from "./Accion";
 import { componerObservaciones } from "@/lib/detallesMueble";
-import { ordenarMateriales } from "@/lib/materialMatch";
+import { cuotaFrancesaConIgv } from "@/lib/financiamiento";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 
 const CUOTAS = [3, 6, 9, 12, 18, 24, 36, 48, 60];
-const TEA = 0.4;
-/** IGV que grava el interés del financiamiento (Perú 18%). */
-const IGV_INTERES = 0.18;
 
 const fmtMiles = (n: number) =>
   `S/ ${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function cuotaMensual(capital: number, n: number) {
   if (capital <= 0) return 0;
-  // Sistema francés CON IGV del interés: TEM recargada TEM × (1 + IGV).
-  const tem = Math.pow(1 + TEA, 1 / 12) - 1;
-  const i = tem * (1 + IGV_INTERES);
-  if (i <= 0) return Math.round((capital / n) * 100) / 100;
-  return Math.round(((capital * i) / (1 - Math.pow(1 + i, -n)) + Number.EPSILON) * 100) / 100;
+  return cuotaFrancesaConIgv(capital, 0.4, n);
 }
 
 type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; email?: string; correo?: string; telefono?: string; cuenta_contrato?: string };
-type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string };
-type UsuarioSGT = { id: string | number; nombre: string; telefono?: string; correo?: string; id_proveedor?: string | number | null; rol?: string; rol_codigo?: string };
-type Material = { id: string; codigo?: string; codigo_sap?: string; codigo_tmp?: string; nombre: string; descripcion?: string; espacio_remodelar?: string; id_proveedor?: string | number | null; proveedor_nombre?: string | null; precio_unit?: number; precio_vigente?: number };
+type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string; id_integrador?: string | null; integrador_nombre?: string | null };
+type UsuarioSGT = { id: string | number; nombre: string; telefono?: string; correo?: string; id_proveedor?: string | number | null; id_integrador?: string | null; rol?: string; rol_codigo?: string };
+type Material = { id: string; codigo?: string; codigo_sap?: string; codigo_tmp?: string; nombre: string; descripcion?: string; espacio?: string | null; espacio_remodelar?: string; id_proveedor?: string | number | null; proveedor_nombre?: string | null; precio_unit?: number; precio_vigente?: number };
 
-type Fila = { material_id: string; nombre: string; descripcion: string; cant: number; precio: number; dsctoPct: number };
+type Fila = { material_id: string; nombre: string; descripcion: string; ambiente: string; alto: string; ancho: string; fondo: string; precio: number };
 
-const FILA_VACIA: Fila = { material_id: "", nombre: "", descripcion: "", cant: 1, precio: 0, dsctoPct: 0 };
+const FILA_VACIA: Fila = { material_id: "", nombre: "", descripcion: "", ambiente: "", alto: "", ancho: "", fondo: "", precio: 0 };
 
 const nombreCliente = (c: Cliente) => c.nombres ?? c.nombre ?? c.nombre_razon_social ?? c.id;
 const docCliente = (c: Cliente) => c.dni ?? c.nro_doc ?? "";
@@ -47,6 +40,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   const [buscaCliente, setBuscaCliente] = useState("");
   const [proveedor, setProveedor] = useState("");
   const [proveedorId, setProveedorId] = useState("");
+  const [integradorId, setIntegradorId] = useState("");
   const [asesorId, setAsesorId] = useState("");
   const [asesores, setAsesores] = useState<UsuarioSGT[]>([]);
   const [tel, setTel] = useState("");
@@ -163,15 +157,31 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     const u = asesores.find((a) => String(a.id) === id);
     if (!u) return;
     if (u.telefono) setTel(String(u.telefono));
-    // Proveedor del asesor (viene de su usuario): se setea solo.
+    setIntegradorId(String(u.id_integrador ?? ""));
+    // Si la ficha pertenece a un proveedor, queda fijado a ese proveedor.
+    // Si pertenece a un integrador, el usuario elige uno de sus proveedores.
     if (u.id_proveedor != null && String(u.id_proveedor) !== "") {
       const p = proveedores.find((x) => String(x.id) === String(u.id_proveedor));
       if (p) {
         setProveedorId(String(p.id));
         setProveedor(nombreProv(p));
+        setIntegradorId(String(p.id_integrador ?? u.id_integrador ?? ""));
+      } else {
+        setProveedorId("");
+        setProveedor("");
       }
+    } else {
+      setProveedorId("");
+      setProveedor("");
     }
   };
+
+  const proveedoresVisibles = useMemo(() => {
+    const asesor = asesores.find((a) => String(a.id) === asesorId);
+    if (asesor?.id_proveedor) return proveedores.filter((p) => String(p.id) === String(asesor.id_proveedor));
+    if (asesor?.id_integrador) return proveedores.filter((p) => String(p.id_integrador ?? "") === String(asesor.id_integrador));
+    return proveedores;
+  }, [asesores, asesorId, proveedores]);
 
   const proveedorSelId = useMemo(() => {
     if (proveedorId) return proveedorId;
@@ -183,26 +193,10 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     const p = proveedores.find((x) => String(x.id) === proveedorSelId);
     return p ? nombreProv(p) : proveedor;
   }, [proveedores, proveedorSelId, proveedor]);
-
-  // Materiales sugeridos: primero los del proveedor elegido y los que
-  // coinciden con la descripción/detalles de la cotización.
-  const materialesRank = useMemo(
-    () =>
-      ordenarMateriales(materiales, {
-        texto: [
-          obs,
-          det.marca_melamina,
-          det.color_estructura,
-          det.color_puertas,
-          det.color_tablero,
-          det.tiradores,
-          det.vidrios,
-        ].join(" "),
-        proveedorId: proveedorSelId,
-        proveedorNombre: proveedorSelNombre,
-      }),
-    [materiales, obs, det, proveedorSelId, proveedorSelNombre]
-  );
+  const integradorSelNombre = useMemo(() => {
+    const p = proveedores.find((x) => String(x.id) === proveedorSelId);
+    return String(p?.integrador_nombre ?? "");
+  }, [proveedores, proveedorSelId]);
 
   const elegirMaterial = (i: number, materialId: string) => {
     const m = materiales.find((x) => String(x.id) === materialId);
@@ -214,7 +208,8 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
               material_id: materialId,
               nombre: m ? `${codMat(m)} ${m.nombre}`.trim() : f.nombre,
               descripcion: m?.descripcion ?? "",
-              precio: m ? precioMat(m) : f.precio,
+              ambiente: String(m?.espacio_remodelar ?? f.ambiente),
+              precio: m ? 0 : f.precio,
             }
           : f
       )
@@ -224,12 +219,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   const setFila = (i: number, patch: Partial<Fila>) =>
     setMat((prev) => prev.map((f, j) => (j === i ? { ...f, ...patch } : f)));
 
-  const brutoFila = (f: Fila) => f.cant * f.precio;
-  const netoFila = (f: Fila) => brutoFila(f) * (1 - Math.min(100, Math.max(0, f.dsctoPct)) / 100);
-
-  const subtotal = mat.reduce((a, f) => a + brutoFila(f), 0);
-  const descuento = mat.reduce((a, f) => a + (brutoFila(f) - netoFila(f)), 0);
-  const total = subtotal - descuento;
+  const total = mat.reduce((a, f) => a + Math.max(Number(f.precio) || 0, 0), 0);
   const capital = Math.max(total - inicial, 0);
   const sim = useMemo(() => CUOTAS.map((n) => ({ n, v: cuotaMensual(capital || 0, n) })), [capital]);
 
@@ -242,6 +232,10 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     }
     if (!proveedor) {
       setError("Selecciona un proveedor.");
+      return;
+    }
+    if (!proveedorSelId) {
+      setError("La opción de proveedor no tiene una empresa registrada. Contacta al administrador.");
       return;
     }
     if (!asesorId || !asesorSel) {
@@ -257,8 +251,8 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
         setError("Cada fila debe tener un material del catálogo.");
         return;
       }
-      if (!(f.cant > 0)) {
-        setError("Cada fila debe tener cantidad mayor a 0.");
+      if (!Number.isFinite(Number(f.precio)) || f.precio < 0) {
+        setError("Cada material debe tener un precio válido.");
         return;
       }
     }
@@ -284,9 +278,13 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
           material_id: f.material_id,
           codigo: m ? codMat(m) : "",
           descripcion: `${f.nombre}${f.descripcion ? ` — ${f.descripcion}` : ""}`.slice(0, 300),
-          cantidad: f.cant,
+          ambiente: f.ambiente || String(m?.espacio_remodelar ?? ""),
+          alto: Number(f.alto) || 0,
+          ancho: Number(f.ancho) || 0,
+          fondo: Number(f.fondo) || 0,
+          cantidad: 1,
           precio_unit: f.precio,
-          descuento_pct: Math.min(100, Math.max(0, f.dsctoPct)),
+          descuento_pct: 0,
         };
       });
       let creada: unknown = null;
@@ -306,7 +304,11 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
           cuota_inicial: inicial,
           tea: 40,
           plazo: cuotas,
+          id_proveedor: proveedorSelId,
+          id_integrador: integradorId,
+          id_asesor: asesorId,
           proveedor,
+          ambiente: [...new Set(items.map((i) => i.ambiente).filter(Boolean))].join(", "),
           asesor: asesorSel.nombre,
           asesor_telefono: tel,
           observaciones: obs,
@@ -371,22 +373,25 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                 {errorBusqueda && <p className="text-[11px] text-red-600 mt-1">{errorBusqueda}</p>}
               </div>
               <div>
-                <label className="label">Proveedor</label>
+                <label className="label">Empresa proveedora</label>
                 <select
                   className="input"
                   value={proveedorSelId}
+                  disabled={!!asesorSel?.id_proveedor}
                   onChange={(e) => {
                     const id = e.target.value;
                     setProveedorId(id);
                     const p = proveedores.find((x) => String(x.id) === id);
                     setProveedor(p ? nombreProv(p) : "");
+                    setIntegradorId(String(p?.id_integrador ?? ""));
                   }}
                 >
                   <option value="">— Seleccionar —</option>
-                  {proveedores.map((p) => (
+                  {proveedoresVisibles.map((p) => (
                     <option key={String(p.id)} value={String(p.id)}>{nombreProv(p)}</option>
                   ))}
                 </select>
+                {integradorSelNombre && <p className="text-[11px] text-slate-400 mt-1">Integradora: {integradorSelNombre}</p>}
               </div>
               <div>
                 <label className="label">Asesor *</label>
@@ -452,42 +457,34 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
             <div className="flex items-center justify-between mb-1">
               <div>
                 <h3 className="font-bold">Materiales</h3>
-                <p className="text-xs text-slate-400">Los materiales se ordenan por defecto según el proveedor y la descripción/detalles de esta cotización. Agrega una línea y revisa los sugeridos; el precio es EDITABLE y se valida nuevamente al guardar.</p>
+                <p className="text-xs text-slate-400">Selecciona el ambiente y registra sus dimensiones. El precio de cada línea es editable y representa el valor total del material.</p>
               </div>
               <button className="btn-white !py-1.5 !text-xs whitespace-nowrap" onClick={() => setMat((p) => [...p, { ...FILA_VACIA }])}>Agregar material</button>
             </div>
             <div className="table-wrap mt-3">
               <table className="tabla">
-                <thead><tr><th>MATERIAL</th><th>CANT.</th><th>PRECIO</th><th>DSCTO. %</th><th>VALOR</th><th>NETO</th><th></th></tr></thead>
+                <thead><tr><th>MATERIAL / AMBIENTE</th><th>ALTO</th><th>ANCHO</th><th>FONDO</th><th>PRECIO (S/)</th><th></th></tr></thead>
                 <tbody>
                   {mat.length === 0 && (
-                    <tr><td colSpan={7} className="text-center text-slate-400 py-8">Agrega al menos un material.</td></tr>
+                    <tr><td colSpan={6} className="text-center text-slate-400 py-8">Agrega un ambiente para cotizar.</td></tr>
                   )}
                   {mat.map((f, i) => (
                     <tr key={i}>
-                      <td className="min-w-[220px]">
+                      <td className="min-w-[240px]">
                         <select className="input !py-1" value={f.material_id} onChange={(e) => elegirMaterial(i, e.target.value)}>
                           <option value="">
-                            {materialesRank.sugeridos.length > 0
-                              ? `— Seleccionar (${materialesRank.sugeridos.length} sugeridos) —`
-                              : "— Seleccionar —"}
+                            — Seleccionar ambiente —
                           </option>
-                          {materialesRank.sugeridos.length > 0 && (
-                            <optgroup label="Sugeridos por proveedor y descripción">
-                              {materialesRank.sugeridos.map(opcionMaterial)}
-                            </optgroup>
-                          )}
-                          <optgroup label={materialesRank.sugeridos.length > 0 ? "Otros materiales" : "Todos los materiales"}>
-                            {materialesRank.resto.map(opcionMaterial)}
-                          </optgroup>
+                          {materiales
+                            .filter((m) => String(m.espacio ?? "").toUpperCase() === "COTIZACION")
+                            .map(opcionMaterial)}
                         </select>
                         {f.descripcion && <p className="text-[11px] text-slate-400 mt-1 leading-snug">{f.descripcion}</p>}
                       </td>
-                      <td><input type="number" min={0} step="0.01" className="input !w-20 !py-1" value={f.cant} onChange={(e) => setFila(i, { cant: Number(e.target.value) })} title="Cantidad en metros lineales (admite decimales)" /></td>
-                      <td><input type="number" min={0} step="0.01" className="input !w-24 !py-1 font-semibold text-emerald-700" value={f.precio} onChange={(e) => setFila(i, { precio: Number(e.target.value) })} title="Precio editable (precargado con tarifa vigente)" /></td>
-                      <td><input type="number" min={0} max={100} step="any" className="input !w-20 !py-1" value={f.dsctoPct} onChange={(e) => setFila(i, { dsctoPct: Number(e.target.value) })} /></td>
-                      <td className="whitespace-nowrap">{fmtMiles(brutoFila(f))}</td>
-                      <td className="whitespace-nowrap font-bold text-emerald-700">{fmtMiles(netoFila(f))}</td>
+                      <td><input type="number" min={0} step="0.01" className="input !w-24 !py-1" value={f.alto} onChange={(e) => setFila(i, { alto: e.target.value })} title="Alto en metros" /></td>
+                      <td><input type="number" min={0} step="0.01" className="input !w-24 !py-1" value={f.ancho} onChange={(e) => setFila(i, { ancho: e.target.value })} title="Ancho en metros" /></td>
+                      <td><input type="number" min={0} step="0.01" className="input !w-24 !py-1" value={f.fondo} onChange={(e) => setFila(i, { fondo: e.target.value })} title="Fondo en metros" /></td>
+                      <td><input type="number" min={0} step="0.01" className="input !w-28 !py-1 font-semibold text-emerald-700" value={f.precio} onChange={(e) => setFila(i, { precio: Number(e.target.value) })} title="Precio editable del material" /></td>
                       <td><AccQuitar title="Quitar material" onClick={() => setMat((p) => p.filter((_, j) => j !== i))} /></td>
                     </tr>
                   ))}
@@ -498,9 +495,9 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
 
           <section className="card !shadow-none p-5">
             <h3 className="font-bold">Resumen de importes</h3>
-            <p className="text-xs text-slate-400 mb-3">Revisa los importes calculados antes de definir el financiamiento.</p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[["Subtotal", subtotal], ["Descuento", descuento], ["Adelanto", inicial], ["Total (valor a financiar)", capital]].map(([label, v]) => (
+            <p className="text-xs text-slate-400 mb-3">El interés se usa únicamente para calcular las cuotas; no se suma al precio de la cotización.</p>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {[["Valor de productos", total], ["Abono", inicial], ["Monto financiado", capital]].map(([label, v]) => (
                 <div key={label as string} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
                   <p className="text-[11px] text-slate-400">{label}</p>
                   <p className="font-extrabold">{fmtMiles(v as number)}</p>
@@ -529,7 +526,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
 
           <section className="card !shadow-none p-5">
             <h3 className="font-bold">Simulación de cuotas</h3>
-            <p className="text-xs text-slate-400 mb-3">Cuota fija con IGV del interés incluido (TEM × 1.18). Los importes se redondean a dos decimales.</p>
+            <p className="text-xs text-slate-400 mb-3">Fórmula Simulador AMCA (40% TEA): PMT mensual + IGV (18%) del interés mensual. El interés no altera el valor de los productos.</p>
             <div className="table-wrap">
               <table className="tabla">
                 <thead><tr><th>CUOTAS</th><th>VALOR CUOTA</th><th></th></tr></thead>

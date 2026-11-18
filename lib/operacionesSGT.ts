@@ -2,7 +2,7 @@ import { z } from "zod";
 import { asegurarPerfilUsuario, type RolUsuario } from "./auth";
 import type { OperacionContext } from "./operaciones";
 import { completarNombresItems } from "./operaciones";
-import { cuotaFrancesaConIgv, tablaSimulacion, temConIgv, PLAZOS_SIMULACION } from "./financiamiento";
+import { cuotaFrancesaConIgv, tablaSimulacion, temDesdeTea, PLAZOS_SIMULACION } from "./financiamiento";
 import { componerObservaciones } from "./detallesMueble";
 import { resolverAlcance } from "./alcance";
 import {
@@ -139,12 +139,14 @@ const EsquemaProveedorSGT = z.object({
   ruc: z.string().trim().regex(/^\d{11}$/, "RUC debe tener 11 dígitos"),
   interlocutor: z.string().trim().min(2).max(200),
   nombre_comercial: z.string().trim().max(200).optional().default(""),
+  id_integrador: z.string().trim().max(20).optional().nullable(),
   email: z.string().trim().email().max(160).optional().or(z.literal("")).default(""),
   telefono: z.string().trim().max(30).optional().default("")
 });
 const EsquemaActualizarProveedorSGT = z.object({
   id: z.string().trim().min(1).max(20),
   nombre_comercial: z.string().trim().max(200).optional(),
+  id_integrador: z.string().trim().max(20).optional().nullable(),
   interlocutor: z.string().trim().min(2).max(200).optional(),
   email: z.string().trim().email().max(160).optional().or(z.literal("")),
   telefono: z.string().trim().max(30).optional(),
@@ -204,10 +206,24 @@ const EsquemaActualizarGrupo = z.object({
   estado: z.enum(["ACTIVO", "INACTIVO"]).optional()
 });
 const EsquemaVacio = z.object({}).passthrough();
+const EsquemaIntegrador = z.object({
+  nombre: z.string().trim().min(2).max(200),
+  estado: z.enum(["ACTIVO", "INACTIVO"]).optional().default("ACTIVO"),
+});
+const EsquemaActualizarIntegrador = z.object({
+  id: z.string().trim().regex(/^INT[0-9]{4}$/),
+  nombre: z.string().trim().min(2).max(200).optional(),
+  estado: z.enum(["ACTIVO", "INACTIVO"]).optional(),
+});
 const EsquemaMaterialesSGT = z.object({
   q: z.string().trim().max(120).optional().default(""),
   fecha: zFechaFlexible.optional(),
   espacio: z.string().trim().max(20).optional().default(""),
+  espacio_remodelar: z.string().trim().max(120).optional().default(""),
+  id_proveedor: z.string().trim().max(20).optional().default(""),
+  proveedor_nombre: z.string().trim().max(200).optional().default(""),
+  id_asesor: z.string().trim().max(20).optional().default(""),
+  asesor_nombre: z.string().trim().max(200).optional().default(""),
   limit: zLimit
 });
 const EsquemaCrearTarifa = z.object({
@@ -228,6 +244,10 @@ const EsquemaItemSGT = z.object({
   material_id: z.string().trim().min(1).max(120).optional(),
   codigo: z.string().trim().max(60).optional(),
   descripcion: z.string().trim().max(300).optional().default(""),
+  ambiente: z.string().trim().max(40).optional().default(""),
+  alto: z.coerce.number().min(0).max(1000).optional().default(0),
+  ancho: z.coerce.number().min(0).max(1000).optional().default(0),
+  fondo: z.coerce.number().min(0).max(1000).optional().default(0),
   cantidad: z.coerce.number().min(0.01).max(100_000),
   precio_unit: z.coerce.number().min(0).max(10_000_000).optional(),
   descuento_pct: z.coerce.number().min(0).max(100).optional().default(0)
@@ -248,7 +268,11 @@ const EsquemaCrearCotSGT = z.object({
   cuota_inicial: z.coerce.number().min(0).max(100_000_000).optional().default(0),
   tea: z.coerce.number().min(0).max(100).optional().default(40),
   plazo: z.coerce.number().int().min(1).max(360).optional().default(9),
+  id_proveedor: z.string().trim().min(1).max(20),
+  id_integrador: z.string().trim().max(20).optional().nullable(),
+  id_asesor: z.string().trim().max(20).optional().nullable(),
   proveedor: z.string().trim().max(200).optional().default(""),
+  ambiente: z.string().trim().max(200).optional().default(""),
   asesor: z.string().trim().max(200).optional().default(""),
   asesor_telefono: z.string().trim().max(30).optional().default(""),
   observaciones: z.string().trim().max(2000).optional().default(""),
@@ -262,23 +286,37 @@ const EsquemaRegenerar = z.object({ cotizacion_id: z.string().uuid() });
 async function hListarProveedoresSGT(args: z.infer<typeof EsquemaQ>, ctx: OperacionContext) {
   // Maestro SGT primero (razón social real); fallback a tabla base.
   const prov = proveedorSesion(ctx);
+  const esAdmin = ctx.sesion.rol === "admin" || ctx.sesion.alcance === "GLOBAL";
+  if (!prov && !esAdmin && !ctx.sesion.idIntegrador) return [];
   try {
     let q = ctx.service.from("mae_proveedores").select("*").order("razon_social").limit(args.limit);
     if (prov) q = q.eq("id", prov);
+    else if (!esAdmin && ctx.sesion.idIntegrador) q = q.eq("id_integrador", ctx.sesion.idIntegrador);
     if (args.q) {
       const s = limpiarBusqueda(args.q);
       if (s) q = q.or(`razon_social.ilike.%${s}%,nombre_comercial.ilike.%${s}%,ruc.ilike.%${s}%,interlocutor.ilike.%${s}%`);
     }
     const { data, error } = await q;
     if (error) throw new Error(error.message);
-    return ((data ?? []) as Record<string, unknown>[]).map((p) => ({
+    const filas = ((data ?? []) as Record<string, unknown>[]);
+    const integradoresIds = [...new Set(filas.map((p) => String(p.id_integrador ?? "")).filter(Boolean))];
+    const { data: integradores } = integradoresIds.length
+      ? await ctx.service.from("mae_integradores").select("id,nombre").in("id", integradoresIds)
+      : { data: [] };
+    const integradoresMap = new Map(((integradores ?? []) as { id: string; nombre?: string }[]).map((i) => [String(i.id), String(i.nombre ?? "")]));
+    return filas.map((p) => ({
       ...p,
       nombre: p.razon_social ?? p.nombre_comercial ?? p.interlocutor ?? p.nombre ?? null,
       interlocutor: p.interlocutor ?? null,
+      integrador_nombre: integradoresMap.get(String(p.id_integrador ?? "")) ?? null,
     }));
   } catch (e) {
-    if (!esTablaFaltante(e)) throw e;
+    if (ctx.sesion.rol !== "admin" && ctx.sesion.idIntegrador) {
+      throw new Error("Falta la migración de integradores para listar proveedores asignados.");
+    }
+    if (!esTablaFaltante(e) && !/id_integrador|schema cache/i.test((e as Error).message)) throw e;
   }
+  if (!esAdmin && ctx.sesion.idIntegrador) return [];
   let q = ctx.service.from("proveedores").select("*").order("nombre").limit(args.limit);
   if (prov) q = q.eq("id", prov);
   if (args.q) {
@@ -294,6 +332,48 @@ async function hListarProveedoresSGT(args: z.infer<typeof EsquemaQ>, ctx: Operac
   }));
 }
 
+async function hListarIntegradores(ctx: OperacionContext) {
+  let integradorId = ctx.sesion.idIntegrador ?? null;
+  if (!integradorId && ctx.sesion.idProveedor) {
+    const { data } = await ctx.service.from("mae_proveedores").select("id_integrador").eq("id", ctx.sesion.idProveedor).maybeSingle();
+    integradorId = String((data as { id_integrador?: string | null } | null)?.id_integrador ?? "") || null;
+  }
+  let q = ctx.service.from("mae_integradores").select("*").order("nombre").limit(500);
+  if (ctx.sesion.rol !== "admin" && ctx.sesion.alcance !== "GLOBAL") {
+    if (!integradorId) return [];
+    q = q.eq("id", integradorId);
+  }
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+async function hCrearIntegrador(args: z.infer<typeof EsquemaIntegrador>, ctx: OperacionContext) {
+  const existentes = await idsParaCorrelativo(ctx, "mae_integradores");
+  const id = siguienteId("INT", existentes);
+  const { data, error } = await ctx.service.from("mae_integradores")
+    .insert({ id, nombre: args.nombre, estado: args.estado }).select().single();
+  if (error) {
+    if (/duplicate|unique|llave duplicada/i.test(error.message)) {
+      const e = new Error("Ya existe un integrador con ese nombre") as Error & { status?: number };
+      e.status = 409;
+      throw e;
+    }
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+async function hActualizarIntegrador(args: { id: string; nombre?: string; estado?: "ACTIVO" | "INACTIVO" }, ctx: OperacionContext) {
+  const patch: Record<string, unknown> = {};
+  if (args.nombre !== undefined) patch.nombre = args.nombre;
+  if (args.estado !== undefined) patch.estado = args.estado;
+  if (!Object.keys(patch).length) throw new Error("Nada que actualizar");
+  const { data, error } = await ctx.service.from("mae_integradores").update(patch).eq("id", args.id).select().single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 async function hCrearProveedorSGT(args: z.infer<typeof EsquemaProveedorSGT>, ctx: OperacionContext) {
   // Maestro mae_proveedores (PRVxxxx, razón social + RUC único).
   try {
@@ -304,6 +384,7 @@ async function hCrearProveedorSGT(args: z.infer<typeof EsquemaProveedorSGT>, ctx
       ruc: args.ruc,
       razon_social: args.nombre,
       nombre_comercial: args.nombre_comercial || null,
+      id_integrador: args.id_integrador || null,
       correo: args.email || null,
       telefono: args.telefono || null,
       estado: "ACTIVO",
@@ -341,6 +422,7 @@ async function hActualizarProveedorSGT(args: z.infer<typeof EsquemaActualizarPro
   // RUC y razón social inmutables (identidad tributaria).
   const patch: Record<string, unknown> = {};
   if (args.nombre_comercial !== undefined) patch.nombre_comercial = args.nombre_comercial || null;
+  if (args.id_integrador !== undefined) patch.id_integrador = args.id_integrador || null;
   if (args.interlocutor !== undefined) patch.interlocutor = args.interlocutor;
   if (args.email !== undefined) patch.correo = args.email || null;
   if (args.telefono !== undefined) patch.telefono = args.telefono || null;
@@ -830,7 +912,7 @@ async function hListarUsuariosSGT(args: z.infer<typeof EsquemaQ>, ctx: Operacion
     const esAdmin = ctx.sesion.rol === "admin";
     const columnas = esAdmin
       ? "*, mae_proveedores(id,razon_social,nombre_comercial)"
-      : "id,nombre,correo,telefono,rol_codigo,estado,id_proveedor";
+      : "id,nombre,correo,telefono,rol_codigo,estado,id_proveedor,id_integrador";
     const alcance = await resolverAlcance(ctx.service, ctx.sesion);
     let q = ctx.service.from("seg_usuarios")
       .select(columnas)
@@ -1052,13 +1134,14 @@ async function hGuardarMatrizPermisos(args: z.infer<typeof EsquemaGuardarMatriz>
 async function hListarMaterialesSGT(args: z.infer<typeof EsquemaMaterialesSGT>, ctx: OperacionContext) {
   const fecha = args.fecha ? normalizarFecha(args.fecha) : new Date().toISOString().slice(0, 10);
   const esp = (args.espacio || "").toUpperCase();
+  if (args.id_proveedor) await resolverProveedorCotizacionSGT(ctx, args.id_proveedor);
   // Maestro mae_materiales primero (con ESPACIO COTIZACION/VENTAS).
   try {
     let qm = ctx.service.from("mae_materiales").select("*, mae_proveedores(razon_social,nombre_comercial)").order("nombre").limit(args.limit);
     if (esp === "COTIZACION" || esp === "VENTAS") qm = qm.eq("espacio", esp);
     if (args.q) {
       const s = limpiarBusqueda(args.q);
-      if (s) qm = qm.or(`nombre.ilike.%${s}%,codigo_sap.ilike.%${s}%,id.ilike.%${s}%,espacio_remodelar.ilike.%${s}%`);
+      if (s) qm = qm.or(`nombre.ilike.%${s}%,codigo_sap.ilike.%${s}%,id.ilike.%${s}%,espacio_remodelar.ilike.%${s}%,proveedor_nombre.ilike.%${s}%,asesor_nombre.ilike.%${s}%`);
     }
     const { data: matsM, error: eM } = await qm;
     if (eM) throw new Error(eM.message);
@@ -1070,13 +1153,31 @@ async function hListarMaterialesSGT(args: z.infer<typeof EsquemaMaterialesSGT>, 
       if (t.fecha_fin && String(t.fecha_fin) < fecha) continue;
       if (!porMae.has(String(t.id_material))) porMae.set(String(t.id_material), Number(t.precio ?? 0));
     }
-    return ((matsM ?? []) as Record<string, unknown>[]).map((m) => {
+    const norm = (v: unknown) => String(v ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return ((matsM ?? []) as Record<string, unknown>[]).filter((m) => {
+      const proveedor = m.mae_proveedores as { razon_social?: string; nombre_comercial?: string } | null;
+      const provNombre = String(m.proveedor_nombre ?? proveedor?.nombre_comercial ?? proveedor?.razon_social ?? "");
+      const asesor = String(m.asesor_nombre ?? "");
+      const wildcard = (v: string) => !v || v.startsWith("todos");
+      if (args.espacio_remodelar && norm(m.espacio_remodelar) !== norm(args.espacio_remodelar)) return false;
+      if (args.id_proveedor || args.proveedor_nombre) {
+        const idMatch = args.id_proveedor && String(m.id_proveedor ?? "") === args.id_proveedor;
+        const nameMatch = args.proveedor_nombre && norm(provNombre) === norm(args.proveedor_nombre);
+        if (!idMatch && !nameMatch && !wildcard(norm(provNombre))) return false;
+      }
+      if (args.id_asesor || args.asesor_nombre) {
+        const idMatch = args.id_asesor && String(m.id_asesor ?? "") === args.id_asesor;
+        const nameMatch = args.asesor_nombre && norm(asesor) === norm(args.asesor_nombre);
+        if (!idMatch && !nameMatch && !wildcard(norm(asesor))) return false;
+      }
+      return true;
+    }).map((m) => {
       const vigente = porMae.get(String(m.id));
       const prov = m.mae_proveedores as { razon_social?: string; nombre_comercial?: string } | null;
       return {
         ...m,
         codigo: m.codigo_sap ?? m.id,
-        proveedor_nombre: prov?.razon_social ?? prov?.nombre_comercial ?? null,
+        proveedor_nombre: m.proveedor_nombre ?? prov?.nombre_comercial ?? prov?.razon_social ?? null,
         fecha_tarifa: fecha,
         precio_vigente: vigente ?? null,
         precio_unit: vigente ?? null,
@@ -1210,7 +1311,7 @@ async function hSimularFinanciamiento(args: z.infer<typeof EsquemaSimular>, _ctx
   const tea = teaADecimal(args.tea);
   const capital = args.capital - (args.cuota_inicial ?? 0);
   if (capital <= 0) throw new Error("cuota_inicial debe ser menor que el total/capital");
-  const tem = temConIgv(tea);
+  const tem = temDesdeTea(tea);
   const tabla = tablaSimulacion(capital, tea, PLAZOS_SIMULACION, true);
   const plazo = args.plazo ?? 9;
   const cuota = cuotaFrancesaConIgv(capital, tea, plazo);
@@ -1250,13 +1351,67 @@ async function resolverClienteCotizacion(
   return { clienteUuid: (nuevo as { id: string }).id, cuentaContrato: String(m.cuenta_contrato ?? "") };
 }
 
+async function resolverProveedorCotizacionSGT(
+  ctx: OperacionContext,
+  id: string,
+  integradorIndicado?: string | null
+): Promise<{ id: string; integradorId: string | null; nombre: string }> {
+  if (!id) {
+    const e = new Error("Selecciona una empresa proveedora.") as Error & { status?: number };
+    e.status = 422; throw e;
+  }
+  let { data, error } = await ctx.service.from("mae_proveedores")
+    .select("id,razon_social,nombre_comercial,id_integrador").eq("id", id).maybeSingle();
+  if (error && /id_integrador|column|schema cache/i.test(error.message)) {
+    const e = new Error("Falta la migración de integradores: ejecuta supabase/migracion_04_cotizaciones_ventas_integradores.sql.");
+    (e as Error & { status?: number }).status = 503; throw e;
+  }
+  if (error) throw new Error(error.message);
+  if (!data) {
+    const e = new Error(`Empresa proveedora no encontrada: ${id}`) as Error & { status?: number };
+    e.status = 422; throw e;
+  }
+  const p = data as { id: string; razon_social?: string; nombre_comercial?: string; id_integrador?: string | null };
+  if (ctx.sesion.rol !== "admin" && ctx.sesion.alcance !== "GLOBAL") {
+    const esProveedorFijo = Boolean(ctx.sesion.idProveedor && ctx.sesion.idProveedor === p.id);
+    const esProveedorDeIntegrador = Boolean(ctx.sesion.idIntegrador && ctx.sesion.idIntegrador === p.id_integrador);
+    if (!esProveedorFijo && !esProveedorDeIntegrador) {
+      const e = new Error("Solo puedes cotizar para tu proveedor o integrador asignado.") as Error & { status?: number };
+      e.status = 403; throw e;
+    }
+  }
+  if (integradorIndicado && integradorIndicado !== p.id_integrador) {
+    const e = new Error("El proveedor no pertenece al integrador seleccionado.") as Error & { status?: number };
+    e.status = 422; throw e;
+  }
+  return {
+    id: p.id,
+    integradorId: p.id_integrador ?? null,
+    nombre: String(p.razon_social ?? p.nombre_comercial ?? p.id),
+  };
+}
+
 async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx: OperacionContext) {
   const tea = teaADecimal(args.tea);
   const cli = await resolverClienteCotizacion(ctx, args.cliente_id);
   const cuentaContrato = String(args.cuenta_contrato ?? "").trim() || cli.cuentaContrato;
+  const proveedor = await resolverProveedorCotizacionSGT(ctx, String(args.id_proveedor ?? ""), args.id_integrador);
+  let asesorId = String(args.id_asesor ?? "").trim() || null;
+  if (asesorId) {
+    const { data: fichaAsesor, error: eAsesor } = await ctx.service
+      .from("seg_usuarios").select("id,nombre,id_proveedor,id_integrador").eq("id", asesorId).maybeSingle();
+    if (eAsesor) throw new Error(eAsesor.message);
+    if (!fichaAsesor) throw new Error(`Asesor no encontrado: ${asesorId}`);
+    const a = fichaAsesor as { id: string; nombre?: string; id_proveedor?: string | null; id_integrador?: string | null };
+    if (ctx.sesion.rol !== "admin" && ctx.sesion.alcance !== "GLOBAL" && asesorId !== ctx.sesion.segId) {
+      const e = new Error("Solo puedes crear cotizaciones con tu propia ficha de asesor.") as Error & { status?: number };
+      e.status = 403; throw e;
+    }
+    if (!args.asesor) args.asesor = String(a.nombre ?? "");
+  }
   // Resolver precios (si no viene precio_unit, usar catálogo).
   let subtotal = 0, descuento = 0;
-  const itemsResueltos: { material_id: string | null; cantidad: number; precio_unit: number; descuento_pct: number; total_linea: number; descripcion: string; material_codigo: string | null }[] = [];
+  const itemsResueltos: { material_id: string | null; cantidad: number; precio_unit: number; descuento_pct: number; total_linea: number; descripcion: string; material_codigo: string | null; ambiente: string; alto: number; ancho: number; fondo: number }[] = [];
   for (const it of args.items) {
     let precio = it.precio_unit;
     let materialId: string | null = null;
@@ -1297,7 +1452,11 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
     const bruto = it.cantidad * precio;
     const neto = Math.round(bruto * (1 - dscto / 100) * 100) / 100;
     subtotal += bruto; descuento += bruto - neto;
-    itemsResueltos.push({ material_id: materialId, cantidad: it.cantidad, precio_unit: precio, descuento_pct: dscto, total_linea: neto, descripcion: snapDesc.slice(0, 300), material_codigo: snapCod });
+    itemsResueltos.push({
+      material_id: materialId, cantidad: it.cantidad, precio_unit: precio, descuento_pct: dscto,
+      total_linea: neto, descripcion: snapDesc.slice(0, 300), material_codigo: snapCod,
+      ambiente: it.ambiente || "", alto: it.alto, ancho: it.ancho, fondo: it.fondo,
+    });
   }
   subtotal = Math.round(subtotal * 100) / 100;
   descuento = Math.round(descuento * 100) / 100;
@@ -1323,11 +1482,15 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
     observaciones: observacionesFinal,
     validez_dias: args.validez_dias ?? 15,
     created_by: ctx.sesion.userId,
+    id_proveedor: proveedor.id,
+    id_integrador: proveedor.integradorId,
+    id_asesor: asesorId,
+    ambiente: args.ambiente || [...new Set(itemsResueltos.map((it) => it.ambiente).filter(Boolean))].join(", "),
     subtotal, total,
     cuota_inicial: args.cuota_inicial ?? 0,
     capital, tea, plazo: args.plazo,
     cuota_mensual: cuota,
-    proveedor: args.proveedor || null,
+    proveedor: proveedor.nombre,
     asesor: args.asesor || null,
     asesor_telefono: args.asesor_telefono || null,
     descuento
@@ -1338,10 +1501,7 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
     if (!error && data) {
       cab = data as { id: string };
     } else if (error && /column|schema cache/i.test(error.message)) {
-      const base = { codigo: numero, cliente_id: extra.cliente_id, estado: "BORRADOR", observaciones: extra.observaciones, validez_dias: extra.validez_dias, created_by: extra.created_by };
-      const r2 = await ctx.service.from("cotizaciones").insert(base).select("id").single();
-      if (r2.error || !r2.data) throw new Error(r2.error?.message ?? "No se pudo crear cotización SGT");
-      cab = r2.data as { id: string };
+      throw new Error("Falta la migración 04 de cotizaciones/integradores. Ejecuta supabase/migracion_04_cotizaciones_ventas_integradores.sql.");
     } else if (error) {
       throw new Error(error.message);
     }
@@ -1352,8 +1512,7 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
   const filasItems = itemsResueltos.map((it) => ({ cotizacion_id: cotId, ...it }));
   let eItems = (await ctx.service.from("cotizacion_items").insert(filasItems)).error;
   if (eItems && /column|schema cache/i.test(eItems.message)) {
-    const sinSnap = filasItems.map(({ descripcion, material_codigo, ...resto }) => resto);
-    eItems = (await ctx.service.from("cotizacion_items").insert(sinSnap)).error;
+    throw new Error("Faltan las columnas de medidas en cotizacion_items. Ejecuta supabase/migracion_04_cotizaciones_ventas_integradores.sql.");
   }
   if (eItems) throw new Error(eItems.message);
   // Guarda simulación (best-effort, tablas opcionales).
@@ -1374,7 +1533,7 @@ async function hCrearCotizacionSGT(args: z.infer<typeof EsquemaCrearCotSGT>, ctx
   ]);
   return {
     ...(final as object), numero, subtotal, descuento, total, capital,
-    financiamiento: { cuota_inicial: args.cuota_inicial ?? 0, capital, tea, tem: temConIgv(tea), plazo: args.plazo, cuota_mensual: cuota, tabla },
+    financiamiento: { cuota_inicial: args.cuota_inicial ?? 0, capital, tea, tem: temDesdeTea(tea), plazo: args.plazo, cuota_mensual: cuota, tabla },
     items: items ?? []
   };
 }
@@ -2168,13 +2327,23 @@ async function hValidarArchivoMateriales(args: z.infer<typeof EsquemaCargaMateri
 async function hCargaMasivaMateriales(args: z.infer<typeof EsquemaCargaMateriales>, ctx: OperacionContext) {
   const { filas, errores } = parseCSVMateriales(args.csv);
   let insertadas = 0;
+  let actualizadas = 0;
   const fallos: string[] = [...errores];
   let corr = await idsParaCorrelativo(ctx, "mae_materiales");
   const resProv = async (v: string) => {
     if (!v || v.toLowerCase().startsWith("todos")) return null;
-    const { data } = await ctx.service.from("mae_proveedores")
-      .select("id").or(`razon_social.eq.${v},nombre_comercial.eq.${v},interlocutor.eq.${v}`).limit(1).maybeSingle();
-    return (data as { id?: string } | null)?.id ?? null;
+    for (const campo of ["razon_social", "nombre_comercial", "interlocutor"]) {
+      const { data } = await ctx.service.from("mae_proveedores").select("id").ilike(campo, v).limit(1).maybeSingle();
+      if (data) return String((data as { id: string }).id);
+    }
+    return null;
+  };
+  const resAse = async (v: string) => {
+    if (!v || v.toLowerCase().startsWith("todos")) return null;
+    const { data } = await ctx.service.from("seg_usuarios").select("id,nombre").ilike("nombre", v).limit(20);
+    const encontrados = (data ?? []) as { id: string; nombre?: string }[];
+    const exacto = encontrados.find((u) => String(u.nombre ?? "").trim().toLowerCase() === v.trim().toLowerCase());
+    return exacto?.id ?? null;
   };
   const resOfi = async (v: string) => {
     if (!v) return null;
@@ -2189,17 +2358,29 @@ async function hCargaMasivaMateriales(args: z.infer<typeof EsquemaCargaMateriale
   };
   for (const f of filas) {
     try {
-      const id = siguienteId("MAT-", corr, 5);
-      // Idempotencia: por codigo_sap, o por nombre si no tiene código.
-      const { data: dup } = f.codigo_sap
-        ? await ctx.service.from("mae_materiales").select("id").eq("codigo_sap", f.codigo_sap).limit(1).maybeSingle()
-        : await ctx.service.from("mae_materiales").select("id").eq("nombre", f.nombre).limit(1).maybeSingle();
-      if (dup) {
-        fallos.push(`Fila ${f.fila}: ya existe (${f.codigo_sap || f.nombre})`);
-        continue;
+      if (f.espacio === "COTIZACION") {
+        const permitidos = new Set(["COT-COCINA", "COT-SALA", "COT-DORMITORIO", "COT-OTROS"]);
+        if (!permitidos.has(f.codigo_sap)) throw new Error("COTIZACION solo admite las cuatro categorías oficiales (COT-COCINA/SALA/DORMITORIO/OTROS)");
       }
-      const { error } = await ctx.service.from("mae_materiales").insert({
-        id,
+      const idProveedor = await resProv(f.proveedor);
+      const idAsesor = await resAse(f.asesor);
+      const idOficina = await resOfi(f.oficina);
+      const idGrupo = await resGru(f.grupo);
+      const { data: posibles, error: eDup } = await ctx.service.from("mae_materiales")
+        .select("id,codigo_sap,espacio,espacio_remodelar,id_proveedor,id_asesor,proveedor_nombre,asesor_nombre,oficina_ref,grupo_ref")
+        .eq("espacio", f.espacio)
+        .eq("codigo_sap", f.codigo_sap || "")
+        .eq("espacio_remodelar", f.espacio_remodelar || "")
+        .limit(100);
+      if (eDup) throw new Error(eDup.message);
+      const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
+      const dup = ((posibles ?? []) as Record<string, any>[]).find((m) =>
+        (idProveedor ? String(m.id_proveedor ?? "") === idProveedor : norm(m.proveedor_nombre) === norm(f.proveedor))
+        && (idAsesor ? String(m.id_asesor ?? "") === idAsesor : norm(m.asesor_nombre) === norm(f.asesor))
+        && norm(m.oficina_ref) === norm(f.oficina)
+        && norm(m.grupo_ref) === norm(f.grupo)
+      );
+      const payload = {
         codigo_tmp: null,
         nombre: f.nombre,
         descripcion: f.descripcion || (f.responsable ? `Responsable: ${f.responsable}` : null),
@@ -2210,15 +2391,32 @@ async function hCargaMasivaMateriales(args: z.infer<typeof EsquemaCargaMateriale
         espacio: f.espacio,
         espacio_remodelar: f.espacio_remodelar || null,
         codigo_sap: f.codigo_sap || null,
-        id_proveedor: await resProv(f.proveedor),
+        id_proveedor: idProveedor,
+        proveedor_nombre: f.proveedor || null,
+        id_asesor: idAsesor,
         asesor_nombre: f.asesor || null,
-        id_oficina: await resOfi(f.oficina),
-        id_grupo: await resGru(f.grupo),
-      });
-      if (error) throw new Error(error.message);
-      corr = [...corr, id];
+        id_oficina: idOficina,
+        id_grupo: idGrupo,
+        oficina_ref: f.oficina || null,
+        grupo_ref: f.grupo || null,
+      };
+      let id: string;
+      if (dup) {
+        id = String(dup.id);
+        const { error } = await ctx.service.from("mae_materiales").update(payload).eq("id", id);
+        if (error) throw new Error(error.message);
+        actualizadas++;
+      } else {
+        id = siguienteId("MAT-", corr, 5);
+        const { error } = await ctx.service.from("mae_materiales").insert({ id, ...payload });
+        if (error) throw new Error(error.message);
+        corr = [...corr, id];
+        insertadas++;
+      }
       if (f.precio != null) {
         const hoy = new Date().toISOString().slice(0, 10);
+        await ctx.service.from("pre_tarifario").update({ fecha_fin: diaAnterior(hoy), estado: "VENCIDA" })
+          .eq("id_material", id).is("fecha_fin", null).lt("fecha_inicio", hoy);
         const { error: eT } = await ctx.service.from("pre_tarifario").insert({
           id_material: id,
           precio: f.precio,
@@ -2230,12 +2428,11 @@ async function hCargaMasivaMateriales(args: z.infer<typeof EsquemaCargaMateriale
         });
         if (eT) throw new Error(`tarifa: ${eT.message}`);
       }
-      insertadas++;
     } catch (e) {
       fallos.push(`Fila ${f.fila}: ${(e as Error).message}`);
     }
   }
-  return { total: filas.length, insertadas, errores: fallos };
+  return { total: filas.length, insertadas, actualizadas, errores: fallos };
 }
 
 const EsquemaCrearMaterialSGT = z.object({
@@ -2838,6 +3035,9 @@ export const OPERACIONES_SGT: Record<string, DefOp> = {
   listarProveedoresSGT: { descripcion: "SGT: lista proveedores (+interlocutor)", roles: TODOS, schema: EsquemaQ, handler: hListarProveedoresSGT },
   crearProveedorSGT: { descripcion: "SGT: crea proveedor en maestro (PRVxxxx)", roles: SOLO_ADMIN, schema: EsquemaProveedorSGT, handler: hCrearProveedorSGT },
   actualizarProveedorSGT: { descripcion: "SGT: actualiza proveedor (RUC/razón inmutables)", roles: SOLO_ADMIN, schema: EsquemaActualizarProveedorSGT, handler: hActualizarProveedorSGT },
+  listarIntegradores: { descripcion: "Lista integradores disponibles para el usuario", roles: TODOS, schema: EsquemaVacio, handler: hListarIntegradores },
+  crearIntegrador: { descripcion: "Admin: crea integrador", roles: SOLO_ADMIN, schema: EsquemaIntegrador, handler: hCrearIntegrador },
+  actualizarIntegrador: { descripcion: "Admin: actualiza integrador", roles: SOLO_ADMIN, schema: EsquemaActualizarIntegrador, handler: hActualizarIntegrador },
   listarOficinasVentas: { descripcion: "SGT: lista oficinas de ventas", roles: TODOS, schema: EsquemaQ, handler: hListarOficinasVentas },
   crearOficina: { descripcion: "SGT: crea oficina de ventas (codigo_sap único)", roles: SOLO_ADMIN, schema: EsquemaCrearOficina, handler: hCrearOficina },
   actualizarOficina: { descripcion: "SGT: actualiza oficina (codigo_sap inmutable)", roles: SOLO_ADMIN, schema: EsquemaActualizarOficina, handler: hActualizarOficina },

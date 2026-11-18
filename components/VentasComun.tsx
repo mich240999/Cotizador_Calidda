@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiOperacion } from "./Tablas";
+import { cuotaFrancesaConIgv } from "@/lib/financiamiento";
 
 /**
  * VentasComun — tipos, helpers y piezas compartidas del módulo Registro de Ventas.
@@ -11,13 +12,10 @@ import { apiOperacion } from "./Tablas";
 
 export const TEA_FIJA = 0.4;
 
-/** Cuota fija con IGV del interés incluido (TEM × 1.18). */
+/** Cuota según Simulador_CuotasAMCA.xlsx (PMT + IGV del interés mensual). */
 export function cuotaMensual(capital: number, n: number, tea = TEA_FIJA, igv = 0.18) {
   if (!(capital > 0) || !(n > 0)) return 0;
-  const tem = Math.pow(1 + tea, 1 / 12) - 1;
-  const i = tem * (1 + igv);
-  if (i <= 0) return capital / n;
-  return (capital * i) / (1 - Math.pow(1 + i, -n));
+  return cuotaFrancesaConIgv(capital, tea, n, igv);
 }
 
 /** Sube un archivo a Supabase Storage vía /api/uploads y devuelve la URL pública corta.
@@ -140,11 +138,13 @@ const ETIQUETA_ESTADO: Record<string, string> = {
   borrador: "BORRADOR",
   pendiente_aprobacion: "PENDIENTE APROBACIÓN",
   observado: "OBSERVADO",
+  subsanado_pendiente: "SUBSANADO · POR REVISAR",
   aprobada: "APROBADA",
   en_instalacion: "EN INSTALACIÓN",
-  instalada: "INSTALADA",
+  instalada: "INSTALADA · POR REVISAR",
   validada_proveedor: "VALIDADA PROVEEDOR",
   cerrada: "CERRADA",
+  pendiente_liquidar: "PENDIENTE LIQUIDAR",
   liquidada: "LIQUIDADA",
 };
 
@@ -159,6 +159,7 @@ export function BadgeEstadoVenta({ estado }: { estado: string }) {
     borrador: "bg-slate-100 text-slate-700 border-slate-200",
     pendiente_aprobacion: "bg-amber-50 text-amber-700 border-amber-200",
     observado: "bg-orange-50 text-orange-700 border-orange-200",
+    subsanado_pendiente: "bg-amber-50 text-amber-800 border-amber-300",
     aprobada: "bg-green-50 text-green-700 border-green-200",
     generada: "bg-teal-50 text-teal-700 border-teal-200",
     pendiente_liquidar: "bg-purple-50 text-purple-700 border-purple-200",
@@ -242,8 +243,30 @@ export function BadgeAbono({ estado }: { estado: string }) {
 }
 
 export const SUSTENTOS_INSTALACION = [
-  { key: "foto_antes_url", label: "Foto antes" },
-  { key: "foto_despues_url", label: "Foto después" },
-  { key: "boleta_url", label: "Boleta de venta" },
-  { key: "acta_url", label: "Acta de conformidad firmada" },
+  { key: "foto_antes_url", tipo: "foto_antes", label: "Foto antes" },
+  { key: "foto_durante_url", tipo: "foto_durante", label: "Foto durante" },
+  { key: "foto_despues_url", tipo: "foto_despues", label: "Foto después" },
+  { key: "foto_dni_url", tipo: "foto_dni", label: "Foto del DNI" },
+  { key: "foto_cliente_dni_url", tipo: "foto_cliente_dni", label: "Cliente con su DNI" },
+  { key: "boleta_url", tipo: "boleta", label: "Boleta de venta" },
+  { key: "acta_url", tipo: "acta", label: "Acta de conformidad firmada" },
 ] as const;
+
+export const ETIQUETA_EVIDENCIA: Record<string, string> = Object.fromEntries(
+  SUSTENTOS_INSTALACION.map((s) => [s.tipo, s.label])
+);
+
+export function BadgeEvidencia({ estado }: { estado: string }) {
+  const n = String(estado ?? "pendiente").toLowerCase();
+  const cls =
+    n === "aprobado"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : n === "rechazado"
+        ? "bg-red-50 text-red-700 border-red-200"
+        : "bg-amber-50 text-amber-700 border-amber-200";
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold ${cls}`}>
+      {n.toUpperCase()}
+    </span>
+  );
+}

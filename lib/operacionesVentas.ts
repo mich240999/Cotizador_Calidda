@@ -4,6 +4,7 @@ import type { OperacionContext } from "./operaciones";
 import { resolverAlcance, aplicarAlcanceVentas, puedeVerVenta, puedeVerCotizacion } from "./alcance";
 import { correoConfigurado, enviarCorreo, MSG_CORREO_NO_CONFIGURADO } from "./mailer";
 import { CLAVE_CORREO_COTIZACION, obtenerConfigCorreoCotizacion } from "./correoCotizacion";
+import { cuotaFrancesaConIgv } from "./financiamiento";
 
 /**
  * lib/operacionesVentas.ts — Operaciones del módulo Ventas (prefijo VTA-).
@@ -44,31 +45,49 @@ const T_SOL = "vta_solicitudes_venta";
 const T_ITEM = "vta_venta_items";
 const T_ABO = "vta_abonos";
 const T_INS = "vta_instalaciones";
+const T_EVID = "vta_instalacion_evidencias";
 
-/** Estados de solicitud (10): borrador → generada (PV) → instalada → validada_proveedor → liquidada. */
+/** Evidencias que el proveedor entrega y administración revisa una por una. */
+const EVIDENCIAS_INSTALACION = [
+  "foto_antes",
+  "foto_durante",
+  "foto_despues",
+  "foto_dni",
+  "foto_cliente_dni",
+  "acta",
+  "boleta",
+] as const;
+type TipoEvidencia = (typeof EVIDENCIAS_INSTALACION)[number];
+
+/** Estados de solicitud (12): borrador → generada (PV) → instalada → revisión → liquidada. */
 export const ESTADOS_SOLICITUD = [
   "borrador",
   "pendiente_aprobacion",
   "observado",
+  "subsanado_pendiente",
   "aprobada",
   "generada",
   "en_instalacion",
   "instalada",
   "validada_proveedor",
   "cerrada",
+  "pendiente_liquidar",
   "liquidada",
 ] as const;
 
 /** Estados de abono (3, igual que SQL). */
 export const ESTADOS_ABONO = ["pendiente", "efectuado", "validado"] as const;
 
-/** Estados de instalación (5, igual que SQL). */
+/** Estados de instalación (8, igual que SQL). */
 export const ESTADOS_INSTALACION = [
   "pendiente",
   "registrada",
   "validada_proveedor",
   "observada",
+  "subsanado_pendiente",
+  "pendiente_liquidar",
   "cerrada",
+  "liquidada",
 ] as const;
 
 const zLimit = z.coerce.number().int().min(1).max(500).default(100);
@@ -163,7 +182,87 @@ async function ventaVisible(ctx: OperacionContext, id: string): Promise<Fila> {
   return data as Fila;
 }
 
-/** Resuelve nombres de cliente/proveedor/asesor/creador best-effort (mae_* primero, base después). */
+/** Carga las evidencias de una solicitud (tabla nueva de migración 04). */
+async function cargarEvidencias(ctx: OperacionContext, solicitudId: string): Promise<Fila[]> {
+  const { data, error } = await ctx.service.from(T_EVID)
+    .select("*").eq("solicitud_id", solicitudId).order("tipo", { ascending: true });
+  if (error) {
+    if (esTablaFaltante(error) || /Could not find the table|schema cache/i.test(error.message)) {
+      lanzar(503, "Falta la tabla de evidencias: ejecuta supabase/migracion_04_cotizaciones_ventas_integradores.sql");
+    }
+    throw new Error(error.message);
+  }
+  const orden = new Map(EVIDENCIAS_INSTALACION.map((t, i) => [t, i]));
+  return ((data ?? []) as Fila[]).sort((a, b) => (orden.get(String(a.tipo) as TipoEvidencia) ?? 99) - (orden.get(String(b.tipo) as TipoEvidencia) ?? 99));
+}
+
+/** Carga evidencias de varias solicitudes en una sola consulta (para la bandeja). */
+async function cargarEvidenciasDe(ctx: OperacionContext, ids: string[]): Promise<Map<string, Fila[]>> {
+  const out = new Map<string, Fila[]>();
+  if (!ids.length) return out;
+  try {
+    const { data, error } = await ctx.service.from(T_EVID).select("*").in("solicitud_id", ids);
+    if (error) return out;
+    for (const e of ((data ?? []) as Fila[])) {
+      const k = String(e.solicitud_id);
+      out.set(k, [...(out.get(k) ?? []), e]);
+    }
+  } catch { /* sin tabla: la bandeja sigue funcionando sin evidencias */ }
+  return out;
+}
+
+/** Guarda/actualiza las evidencias enviadas y las devuelve a revisión pendiente. */
+async function sincronizarEvidencias(
+  ctx: OperacionContext,
+  solicitudId: string,
+  urls: Partial<Record<TipoEvidencia, string>>
+): Promise<Fila[]> {
+  const filas = EVIDENCIAS_INSTALACION
+    .map((tipo) => ({ tipo, url: String(urls[tipo] ?? "").trim() }))
+    .filter((f) => f.url.length > 0);
+  if (!filas.length) return [];
+  const { data, error } = await ctx.service.from(T_EVID).upsert(
+    filas.map((f) => ({
+      solicitud_id: solicitudId,
+      tipo: f.tipo,
+      url: f.url,
+      estado: "pendiente",
+      observacion: null,
+      revisado_por: null,
+      revisado_at: null,
+    })),
+    { onConflict: "solicitud_id,tipo" }
+  ).select();
+  if (error) {
+    if (esTablaFaltante(error) || /Could not find the table|schema cache/i.test(error.message)) {
+      lanzar(503, "Falta la tabla de evidencias: ejecuta supabase/migracion_04_cotizaciones_ventas_integradores.sql");
+    }
+    throw new Error(error.message);
+  }
+  return (data ?? []) as Fila[];
+}
+
+/** Todos los pedidos (venta o abono) deben estar registrados antes de liquidar. */
+async function exigirPedidosRegistrados(ctx: OperacionContext, solicitudId: string): Promise<void> {
+  const { data, error } = await ctx.service.from(T_ITEM)
+    .select("id,numero_pedido_venta,numero_pedido_abono").eq("solicitud_id", solicitudId);
+  if (error) throw new Error(error.message);
+  const items = (data ?? []) as Fila[];
+  if (!items.length) lanzar(422, "La venta no tiene ítems/pedidos registrados.");
+  const faltan = items.filter((it) => !String(it.numero_pedido_venta ?? "").trim() && !String(it.numero_pedido_abono ?? "").trim());
+  if (faltan.length) lanzar(422, `Faltan números de pedido en ${faltan.length} ítem(s). Regístralos antes de liquidar.`);
+}
+
+/** Todas las evidencias deben estar aprobadas por administración. */
+async function exigirEvidenciasAprobadas(ctx: OperacionContext, solicitudId: string): Promise<Fila[]> {
+  const evidencias = await cargarEvidencias(ctx, solicitudId);
+  if (!evidencias.length) lanzar(422, "El proveedor aún no entregó el acta ni los sustentos.");
+  const faltan = EVIDENCIAS_INSTALACION.filter((t) => !evidencias.some((e) => String(e.tipo) === t && String(e.estado) === "aprobado"));
+  if (faltan.length) lanzar(422, `Administración debe aprobar ${faltan.length} evidencia(s): ${faltan.join(", ")}.`);
+  return evidencias;
+}
+
+
 async function resolverNombres(
   ctx: OperacionContext,
   filas: Fila[]
@@ -310,17 +409,27 @@ const EsquemaListarVentas = z.object({
 });
 
 const EsquemaItemVenta = z.object({
+  cotizacion_item_id: z.string().uuid().optional().nullable(),
   id_material: z.string().trim().min(1).max(120),
+  material_codigo: z.string().trim().max(60).optional().default(""),
+  material_nombre: z.string().trim().max(300).optional().default(""),
+  tipo_pedido: z.enum(["VENTA", "ABONO"]).optional().default("VENTA"),
   cantidad: z.coerce.number().gt(0).max(100_000),
   precio_unit: z.coerce.number().min(0).max(10_000_000),
   descuento_monto: z.coerce.number().min(0).max(10_000_000).optional().default(0),
   modo: z.enum(["financiado", "contado"]),
   medio_pago: z.string().trim().min(1).max(60),
+  nro_cuotas: z.coerce.number().int().min(1).max(360).optional().nullable(),
+  cuota_mensual: z.coerce.number().min(0).max(10_000_000).optional().default(0),
+  alto: z.coerce.number().min(0).max(1000).optional().default(0),
+  ancho: z.coerce.number().min(0).max(1000).optional().default(0),
+  fondo: z.coerce.number().min(0).max(1000).optional().default(0),
 });
 
 const EsquemaCrearSolicitud = z.object({
   id_cliente: z.string().trim().min(1).max(60),
   id_proveedor: z.string().trim().min(1).max(60).optional().nullable(),
+  id_integrador: z.string().trim().max(20).optional().nullable(),
   canal: z.enum(["proveedor", "microaliado", "contratista"]),
   es_microaliado: z.coerce.boolean().optional().default(false),
   visita_estado: z.enum(["visitado", "agendado"]).optional().default("visitado"),
@@ -329,6 +438,10 @@ const EsquemaCrearSolicitud = z.object({
   id_asesor: z.string().trim().max(20).optional().nullable(),
   asesor: z.string().trim().max(200).optional().default(""),
   asesor_telefono: z.string().trim().max(30).optional().default(""),
+  medio_respaldo: z.enum(["audio", "voucher", "contrato"]),
+  codigo_llamada: z.string().trim().max(60).optional().default(""),
+  voucher_solicitud_url: zUrlDoc.optional(),
+  contrato_fisico_url: zUrlDoc.optional(),
   foto_espacio_url: z.string().trim().max(2000).optional().default(""),
   tea: z.coerce.number().min(0).max(100).optional().default(40),
   observaciones: z.string().trim().max(2000).optional().default(""),
@@ -342,7 +455,25 @@ const EsquemaCrearSolicitud = z.object({
   anticipo: z.coerce.number().min(0).max(100_000_000).optional().default(0),
   ambiente: z.string().trim().max(120).optional().default(""),
   nro_cuotas: z.coerce.number().int().min(1).max(360).optional().nullable(),
+  cuota_mensual: z.coerce.number().min(0).max(10_000_000).optional().default(0),
   items: z.array(EsquemaItemVenta).min(1).max(200),
+}).superRefine((v, ctx) => {
+  if (v.medio_respaldo === "audio" && !v.codigo_llamada.trim()) {
+    ctx.addIssue({ code: "custom", path: ["codigo_llamada"], message: "Ingresa el código de audio de la llamada." });
+  }
+  if (v.medio_respaldo === "voucher" && !v.voucher_solicitud_url) {
+    ctx.addIssue({ code: "custom", path: ["voucher_solicitud_url"], message: "Adjunta el voucher." });
+  }
+  if (v.medio_respaldo === "contrato" && !v.contrato_fisico_url) {
+    ctx.addIssue({ code: "custom", path: ["contrato_fisico_url"], message: "Adjunta el contrato físico firmado." });
+  }
+  const incompatibles =
+    (v.medio_respaldo !== "audio" && !!v.codigo_llamada.trim())
+    || (v.medio_respaldo !== "voucher" && !!v.voucher_solicitud_url)
+    || (v.medio_respaldo !== "contrato" && !!v.contrato_fisico_url);
+  if (incompatibles) {
+    ctx.addIssue({ code: "custom", path: ["medio_respaldo"], message: "Elige solo una forma de sustento." });
+  }
 });
 
 const EsquemaRegistrarAbono = z.object({
@@ -388,11 +519,24 @@ const EsquemaRegistrarPV = z.object({
 const EsquemaInstalacion = z.object({
   solicitud_id: z.string().trim().min(1).max(20),
   foto_antes_url: zUrlDoc,
+  foto_durante_url: zUrlDoc,
   foto_despues_url: zUrlDoc,
+  foto_dni_url: zUrlDoc,
+  foto_cliente_dni_url: zUrlDoc,
   boleta_url: zUrlDoc,
   acta_url: zUrlDoc,
   observacion: z.string().trim().max(2000).optional().default(""),
-  foto_extra_url: z.string().trim().max(2000).optional().default(""),
+});
+
+const EsquemaRevisarEvidencia = z.object({
+  solicitud_id: z.string().trim().min(1).max(20),
+  tipo: z.enum(EVIDENCIAS_INSTALACION),
+  accion: z.enum(["aprobar", "rechazar"]),
+  observacion: z.string().trim().max(2000).optional().default(""),
+}).superRefine((v, ctx) => {
+  if (v.accion === "rechazar" && !v.observacion.trim()) {
+    ctx.addIssue({ code: "custom", path: ["observacion"], message: "Indica qué debe subsanar el proveedor." });
+  }
 });
 
 const EsquemaSoloSolicitud = z.object({
@@ -589,16 +733,47 @@ async function resolverClienteSGT(ctx: OperacionContext, id: string): Promise<st
   return nuevo;
 }
 
-/** Resuelve un proveedor a mae_proveedores. Si viene de la tabla base, lo migra solo. */
-async function resolverProveedorSGT(ctx: OperacionContext, id: string): Promise<string> {
-  const { data: ex } = await ctx.service.from("mae_proveedores").select("id").eq("id", id).maybeSingle();
-  if (ex) return id;
+/** Resuelve y autoriza la empresa proveedora en el ámbito del usuario. */
+function validarProveedorEnSesion(
+  ctx: OperacionContext,
+  proveedor: { id: string; id_integrador?: string | null }
+): void {
+  if (ctx.sesion.rol === "admin" || ctx.sesion.alcance === "GLOBAL") return;
+  const permitido = ctx.sesion.idProveedor
+    ? ctx.sesion.idProveedor === proveedor.id
+    : Boolean(ctx.sesion.idIntegrador && ctx.sesion.idIntegrador === proveedor.id_integrador);
+  if (!permitido) lanzar(403, "La empresa proveedora no pertenece a tu proveedor o integrador asignado");
+}
+
+async function resolverProveedorSGT(ctx: OperacionContext, id: string): Promise<{ id: string; nombre: string; id_integrador: string | null }> {
+  const { data: ex, error: eProveedor } = await ctx.service.from("mae_proveedores")
+    .select("id,razon_social,nombre_comercial,id_integrador").eq("id", id).maybeSingle();
+  if (eProveedor && /id_integrador|column|schema cache/i.test(eProveedor.message)) {
+    lanzar(503, "Falta la migración de integradores: ejecuta supabase/migracion_04_cotizaciones_ventas_integradores.sql");
+  }
+  if (eProveedor) throw new Error(eProveedor.message);
+  if (ex) {
+    const p = ex as { id: string; razon_social?: string; nombre_comercial?: string; id_integrador?: string | null };
+    validarProveedorEnSesion(ctx, p);
+    return {
+      id: p.id,
+      nombre: String(p.razon_social ?? p.nombre_comercial ?? p.id),
+      id_integrador: p.id_integrador ?? null,
+    };
+  }
+  if (ctx.sesion.rol !== "admin" && ctx.sesion.alcance !== "GLOBAL") {
+    lanzar(403, "Solo administración puede migrar proveedores antiguos");
+  }
   const { data: base } = await ctx.service.from("proveedores").select("*").eq("id", id).maybeSingle();
   if (!base) lanzar(422, "El proveedor no existe en mae_proveedores: créalo en Administración > Proveedores");
   const b = base as Record<string, any>;
   if (b.ruc) {
     const { data: previo } = await ctx.service.from("mae_proveedores").select("id").eq("ruc", String(b.ruc)).limit(1).maybeSingle();
-    if (previo) return (previo as { id: string }).id;
+    if (previo) {
+      const p = previo as { id: string };
+      validarProveedorEnSesion(ctx, { id: p.id, id_integrador: null });
+      return { id: p.id, nombre: String(b.nombre ?? p.id), id_integrador: null };
+    }
   }
   if (!b.ruc) lanzar(422, "El proveedor base no tiene RUC: complétalo en Administración > Proveedores antes de vender");
   const nuevo = siguienteId("PRV", await idsParaCorrelativo(ctx, "mae_proveedores"));
@@ -613,7 +788,8 @@ async function resolverProveedorSGT(ctx: OperacionContext, id: string): Promise<
     estado: "ACTIVO",
   });
   if (error) lanzar(422, `No se pudo migrar el proveedor al maestro SGT: ${error.message}`);
-  return nuevo;
+  validarProveedorEnSesion(ctx, { id: nuevo, id_integrador: null });
+  return { id: nuevo, nombre: String(b.nombre ?? nuevo), id_integrador: null };
 }
 
 /** Resuelve un material a mae_materiales. Si viene de la tabla base, lo migra solo. */
@@ -666,13 +842,172 @@ async function resolverAsesorPorNombre(ctx: OperacionContext, nombre: string): P
   }
 }
 
+async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearSolicitud>, ctx: OperacionContext) {
+  try {
+    const { data: cot, error: eCot } = await ctx.service.from("cotizaciones")
+      .select("*").eq("id", args.cotizacion_id).maybeSingle();
+    if (eCot) throw new Error(eCot.message);
+    if (!cot) lanzar(404, "Cotización no encontrada");
+    const c = cot as Fila;
+    const alcance = await resolverAlcance(ctx.service, ctx.sesion);
+    if (!puedeVerCotizacion(alcance, c)) lanzar(403, "No tienes acceso a esta cotización");
+    const { data: existente, error: eExistente } = await ctx.service.from(T_SOL)
+      .select("id").eq("cotizacion_id", args.cotizacion_id).limit(1).maybeSingle();
+    if (eExistente) throw new Error(eExistente.message);
+    if (existente) lanzar(409, "Esta cotización ya tiene una solicitud de venta");
+
+    const proveedorSolicitado = String(args.id_proveedor ?? c.id_proveedor ?? "");
+    const empresa = await resolverProveedorSGT(ctx, proveedorSolicitado);
+    if (c.id_integrador && empresa.id_integrador !== String(c.id_integrador)) {
+      lanzar(422, "La empresa proveedora elegida no pertenece al integrador de la cotización");
+    }
+    if (c.id_proveedor && String(c.id_proveedor) !== empresa.id && String(c.id_integrador ?? "") !== String(empresa.id_integrador ?? "")) {
+      lanzar(422, "La empresa proveedora no coincide con la cotización");
+    }
+
+    const { data: cotItems, error: eItems } = await ctx.service.from("cotizacion_items")
+      .select("id,cantidad,precio_unit,descuento_pct,total_linea,descripcion,material_codigo,ambiente,alto,ancho,fondo")
+      .eq("cotizacion_id", args.cotizacion_id).order("id", { ascending: true });
+    if (eItems) throw new Error(eItems.message);
+    const lineas = (cotItems ?? []) as Fila[];
+    if (!lineas.length) lanzar(422, "La cotización no tiene materiales.");
+    const normalizar = (v: unknown) => String(v ?? "").trim().toLowerCase();
+    const lineasProducto = lineas.map((it) => {
+      const bruto = red2(Number(it.cantidad ?? 1) * Number(it.precio_unit ?? 0));
+      const neto = red2(Number(it.total_linea ?? bruto * (1 - Number(it.descuento_pct ?? 0) / 100)));
+      return { ...it, neto: Math.max(neto, 0) };
+    }) as Fila[];
+    const totalProducto = red2(lineasProducto.reduce((sum, it) => sum + it.neto, 0));
+    if (!(totalProducto > 0)) lanzar(422, "El valor de los productos de la cotización debe ser mayor que cero");
+    const anticipo = Math.max(Number(c.cuota_inicial ?? 0) || 0, 0);
+    if (anticipo > totalProducto) lanzar(422, "El abono de la cotización supera el valor de sus productos");
+    const montoFinanciado = red2(Math.max(totalProducto - anticipo, 0));
+    const teaRaw = Number(c.tea ?? 0.4);
+    const tea = teaRaw > 1 ? teaRaw / 100 : teaRaw;
+    const plazo = Number(c.plazo ?? 9) || 9;
+    const cuotaTotal = montoFinanciado > 0
+      ? Number(c.cuota_mensual ?? 0) || cuotaFrancesaConIgv(montoFinanciado, tea, plazo)
+      : 0;
+
+    const detalles: Fila[] = [];
+    let abonoAsignado = 0;
+    for (const [i, it] of lineasProducto.entries()) {
+      const ambiente = String(it.ambiente ?? c.ambiente ?? "");
+      const mapeo = await resolverMaterialVentaCotizacion(ctx, {
+        ...c,
+        id_proveedor: empresa.id,
+        id_integrador: empresa.id_integrador,
+        proveedor: empresa.nombre,
+      }, { ...it, ambiente });
+      const parteAbono = i === lineasProducto.length - 1
+        ? red2(anticipo - abonoAsignado)
+        : totalProducto > 0 ? red2(anticipo * it.neto / totalProducto) : 0;
+      abonoAsignado = red2(abonoAsignado + parteAbono);
+      const financiado = red2(Math.max(it.neto - parteAbono, 0));
+      const common = {
+        solicitud_id: "",
+        cotizacion_item_id: String(it.id),
+        id_material: String(mapeo.id),
+        material_codigo: String(mapeo.codigo_sap ?? ""),
+        material_nombre: String(mapeo.nombre ?? it.descripcion ?? ""),
+        cantidad: 1,
+        descuento_monto: 0,
+        alto: Number(it.alto ?? 0),
+        ancho: Number(it.ancho ?? 0),
+        fondo: Number(it.fondo ?? 0),
+        modo: "financiado" as const,
+        medio_pago: "financiado",
+      };
+      if (financiado > 0) {
+        detalles.push({
+          ...common,
+          tipo_pedido: "VENTA",
+          precio_unit: financiado,
+          subtotal: financiado,
+          nro_cuotas: plazo,
+          cuota_mensual: cuotaFrancesaConIgv(financiado, tea, plazo),
+        });
+      }
+      if (parteAbono > 0) {
+        detalles.push({
+          ...common,
+          tipo_pedido: "ABONO",
+          precio_unit: parteAbono,
+          subtotal: parteAbono,
+          modo: "contado",
+          medio_pago: "abono",
+          nro_cuotas: 1,
+          cuota_mensual: 0,
+        });
+      }
+    }
+
+    const idClienteSGT = await resolverClienteSGT(ctx, String(c.cliente_id));
+    let idAsesor: string | null = c.id_asesor ? String(c.id_asesor) : (args.id_asesor || null);
+    let asesorNombre = String(c.asesor ?? args.asesor ?? "").trim();
+    if (idAsesor) {
+      const { data: ficha } = await ctx.service.from("seg_usuarios").select("id,nombre").eq("id", idAsesor).maybeSingle();
+      if (!ficha) idAsesor = await resolverAsesorPorNombre(ctx, asesorNombre);
+      else if (!asesorNombre) asesorNombre = String((ficha as { nombre?: string }).nombre ?? "");
+    }
+    if (!idAsesor && asesorNombre) idAsesor = await resolverAsesorPorNombre(ctx, asesorNombre);
+
+    const id = siguienteVTA(await idsParaCorrelativo(ctx, T_SOL));
+    const filaSol: Fila = {
+      id,
+      id_cliente: idClienteSGT,
+      id_proveedor: empresa.id,
+      id_integrador: empresa.id_integrador,
+      cotizacion_id: c.id,
+      canal: args.canal,
+      es_microaliado: args.es_microaliado ?? false,
+      visita_estado: args.visita_estado ?? "visitado",
+      pago_modo: anticipo > 0 ? "con_abono" : "financiado",
+      proyecto_financiado: montoFinanciado > 0,
+      id_asesor: idAsesor,
+      asesor_nombre: asesorNombre || null,
+      asesor_telefono: String(c.asesor_telefono ?? args.asesor_telefono ?? "") || null,
+      tea: tea * 100,
+      anticipo,
+      monto_financiado: montoFinanciado,
+      nro_cuotas: plazo,
+      cuota_mensual: cuotaTotal,
+      ambiente: String(c.ambiente ?? [...new Set(lineasProducto.map((x) => x.ambiente).filter(Boolean))].join(", ")),
+      codigo_llamada: args.medio_respaldo === "audio" ? args.codigo_llamada.trim() : null,
+      medio_respaldo: args.medio_respaldo,
+      voucher_solicitud_url: args.medio_respaldo === "voucher" ? args.voucher_solicitud_url : null,
+      contrato_fisico_url: args.medio_respaldo === "contrato" ? args.contrato_fisico_url : null,
+      observaciones: args.observaciones || "",
+      estado: "borrador",
+      created_by: ctx.sesion.userId,
+    };
+    const { data: cab, error: eCab } = await ctx.service.from(T_SOL).insert(filaSol).select().single();
+    if (eCab || !cab) {
+      if (/column|schema cache/i.test(eCab?.message ?? "")) {
+        throw new Error("Falta la migración 04 para solicitudes, integradores y pedidos de material.");
+      }
+      if (/foreign key|llave foránea|violates foreign/i.test(eCab?.message ?? "")) {
+        lanzar(422, "El cliente, proveedor o material ya no existe en el maestro.");
+      }
+      throw new Error(eCab?.message ?? "No se pudo crear la solicitud de venta");
+    }
+    const filasVenta = detalles.map(({ solicitud_id: _sid, ...rest }) => ({ ...rest, solicitud_id: id }));
+    const { data: saleItems, error: eDet } = await ctx.service.from(T_ITEM).insert(filasVenta).select();
+    if (eDet) {
+      await ctx.service.from(T_SOL).delete().eq("id", id);
+      if (/column|schema cache/i.test(eDet.message)) throw new Error("Falta la migración 04 para dimensiones y tipos de pedido en ventas.");
+      throw new Error(eDet.message);
+    }
+    return { solicitud: cab, items: saleItems ?? [], id, numero: id, total: totalProducto, estado: "borrador" };
+  } catch (e) {
+    exigirTabla(e);
+  }
+}
+
 async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx: OperacionContext) {
+  if (args.cotizacion_id) return hCrearSolicitudDesdeCotizacion(args, ctx);
   // Solo admin puede usar TEA distinta de 40.
   if (!esAdmin(ctx) && Number(args.tea) !== 40) lanzar(403, "Solo el rol admin puede registrar una TEA distinta de 40");
-  // Adjuntos obligatorios solo en flujo manual; con cotización el PDF se regenera.
-  if (!args.cotizacion_id && (!args.adjunto_cotizacion_url || !args.adjunto_dni_url)) {
-    lanzar(400, "adjunto_cotizacion_url y adjunto_dni_url son obligatorios");
-  }
   // Subtotal por ítem = cant*precio − dscto.
   const items = args.items.map((it) => {
     const bruto = red2(it.cantidad * it.precio_unit);
@@ -682,7 +1017,10 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
   const total = red2(items.reduce((a, it) => a + it.subtotal, 0));
   // FKs: resuelven al maestro SGT (migran desde tablas base si hace falta).
   const idClienteSGT = await resolverClienteSGT(ctx, args.id_cliente);
-  const idProveedorSGT = args.id_proveedor ? await resolverProveedorSGT(ctx, args.id_proveedor) : null;
+  const proveedor = args.id_proveedor ? await resolverProveedorSGT(ctx, args.id_proveedor) : null;
+  if (args.canal !== "contratista" && !proveedor) lanzar(422, "Selecciona una empresa proveedora.");
+  if (args.id_integrador && args.id_integrador !== proveedor?.id_integrador) lanzar(422, "El proveedor no pertenece al integrador seleccionado.");
+  const idProveedorSGT = proveedor?.id ?? null;
   let idAsesor: string | null = args.id_asesor || null;
   let asesorNombre = String(args.asesor ?? "").trim();
   if (idAsesor) {
@@ -704,6 +1042,7 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
       id,
       id_cliente: idClienteSGT,
       id_proveedor: idProveedorSGT,
+      id_integrador: proveedor?.id_integrador ?? null,
       canal: args.canal,
       es_microaliado: args.es_microaliado ?? false,
       visita_estado: args.visita_estado ?? "visitado",
@@ -716,6 +1055,10 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
       observaciones: args.observaciones || "",
       adjunto_cotizacion_url: args.adjunto_cotizacion_url || null,
       adjunto_dni_url: args.adjunto_dni_url || null,
+      codigo_llamada: args.medio_respaldo === "audio" ? args.codigo_llamada.trim() : null,
+      medio_respaldo: args.medio_respaldo,
+      voucher_solicitud_url: args.medio_respaldo === "voucher" ? args.voucher_solicitud_url : null,
+      contrato_fisico_url: args.medio_respaldo === "contrato" ? args.contrato_fisico_url : null,
       estado: "borrador",
       created_by: ctx.sesion.userId,
     };
@@ -730,8 +1073,7 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
     };
     let insCab = await ctx.service.from(T_SOL).insert(filaSol).select().single();
     if (insCab.error && /column|schema cache/i.test(insCab.error.message)) {
-      // BD sin migración 03: reintenta sin las columnas nuevas.
-      insCab = await ctx.service.from(T_SOL).insert(baseSol).select().single();
+      throw new Error("Falta la migración 04 de ventas/integradores y respaldo de la solicitud.");
     }
     const { data: cab, error: eCab } = insCab;
     if (eCab || !cab) {
@@ -750,14 +1092,23 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
           cantidad: it.cantidad,
           precio_unit: it.precio_unit,
           descuento_monto: it.descuento_monto,
-          modo: it.modo,
-          medio_pago: it.medio_pago,
-          subtotal: it.subtotal,
+           modo: it.modo,
+           medio_pago: it.medio_pago,
+           tipo_pedido: it.tipo_pedido,
+           nro_cuotas: it.nro_cuotas,
+           cuota_mensual: it.cuota_mensual,
+           material_nombre: it.material_nombre,
+           material_codigo: it.material_codigo,
+           alto: it.alto,
+           ancho: it.ancho,
+           fondo: it.fondo,
+           subtotal: it.subtotal,
         }))
       )
       .select();
     if (eDet) {
       try { await ctx.service.from(T_SOL).delete().eq("id", id); } catch { /* limpieza best-effort */ }
+      if (/column|schema cache/i.test(eDet.message)) throw new Error("Falta la migración 04 de dimensiones y pedidos de venta.");
       throw new Error(eDet.message);
     }
     return { solicitud: cab, items: det ?? [], id, numero: id, total, estado: "borrador" };
@@ -926,134 +1277,95 @@ async function hRegistrarInstalacion(args: z.infer<typeof EsquemaInstalacion>, c
   try {
     exigirAdminOProveedor(ctx);
     await ventaVisible(ctx, args.solicitud_id);
+    const urls: Partial<Record<TipoEvidencia, string>> = {
+      foto_antes: args.foto_antes_url,
+      foto_durante: args.foto_durante_url,
+      foto_despues: args.foto_despues_url,
+      foto_dni: args.foto_dni_url,
+      foto_cliente_dni: args.foto_cliente_dni_url,
+      acta: args.acta_url,
+      boleta: args.boleta_url,
+    };
+    const evidencias = await sincronizarEvidencias(ctx, args.solicitud_id, urls);
     const { data: previa, error: ePrev } = await ctx.service
       .from(T_INS)
-      .select("id")
+      .select("id,estado")
       .eq("solicitud_id", args.solicitud_id)
       .maybeSingle();
     if (ePrev) throw new Error(ePrev.message);
-    let instalacion: unknown;
+    // Columnas base (migración 03) para la bandeja; el detalle por archivo vive
+    // en vta_instalacion_evidencias.
     const extra = {
       foto_antes_url: args.foto_antes_url,
       foto_despues_url: args.foto_despues_url,
       boleta_url: args.boleta_url,
       acta_url: args.acta_url,
-      foto_extra_url: args.foto_extra_url || null,
-      estado: "registrada",
+      estado: previa ? "subsanado_pendiente" : "registrada",
       observacion: args.observacion || null,
     };
+    let instalacion: unknown;
     if (previa) {
-      const { data, error } = await ctx.service
-        .from(T_INS)
-        .update(extra)
-        .eq("solicitud_id", args.solicitud_id)
-        .select()
-        .single();
-      if (error) {
-        if (/column|foto_extra_url/i.test(error.message)) {
-          const e = new Error("Falta la columna foto_extra_url: ejecute supabase/migracion_ventas_03.sql") as Error & { status?: number };
-          e.status = 422; throw e;
-        }
-        throw new Error(error.message);
-      }
+      const { data, error } = await ctx.service.from(T_INS).update(extra).eq("solicitud_id", args.solicitud_id).select().single();
+      if (error) throw new Error(error.message);
       instalacion = data;
     } else {
-      const { data, error } = await ctx.service
-        .from(T_INS)
-        .insert({
-          solicitud_id: args.solicitud_id,
-          ...extra,
-        })
-        .select()
-        .single();
-      if (error) {
-        if (/column|foto_extra_url/i.test(error.message)) {
-          const e = new Error("Falta la columna foto_extra_url: ejecute supabase/migracion_ventas_03.sql") as Error & { status?: number };
-          e.status = 422; throw e;
-        }
-        throw new Error(error.message);
-      }
+      const { data, error } = await ctx.service.from(T_INS).insert({ solicitud_id: args.solicitud_id, ...extra }).select().single();
+      if (error) throw new Error(error.message);
       instalacion = data;
     }
-    // Con las 4 fotos el proveedor deja la venta INSTALADA (ya no en_instalacion).
+    // El proveedor entrega acta + sustentos; administración revisa cada evidencia.
+    const estadoSol = previa ? "subsanado_pendiente" : "instalada";
     const { data: cab, error: eCab } = await ctx.service
       .from(T_SOL)
-      .update({ estado: "instalada" })
+      .update({ estado: estadoSol })
       .eq("id", args.solicitud_id)
       .select()
       .single();
     if (eCab) throw new Error(eCab.message);
-    return { solicitud: cab, instalacion, estado: "instalada" };
+    return { solicitud: cab, instalacion, evidencias, estado: estadoSol };
   } catch (e) {
     exigirTabla(e);
   }
 }
 
-async function hValidarInstalacionProveedor(args: z.infer<typeof EsquemaSoloSolicitud>, ctx: OperacionContext) {
+async function hRevisarEvidencia(args: z.infer<typeof EsquemaRevisarEvidencia>, ctx: OperacionContext) {
   try {
-    exigirAdminOProveedor(ctx);
-    await ventaVisible(ctx, args.solicitud_id);
-    const { data: ins, error: eIns } = await ctx.service
-      .from(T_INS)
-      .select("id")
-      .eq("solicitud_id", args.solicitud_id)
-      .maybeSingle();
-    if (eIns) throw new Error(eIns.message);
-    if (!ins) lanzar(404, `Instalación no registrada para: ${args.solicitud_id}`);
-    const { data: instOk, error: eUpd } = await ctx.service
-      .from(T_INS)
-      .update({ estado: "validada_proveedor" })
-      .eq("solicitud_id", args.solicitud_id)
-      .select()
-      .single();
+    const s = await ventaVisible(ctx, args.solicitud_id);
+    const estSol = String(s.estado ?? "").toLowerCase();
+    if (["liquidada"].includes(estSol)) lanzar(422, "La venta ya está liquidada: no se revisan evidencias.");
+    const { data: ev, error: eEv } = await ctx.service.from(T_EVID)
+      .select("*").eq("solicitud_id", args.solicitud_id).eq("tipo", args.tipo).maybeSingle();
+    if (eEv) throw new Error(eEv.message);
+    if (!ev) lanzar(404, `El proveedor no entregó la evidencia '${args.tipo}'.`);
+    const { data: actualizada, error: eUpd } = await ctx.service.from(T_EVID).update({
+      estado: args.accion === "aprobar" ? "aprobado" : "rechazado",
+      observacion: args.observacion.trim() || null,
+      revisado_por: ctx.sesion.userId,
+      revisado_at: new Date().toISOString(),
+    }).eq("solicitud_id", args.solicitud_id).eq("tipo", args.tipo).select().single();
     if (eUpd) throw new Error(eUpd.message);
-    const { data: cab, error: eCab } = await ctx.service
-      .from(T_SOL)
-      .update({ estado: "validada_proveedor" })
-      .eq("id", args.solicitud_id)
-      .select()
-      .single();
-    if (eCab) throw new Error(eCab.message);
-    return { solicitud: cab, instalacion: instOk, estado: "validada_proveedor" };
-  } catch (e) {
-    exigirTabla(e);
-  }
-}
 
-async function hValidacionFinal(args: z.infer<typeof EsquemaSoloSolicitud>, ctx: OperacionContext) {
-  try {
-    const { data: ins, error: eIns } = await ctx.service
-      .from(T_INS)
-      .select("id,estado")
-      .eq("solicitud_id", args.solicitud_id)
-      .maybeSingle();
+    const evidencias = await cargarEvidencias(ctx, args.solicitud_id);
+    const rechazadas = evidencias.filter((e) => String(e.estado) === "rechazado");
+    const todasAprobadas = EVIDENCIAS_INSTALACION.every((t) =>
+      evidencias.some((e) => String(e.tipo) === t && String(e.estado) === "aprobado")
+    );
+    const estado = rechazadas.length ? "observada" : todasAprobadas ? "validada_proveedor" : "registrada";
+    const estadoSol = rechazadas.length ? "observada" : todasAprobadas ? "validada_proveedor" : "instalada";
+    const observacion = rechazadas.length
+      ? `Subsanar: ${rechazadas.map((e) => `${String(e.tipo)} (${String(e.observacion ?? "sin detalle")})`).join("; ")}`
+      : null;
+    const { data: instOk, error: eIns } = await ctx.service.from(T_INS)
+      .update({ estado, observacion }).eq("solicitud_id", args.solicitud_id).select().single();
     if (eIns) throw new Error(eIns.message);
-    if (!ins) lanzar(404, `Instalación no registrada para: ${args.solicitud_id}`);
-    if ((ins as Fila).estado !== "validada_proveedor") {
-      lanzar(422, `Solo se cierra con instalación en 'validada_proveedor' (actual: ${(ins as Fila).estado})`);
+    const { data: cab, error: eCab } = await ctx.service.from(T_SOL)
+      .update({ estado: estadoSol }).eq("id", args.solicitud_id).select().single();
+    if (eCab) throw new Error(eCab.message);
+    let aviso: unknown = null;
+    if (rechazadas.length) {
+      aviso = await avisarObservacion(ctx, args.solicitud_id, "las evidencias de instalación", observacion ?? "");
     }
-    const { data: instOk, error: eUpd } = await ctx.service
-      .from(T_INS)
-      .update({ estado: "cerrada" })
-      .eq("solicitud_id", args.solicitud_id)
-      .select()
-      .single();
-    if (eUpd) throw new Error(eUpd.message);
-    // Stephany valida y cierra la venta como LIQUIDADA.
-    const { data: cab, error: eCab } = await ctx.service
-      .from(T_SOL)
-      .update({ estado: "liquidada" })
-      .eq("id", args.solicitud_id)
-      .select()
-      .single();
-    if (eCab) {
-      if (/check|constraint|CHECK|estado/i.test(eCab.message)) {
-        const e = new Error("Falta el estado liquidada: ejecute supabase/migracion_ventas_03.sql") as Error & { status?: number };
-        e.status = 422; throw e;
-      }
-      throw new Error(eCab.message);
-    }
-    return { solicitud: cab, instalacion: instOk, estado: "liquidada" };
+    return { solicitud: cab, instalacion: instOk, evidencias, evidencia: actualizada, estado: estadoSol, aviso_email: aviso };
   } catch (e) {
     exigirTabla(e);
   }
@@ -1203,6 +1515,13 @@ async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionCo
       ctx.service.from(T_ABO).select("*").eq("solicitud_id", args.id).order("created_at", { ascending: false }),
       ctx.service.from(T_INS).select("*").eq("solicitud_id", args.id).maybeSingle(),
     ]);
+    let evidencias: Fila[] = [];
+    try {
+      if (puedeVerInstalacion) evidencias = await cargarEvidencias(ctx, args.id);
+    } catch (e) {
+      // Sin migración 04 el detalle sigue cargando; la revisión avisará al usarse.
+      if (!(e instanceof Error && (e as Error & { status?: number }).status === 503)) throw e;
+    }
     if (rItems.error) throw new Error(rItems.error.message);
     if (rAbonos.error) throw new Error(rAbonos.error.message);
     if (rIns.error) throw new Error(rIns.error.message);
@@ -1244,6 +1563,7 @@ async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionCo
       items,
       abonos: rAbonos.data ?? [],
       instalacion: puedeVerInstalacion ? rIns.data ?? null : null,
+      evidencias: puedeVerInstalacion ? evidencias : [],
     };
   } catch (e) {
     exigirTabla(e);
@@ -1333,6 +1653,13 @@ async function anotarConSolicitud(ctx: OperacionContext, cots: Fila[]): Promise<
       asesor: c.asesor ?? null,
       asesor_telefono: c.asesor_telefono ?? null,
       proveedor: c.proveedor ?? null,
+      id_proveedor: c.id_proveedor ?? null,
+      id_integrador: c.id_integrador ?? null,
+      id_asesor: c.id_asesor ?? null,
+      ambiente: c.ambiente ?? null,
+      cuota_inicial: c.cuota_inicial ?? 0,
+      plazo: c.plazo ?? null,
+      cuota_mensual: c.cuota_mensual ?? 0,
       cuenta_contrato: c.cuenta_contrato ?? null,
       cliente_nombre: cli.nombres ?? null,
       cliente_doc: cli.dni ?? null,
@@ -1341,6 +1668,68 @@ async function anotarConSolicitud(ctx: OperacionContext, cots: Fila[]): Promise<
       solicitud_id: null,
     };
   });
+}
+
+function normalizarClaveVenta(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+const esValorGlobalVenta = (value: unknown) => normalizarClaveVenta(value).startsWith("todos");
+
+/** Selecciona el SKU por proveedor + asesor + ambiente, sin usar coincidencia parcial de nombres. */
+async function resolverMaterialVentaCotizacion(ctx: OperacionContext, cot: Fila, item: Fila): Promise<Fila> {
+  const ambiente = normalizarClaveVenta(item.ambiente);
+  const providerId = String(cot.id_proveedor ?? "");
+  const integradorId = String(cot.id_integrador ?? "");
+  const providerName = normalizarClaveVenta(cot.proveedor);
+  const asesorId = String(cot.id_asesor ?? "");
+  const asesorNombre = normalizarClaveVenta(cot.asesor);
+  if (!ambiente) throw new Error("La cotización no tiene ambiente asignado a uno de sus materiales.");
+
+  const { data, error } = await ctx.service.from("mae_materiales")
+    .select("id,codigo_sap,nombre,descripcion,espacio,espacio_remodelar,estado,id_proveedor,id_integrador,id_asesor,asesor_nombre,proveedor_nombre")
+    .eq("espacio", "VENTAS")
+    .eq("estado", "ACTIVO")
+    .limit(1000);
+  if (error) throw new Error(error.message);
+
+  const candidates = ((data ?? []) as Fila[]).flatMap((m) => {
+    const env = normalizarClaveVenta(m.espacio_remodelar);
+    const envExacta = env === ambiente;
+    const envGenerica = ["otros", "general", "diseno", "diseño"].includes(env);
+    if (!envExacta && !envGenerica) return [];
+
+    const mapProvId = String(m.id_proveedor ?? "");
+    const mapIntId = String(m.id_integrador ?? "");
+    const mapProvName = normalizarClaveVenta(m.proveedor_nombre);
+    const proveedorGlobal = esValorGlobalVenta(m.proveedor_nombre) && !mapProvId && !mapIntId;
+    const providerExact = Boolean(providerId && mapProvId === providerId);
+    const integratorExact = Boolean(integradorId && mapIntId === integradorId);
+    const providerNameExact = Boolean(providerName && mapProvName === providerName);
+    if (mapProvId && !providerExact) return [];
+    if (!mapProvId && mapIntId && !integratorExact) return [];
+    if (!proveedorGlobal && !providerExact && !integratorExact && !providerNameExact) return [];
+
+    const mapAsesorId = String(m.id_asesor ?? "");
+    const mapAsesorName = normalizarClaveVenta(m.asesor_nombre);
+    const asesorGlobal = esValorGlobalVenta(m.asesor_nombre) && !mapAsesorId;
+    const asesorExact = Boolean(asesorId && mapAsesorId === asesorId);
+    const asesorNameExact = Boolean(asesorNombre && mapAsesorName === asesorNombre);
+    if (mapAsesorId && !asesorExact) return [];
+    if (!mapAsesorId && !asesorGlobal && !asesorNameExact) return [];
+
+    const score =
+      (envExacta ? 100 : 0)
+      + (providerExact ? 100 : integratorExact ? 80 : providerNameExact ? 60 : 10)
+      + (asesorExact ? 100 : asesorNameExact ? 60 : 10);
+    return [{ ...m, _score: score }];
+  });
+
+  candidates.sort((a, b) => Number(b._score) - Number(a._score));
+  if (!candidates.length) {
+    throw new Error(`No hay material asignado para ${item.ambiente} / ${cot.proveedor} / ${cot.asesor}. Actualiza el XLSX de Materiales.`);
+  }
+  return candidates[0];
 }
 
 /** Payload completo de una cotización para prellenar la solicitud de venta. */
@@ -1354,7 +1743,7 @@ async function hObtenerCotizacionParaVenta(args: z.infer<typeof EsquemaCotizacio
     const cli = ((c as { clientes?: unknown }).clientes ?? {}) as Record<string, any>;
     // Cuenta contrato y ambiente: de la cotización o del maestro por documento.
     let cuentaContrato = String(c.cuenta_contrato ?? "").trim();
-    let ambiente = "";
+    let ambiente = String(c.ambiente ?? "").trim();
     if (!cuentaContrato || !ambiente) {
       try {
         const dni = String(cli.dni ?? cli.documento ?? "").trim();
@@ -1362,7 +1751,7 @@ async function hObtenerCotizacionParaVenta(args: z.infer<typeof EsquemaCotizacio
           const { data: mae } = await ctx.service.from("mae_clientes").select("cuenta_contrato,ambiente").eq("nro_doc", dni).limit(1).maybeSingle();
           const m = (mae ?? {}) as Record<string, any>;
           if (!cuentaContrato) cuentaContrato = String(m.cuenta_contrato ?? "");
-          ambiente = String(m.ambiente ?? "");
+          if (!ambiente) ambiente = String(m.ambiente ?? "");
         }
       } catch { /* sin maestro */ }
     }
@@ -1373,21 +1762,31 @@ async function hObtenerCotizacionParaVenta(args: z.infer<typeof EsquemaCotizacio
       const { completarNombresItems } = await import("./operaciones");
       items = await completarNombresItems(ctx.service, items);
     } catch { /* sin respaldo */ }
-    const lineas = items.map((it) => {
+    const lineas = await Promise.all(items.map(async (it) => {
       const cant = Number(it.cantidad ?? 0);
       const punit = Number(it.precio_unit ?? 0);
       const dscto = Number(it.descuento_pct ?? 0);
       const mat = it.descripcion
         ? String(it.descripcion)
         : `${it.materiales?.codigo ?? ""} ${it.materiales?.nombre ?? "Ítem"}`.trim();
+      const ambienteItem = String(it.ambiente ?? c.ambiente ?? ambiente ?? "");
+      const mapeo = await resolverMaterialVentaCotizacion(ctx, c, { ...it, ambiente: ambienteItem });
       return {
+        cotizacion_item_id: String(it.id),
         descripcion: mat,
-        material_codigo: String(it.material_codigo ?? it.materiales?.codigo ?? ""),
+        material_codigo: String(mapeo.codigo_sap ?? it.material_codigo ?? it.materiales?.codigo ?? ""),
+        material_id: String(mapeo.id),
+        material_nombre: String(mapeo.nombre ?? ""),
         cantidad: cant,
         precio_unit: punit,
         descuento_pct: dscto,
+        ambiente: ambienteItem,
+        alto: Number(it.alto ?? 0),
+        ancho: Number(it.ancho ?? 0),
+        fondo: Number(it.fondo ?? 0),
+        importe: red2(cant * punit * (1 - dscto / 100)),
       };
-    });
+    }));
     const importeNeto = Math.round(lineas.reduce((a, it) => a + it.cantidad * it.precio_unit * (1 - it.descuento_pct / 100), 0) * 100) / 100;
     const cuotaInicial = Math.max(Number(c.cuota_inicial ?? 0) || 0, 0);
     return {
@@ -1397,6 +1796,17 @@ async function hObtenerCotizacionParaVenta(args: z.infer<typeof EsquemaCotizacio
         created_at: c.created_at,
         estado: c.estado,
         cuenta_contrato: cuentaContrato || null,
+        total: Number(c.total ?? importeNeto),
+        id_proveedor: c.id_proveedor ?? null,
+        id_integrador: c.id_integrador ?? null,
+        id_asesor: c.id_asesor ?? null,
+        proveedor: c.proveedor ?? null,
+        asesor: c.asesor ?? null,
+        asesor_telefono: c.asesor_telefono ?? null,
+        cuota_inicial: cuotaInicial,
+        plazo: Number(c.plazo ?? 9) || 9,
+        cuota_mensual: Number(c.cuota_mensual ?? 0) || 0,
+        ambiente: ambiente || [...new Set(lineas.map((it) => it.ambiente).filter(Boolean))].join(", "),
       },
       cliente: {
         id: c.cliente_id,
@@ -1413,7 +1823,13 @@ async function hObtenerCotizacionParaVenta(args: z.infer<typeof EsquemaCotizacio
         capital: Math.max(Math.round((importeNeto - cuotaInicial) * 100) / 100, 0),
         plazo: Number(c.plazo ?? 9) || 9,
         tea: Number(c.tea ?? 0.40) > 1 ? Number(c.tea) / 100 : (Number(c.tea ?? 0.40) || 0.40),
+        cuota_mensual: Number(c.cuota_mensual ?? 0) || (importeNeto > cuotaInicial
+          ? cuotaFrancesaConIgv(importeNeto - cuotaInicial, Number(c.tea ?? 0.4) > 1 ? Number(c.tea) / 100 : Number(c.tea ?? 0.4), Number(c.plazo ?? 9) || 9)
+          : 0),
       },
+      id_proveedor: c.id_proveedor ?? null,
+      id_integrador: c.id_integrador ?? null,
+      id_asesor: c.id_asesor ?? null,
       proveedor: String(c.proveedor ?? ""),
       asesor: String(c.asesor ?? ""),
       asesor_telefono: String(c.asesor_telefono ?? ""),
@@ -1664,19 +2080,19 @@ const zUrlDocOpcional = z.string().trim().max(2000).optional().default("")
 
 const EsquemaRegistrarLiquidacion = z.object({
   solicitud_id: z.string().trim().min(1).max(20),
-  tipo: z.enum(["anticipo", "acta"]),
-  voucher_url: zUrlDocOpcional,
-  foto_antes_url: zUrlDocOpcional,
-  foto_durante_url: zUrlDocOpcional,
-  foto_despues_url: zUrlDocOpcional,
-  foto_dni_url: zUrlDocOpcional,
-  foto_cliente_dni_url: zUrlDocOpcional,
+  // Solo existe la vía de acta de entrega; el anticipo dejó de usarse.
+  tipo: z.enum(["acta"]).optional().default("acta"),
   acta_url: zUrlDocOpcional,
-  boleta_url: zUrlDocOpcional,
 });
 
 const EsquemaLiquidar = z.object({
   solicitud_id: z.string().trim().min(1).max(20),
+  nota: z.string().trim().max(2000).optional().default(""),
+});
+
+const EsquemaRevertirLiquidacion = z.object({
+  solicitud_id: z.string().trim().min(1).max(20),
+  nota: z.string().trim().min(3, "Indica el motivo de la reversión.").max(2000),
 });
 
 /** Instalaciones: solicitudes post-PV con su instalación (cada proveedor ve las suyas). */
@@ -1692,7 +2108,7 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
     const armar = (conPV: boolean) => {
       let qq = ctx.service.from(T_SOL).select("*", { count: "exact" }).order("created_at", { ascending: false });
       qq = aplicarAlcanceVentas(qq, aIns);
-      qq = qq.in("estado", ["generada", "aprobada", "en_instalacion", "instalada", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"]);
+      qq = qq.in("estado", ["generada", "aprobada", "en_instalacion", "instalada", "subsanado_pendiente", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"]);
       if (args.estado_sol) qq = qq.eq("estado", args.estado_sol.toLowerCase());
       if (args.desde) qq = qq.gte("created_at", `${args.desde}T00:00:00`);
       if (args.hasta) qq = qq.lte("created_at", `${args.hasta}T23:59:59`);
@@ -1725,7 +2141,7 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
       try {
         const { data: extra } = await ctx.service.from(T_SOL).select("*").in("id", idsPorPV).limit(200);
         const vistas = new Set(rows.map((r) => String(r.id)));
-        const estadosOK = ["generada", "aprobada", "en_instalacion", "instalada", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"];
+        const estadosOK = ["generada", "aprobada", "en_instalacion", "instalada", "subsanado_pendiente", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"];
         for (const r of ((extra ?? []) as Fila[])) {
           if (vistas.has(String(r.id))) continue;
           if (!estadosOK.includes(String(r.estado ?? "").toLowerCase())) continue;
@@ -1744,6 +2160,20 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
         for (const ins of ((inss ?? []) as Fila[])) mIns.set(String(ins.solicitud_id), ins);
       } catch { /* sin tabla */ }
     }
+    const mEvid = await cargarEvidenciasDe(ctx, rows.map((r) => String(r.id)));
+    // Ítems con sus pedidos: la solicitud de liquidación exige uno por línea.
+    const mItems = new Map<string, Fila[]>();
+    if (rows.length) {
+      try {
+        const { data: its } = await ctx.service.from(T_ITEM)
+          .select("id,solicitud_id,numero_pedido_venta,numero_pedido_abono,material_nombre,id_material,cantidad,precio_unit,subtotal,tipo_pedido")
+          .in("solicitud_id", rows.map((r) => String(r.id))).limit(2000);
+        for (const it of ((its ?? []) as Fila[])) {
+          const k = String(it.solicitud_id);
+          mItems.set(k, [...(mItems.get(k) ?? []), it]);
+        }
+      } catch { /* sin ítems */ }
+    }
     if (args.estado_inst) {
       const e = args.estado_inst.toLowerCase();
       rows = rows.filter((r) => {
@@ -1760,6 +2190,8 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
           instalacion_estado: ins ? String(ins.estado ?? "") : "pendiente_instalar",
           instalacion_tipo: ins?.tipo_liquidacion ?? null,
           instalacion: ins ?? null,
+          evidencias: mEvid.get(String(r.id)) ?? [],
+          items: mItems.get(String(r.id)) ?? [],
         };
       }),
       total: count ?? rows.length, page: args.page, pageSize: args.pageSize,
@@ -1769,59 +2201,38 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
   }
 }
 
-/** Proveedor registra 1 de 2 formas de solicitud de liquidación → pendiente_liquidar. */
+/** Proveedor solicita liquidación por acta de entrega → pendiente_liquidar. */
 async function hRegistrarLiquidacion(args: z.infer<typeof EsquemaRegistrarLiquidacion>, ctx: OperacionContext) {
   try {
     exigirAdminOProveedor(ctx);
     const s = await ventaVisible(ctx, args.solicitud_id);
     const est = String(s.estado ?? "").toLowerCase();
-    if (![...ESTADOS_INSTALABLE, "pendiente_liquidar"].includes(est)) {
-      lanzar(422, `La solicitud debe tener PV generado para registrar liquidación (está '${est}')`);
+    if (est === "pendiente_liquidar") {
+      const { data: ya } = await ctx.service.from(T_INS).select("*").eq("solicitud_id", args.solicitud_id).maybeSingle();
+      return { instalacion: ya ?? null, parcial: false };
     }
     if (["liquidada", "cerrada"].includes(est)) lanzar(422, "La venta ya está liquidada o cerrada");
-    const U = (v: string | undefined) => String(v ?? "").trim();
-    let fila: Fila;
-    if (args.tipo === "anticipo") {
-      if (!U(args.voucher_url)) lanzar(422, "Sube el voucher del anticipo (PDF o foto)");
-      fila = { solicitud_id: args.solicitud_id, tipo_liquidacion: "anticipo", voucher_url: U(args.voucher_url), estado: "pendiente_liquidar" };
-    } else {
-      const faltan: string[] = [];
-      if (!U(args.foto_antes_url)) faltan.push("foto del antes");
-      if (!U(args.foto_durante_url)) faltan.push("foto del durante");
-      if (!U(args.foto_despues_url)) faltan.push("foto del después");
-      if (!U(args.foto_dni_url)) faltan.push("foto del DNI");
-      if (!U(args.foto_cliente_dni_url)) faltan.push("foto del cliente con su DNI");
-      if (!U(args.acta_url)) faltan.push("acta de conformidad");
-      if (!U(args.boleta_url)) faltan.push("boleta de venta");
-      if (faltan.length) lanzar(422, `Faltan evidencias del acta: ${faltan.join(", ")}`);
-      fila = {
-        solicitud_id: args.solicitud_id, tipo_liquidacion: "acta",
-        foto_antes_url: U(args.foto_antes_url), foto_durante_url: U(args.foto_durante_url),
-        foto_despues_url: U(args.foto_despues_url), foto_dni_url: U(args.foto_dni_url),
-        foto_cliente_dni_url: U(args.foto_cliente_dni_url), acta_url: U(args.acta_url),
-        boleta_url: U(args.boleta_url), estado: "pendiente_liquidar",
-      };
+    if (est !== "validada_proveedor") {
+      lanzar(422, `Administración debe aprobar todas las evidencias antes de solicitar la liquidación (estado '${est}')`);
     }
-    // Upsert por solicitud (tolerante a columnas/estados nuevos sin migración).
-    let ins = await ctx.service.from(T_INS).upsert(fila, { onConflict: "solicitud_id" }).select().single();
-    if (ins.error && /column|schema cache|check|constraint|violates/i.test(ins.error.message)) {
-      const base: Fila = {
-        solicitud_id: args.solicitud_id,
-        foto_antes_url: U(args.foto_antes_url) || U(args.voucher_url),
-        foto_despues_url: U(args.foto_despues_url) || U(args.voucher_url),
-        boleta_url: U(args.boleta_url) || U(args.voucher_url),
-        acta_url: U(args.acta_url) || U(args.voucher_url),
-        estado: "registrada",
-      };
-      ins = await ctx.service.from(T_INS).upsert(base, { onConflict: "solicitud_id" }).select().single();
-      if (ins.error) throw new Error(ins.error.message);
-      const u2 = await ctx.service.from(T_SOL).update({ estado: "instalada" }).eq("id", args.solicitud_id);
-      if (u2.error) throw new Error(u2.error.message);
-      return { instalacion: ins.data, parcial: true };
-    }
+    const evidencias = await exigirEvidenciasAprobadas(ctx, args.solicitud_id);
+    await exigirPedidosRegistrados(ctx, args.solicitud_id);
+    const urlDe = (tipo: TipoEvidencia) => String(evidencias.find((e) => String(e.tipo) === tipo)?.url ?? "");
+    const fila: Fila = {
+      solicitud_id: args.solicitud_id,
+      tipo_liquidacion: "acta",
+      foto_antes_url: urlDe("foto_antes"),
+      foto_despues_url: urlDe("foto_despues"),
+      acta_url: urlDe("acta"),
+      boleta_url: urlDe("boleta"),
+      estado: "pendiente_liquidar",
+      observacion: null,
+    };
+    const ins = await ctx.service.from(T_INS).upsert(fila, { onConflict: "solicitud_id" }).select().single();
+    if (ins.error) throw new Error(ins.error.message);
     const upd = await ctx.service.from(T_SOL).update({ estado: "pendiente_liquidar" }).eq("id", args.solicitud_id);
     if (upd.error) throw new Error(upd.error.message);
-    return { instalacion: ins.data, parcial: false };
+    return { instalacion: ins.data, evidencias, parcial: false };
   } catch (e) {
     exigirTabla(e);
   }
@@ -1833,7 +2244,7 @@ async function hRegistrarLiquidacion(args: z.infer<typeof EsquemaRegistrarLiquid
  *  - liquidada con acta/anticipo → pendiente_liquidar (solo admin)
  *  - liquidada con cierre operativo → validada_proveedor (solo admin)
  */
-async function hRevertirLiquidacion(args: z.infer<typeof EsquemaSoloSolicitud>, ctx: OperacionContext) {
+async function hRevertirLiquidacion(args: z.infer<typeof EsquemaRevertirLiquidacion>, ctx: OperacionContext) {
   try {
     const s = await ventaVisible(ctx, args.solicitud_id);
     const estSol = String(s.estado ?? "").toLowerCase();
@@ -1845,20 +2256,21 @@ async function hRevertirLiquidacion(args: z.infer<typeof EsquemaSoloSolicitud>, 
     if (eIns) throw new Error(eIns.message);
     if (!ins) lanzar(422, "La venta no tiene instalación o liquidación registrada");
     const estIns = String((ins as Fila).estado ?? "").toLowerCase();
+    const nota = args.nota.trim();
 
     if (estSol === "liquidada") {
       if (!esAdmin(ctx)) lanzar(403, "Solo admin puede revertir una venta liquidada");
       const destino = estIns === "cerrada"
         ? "validada_proveedor"
-        : estIns === "liquidada"
+        : ["liquidada", "pendiente_liquidar"].includes(estIns)
           ? "pendiente_liquidar"
           : "";
       if (!destino) lanzar(422, `No se puede revertir una venta liquidada con instalación '${estIns}'`);
       const u1 = await ctx.service.from(T_INS).update({ estado: destino }).eq("solicitud_id", args.solicitud_id);
       if (u1.error) throw new Error(u1.error.message);
-      const u2 = await ctx.service.from(T_SOL).update({ estado: destino }).eq("id", args.solicitud_id);
+      const u2 = await ctx.service.from(T_SOL).update({ estado: destino, nota_reversion: nota }).eq("id", args.solicitud_id);
       if (u2.error) throw new Error(u2.error.message);
-      return { ok: true, estado: destino };
+      return { ok: true, estado: destino, nota };
     }
 
     if (estSol !== "pendiente_liquidar") {
@@ -1867,43 +2279,38 @@ async function hRevertirLiquidacion(args: z.infer<typeof EsquemaSoloSolicitud>, 
     const u1 = await ctx.service.from(T_INS).update({
       estado: "validada_proveedor",
       tipo_liquidacion: null,
-      voucher_url: null,
-      foto_durante_url: null,
-      foto_dni_url: null,
-      foto_cliente_dni_url: null,
+      observacion: null,
     }).eq("solicitud_id", args.solicitud_id);
     if (u1.error) throw new Error(u1.error.message);
-    const u2 = await ctx.service.from(T_SOL).update({ estado: "validada_proveedor" }).eq("id", args.solicitud_id);
+    const u2 = await ctx.service.from(T_SOL).update({ estado: "validada_proveedor", nota_reversion: nota }).eq("id", args.solicitud_id);
     if (u2.error) throw new Error(u2.error.message);
-    return { ok: true, estado: "validada_proveedor" };
+    return { ok: true, estado: "validada_proveedor", nota };
   } catch (e) {
     exigirTabla(e);
   }
 }
 
-/** Stephany liquida (ya lo hizo en SAP): verifica evidencias y cierra → liquidada. */
+/** Administración liquida (ya ejecutado en SAP): exige evidencias aprobadas y pedidos. */
 async function hLiquidarVenta(args: z.infer<typeof EsquemaLiquidar>, ctx: OperacionContext) {
   try {
     const { data: ins, error: eIns } = await ctx.service.from(T_INS).select("*").eq("solicitud_id", args.solicitud_id).maybeSingle();
     if (eIns) throw new Error(eIns.message);
-    if (!ins) lanzar(422, "La venta no tiene liquidación registrada por el proveedor");
+    if (!ins) lanzar(422, "La venta no tiene liquidación solicitada por el proveedor");
     const f = ins as Fila;
     if (String(f.estado ?? "") !== "pendiente_liquidar") {
       lanzar(422, `Solo se liquida desde 'pendiente de liquidar' (está '${f.estado ?? ""}')`);
     }
-    // Verifica evidencias completas antes de liquidar.
-    const tiene = (v: unknown) => String(v ?? "").trim().length > 0;
-    if (String(f.tipo_liquidacion ?? "") === "anticipo") {
-      if (!tiene(f.voucher_url)) lanzar(422, "Falta el voucher del anticipo");
-    } else {
-      const faltan = ["foto_antes_url", "foto_durante_url", "foto_despues_url", "foto_dni_url", "foto_cliente_dni_url", "acta_url", "boleta_url"].filter((k) => !tiene(f[k]));
-      if (faltan.length) lanzar(422, `Evidencias incompletas: faltan ${faltan.length} archivo(s)`);
-    }
-    const u1 = await ctx.service.from(T_INS).update({ estado: "liquidada" }).eq("solicitud_id", args.solicitud_id);
+    await exigirEvidenciasAprobadas(ctx, args.solicitud_id);
+    await exigirPedidosRegistrados(ctx, args.solicitud_id);
+    const nota = args.nota.trim();
+    const u1 = await ctx.service.from(T_INS).update({ estado: "liquidada", observacion: nota || null }).eq("solicitud_id", args.solicitud_id);
     if (u1.error) throw new Error(u1.error.message);
-    const u2 = await ctx.service.from(T_SOL).update({ estado: "liquidada" }).eq("id", args.solicitud_id);
+    const u2 = await ctx.service.from(T_SOL).update({
+      estado: "liquidada",
+      ...(nota ? { nota_liquidacion: nota } : {}),
+    }).eq("id", args.solicitud_id);
     if (u2.error) throw new Error(u2.error.message);
-    return { ok: true };
+    return { ok: true, estado: "liquidada", nota };
   } catch (e) {
     exigirTabla(e);
   }
@@ -1928,7 +2335,7 @@ async function hActualizarTea(args: z.infer<typeof EsquemaTea>, ctx: OperacionCo
 
 export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   listarVentas: { descripcion: "Ventas: lista solicitudes con cliente/proveedor (scope por rol)", roles: TODOS, schema: EsquemaListarVentas, handler: hListarVentas },
-  crearSolicitudVenta: { descripcion: "Ventas: crea solicitud VTA-xxxxxx en borrador (adjuntos obligatorios, TEA 40 salvo admin)", roles: OPERATIVO, schema: EsquemaCrearSolicitud, handler: hCrearSolicitud },
+  crearSolicitudVenta: { descripcion: "Ventas: crea solicitud VTA-xxxxxx en borrador con un único respaldo (audio, voucher o contrato)", roles: OPERATIVO, schema: EsquemaCrearSolicitud, handler: hCrearSolicitud },
   registrarAbono: { descripcion: "Ventas: registra abono pendiente + aviso email a admin (best-effort)", roles: OPERATIVO, schema: EsquemaRegistrarAbono, handler: hRegistrarAbono },
   validarAbono: { descripcion: "Ventas: valida u observa un abono", roles: SOLO_ADMIN, schema: EsquemaValidarAbono, handler: hValidarAbono },
   aprobarSolicitud: { descripcion: "Ventas: aprueba solicitud exigiendo n.º de pedido por cada ítem", roles: SOLO_ADMIN, schema: EsquemaAprobar, handler: hAprobarSolicitud },
@@ -1940,34 +2347,33 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   cfgCorreoCotizacionGuardar: { descripcion: "Correo cotización: guarda asunto/mensaje", roles: SOLO_ADMIN, schema: EsquemaGuardarCorreoCotizacion, handler: hCorreoCotizacionGuardar },
   actualizarNumerosPedido: { descripcion: "Ventas: edita n.º de pedido por ítem sin cambiar estado", roles: SOLO_ADMIN, schema: EsquemaAprobar, handler: hActualizarNumerosPedido },
   observarSolicitud: { descripcion: "Ventas: observa solicitud", roles: SOLO_ADMIN, schema: EsquemaObservarSolicitud, handler: hObservarSolicitud },
-  registrarInstalacion: { descripcion: "Ventas: registra instalación (4 evidencias) → en_instalacion", roles: OPERATIVO, schema: EsquemaInstalacion, handler: hRegistrarInstalacion },
-  validarInstalacionProveedor: { descripcion: "Ventas: validación operativa de instalación → validada_proveedor", roles: OPERATIVO, schema: EsquemaSoloSolicitud, handler: hValidarInstalacionProveedor },
-  validacionFinal: { descripcion: "Ventas: Stephany valida y cierra → liquidada (exige validada_proveedor)", roles: SOLO_ADMIN, schema: EsquemaSoloSolicitud, handler: hValidacionFinal },
+  registrarInstalacion: { descripcion: "Ventas: proveedor entrega acta y sustentos (7 evidencias) para revisión", roles: OPERATIVO, schema: EsquemaInstalacion, handler: hRegistrarInstalacion },
+  revisarEvidencia: { descripcion: "Instalaciones: admin aprueba o rechaza cada evidencia con observación", roles: SOLO_ADMIN, schema: EsquemaRevisarEvidencia, handler: hRevisarEvidencia },
   observarInstalacion: { descripcion: "Ventas: observa instalación → observada", roles: OPERATIVO, schema: EsquemaObservarInstalacion, handler: hObservarInstalacion },
   exportarVentas: { descripcion: "Ventas: {columnas, filas} planos listos para XLSX", roles: TODOS, schema: EsquemaExportar, handler: hExportarVentas },
   getVenta: { descripcion: "Ventas: cabecera + items + abonos + instalación", roles: TODOS, schema: EsquemaGetVenta, handler: hGetVenta },
   listarInstalacionesPendientes: { descripcion: "Ventas: historial de instalaciones del proveedor", roles: TODOS, schema: EsquemaQInstalaciones, handler: hListarInstalacionesPendientes },
   actualizarTeaVenta: { descripcion: "Ventas: actualiza TEA de la solicitud", roles: SOLO_ADMIN, schema: EsquemaTea, handler: hActualizarTea },
   listarInstalaciones: { descripcion: "Instalaciones: solicitudes post-PV con su instalación (scope proveedor)", roles: TODOS, schema: EsquemaListarInstalaciones, handler: hListarInstalaciones },
-  registrarLiquidacion: { descripcion: "Instalaciones: proveedor registra anticipo o acta → pendiente_liquidar", roles: OPERATIVO, schema: EsquemaRegistrarLiquidacion, handler: hRegistrarLiquidacion },
-  liquidarVenta: { descripcion: "Instalaciones: liquida tras verificar evidencias → liquidada", roles: SOLO_ADMIN, schema: EsquemaLiquidar, handler: hLiquidarVenta },
-  revertirLiquidacion: { descripcion: "Ventas: revierte por error pendiente_liquidar → validada_proveedor (operativo) o liquidada → paso previo (admin)", roles: OPERATIVO, schema: EsquemaSoloSolicitud, handler: hRevertirLiquidacion },
+  registrarLiquidacion: { descripcion: "Instalaciones: proveedor solicita liquidación por acta (evidencias aprobadas y pedidos) → pendiente_liquidar", roles: OPERATIVO, schema: EsquemaRegistrarLiquidacion, handler: hRegistrarLiquidacion },
+  liquidarVenta: { descripcion: "Instalaciones: admin liquida con nota tras aprobar evidencias y pedidos → liquidada", roles: SOLO_ADMIN, schema: EsquemaLiquidar, handler: hLiquidarVenta },
+  revertirLiquidacion: { descripcion: "Ventas: revierte con nota pendiente_liquidar → validada_proveedor o liquidada → paso previo (admin)", roles: OPERATIVO, schema: EsquemaRevertirLiquidacion, handler: hRevertirLiquidacion },
   buscarCotizacionesParaVenta: { descripcion: "Ventas: busca cotizaciones por DNI/nombre/cta-cto/código para generar solicitud", roles: TODOS, schema: EsquemaBuscarCotizaciones, handler: hBuscarCotizacionesParaVenta },
   obtenerCotizacionParaVenta: { descripcion: "Ventas: payload de cotización para prellenar la solicitud", roles: OPERATIVO, schema: EsquemaCotizacionParaVenta, handler: hObtenerCotizacionParaVenta },
 };
 
 /** Reglas del módulo (para el coordinador/UI): roles, TEA, adjuntos, aprobaciones y alcance. */
 export const REGLAS_VENTAS = {
-  tablas: [T_SOL, T_ITEM, T_ABO, T_INS],
+  tablas: [T_SOL, T_ITEM, T_ABO, T_INS, T_EVID],
   schema_sql: "supabase/schema_ventas.sql",
   scope_por_rol: "GLOBAL (admin): todo. EMPRESA (proveedor): solo su empresa. EQUIPO (supervisor): solo asesores asignados de su empresa. PROPIO (asesor): solo propios por UUID, sin confiar en nombres. Instalaciones: solo admin/proveedor, con límite por empresa.",
   tea: "default 40; solo admin puede crear con TEA ≠ 40 (403) y solo admin puede actualizarla",
-  adjuntos: "adjunto_cotizacion_url y adjunto_dni_url obligatorios al crear (400 sin ellos)",
+  adjuntos: "opcionales: cotización del cliente, DNI y foto del espacio; el respaldo obligatorio es exactamente uno: código de audio, voucher o contrato físico",
   subtotal_item: "cantidad * precio_unit − descuento_monto (422 si el descuento supera el bruto)",
   correlativo: "id VTA-xxxxxx (6 dígitos)",
   abonos: "registrarAbono deja estado 'pendiente' y avisa a admin por correo best-effort (aviso_email: enviado|omitido); validarAbono: validar → 'validado', observar → 'pendiente' + observacion (observacion obligatoria al observar)",
   aprobacion: "aprobarSolicitud exige al menos un número (venta o abono) por CADA ítem, sino 422; observarSolicitud → 'observado'",
-  instalacion: "registrarInstalacion exige las 4 evidencias (+observación y foto extra opcionales) → solicitud 'instalada' + instalación 'registrada'; validarInstalacionProveedor → 'validada_proveedor'; validacionFinal (Stephany) solo desde 'validada_proveedor' sino 422 → 'liquidada'; observarInstalacion → 'observada'",
+  instalacion: "registrarInstalacion exige 7 evidencias (antes, durante, después, DNI, cliente con DNI, acta y boleta) → solicitud 'instalada' e instalación 'registrada'; revisarEvidencia (admin) aprueba/rechaza cada archivo con observación: al rechazar → 'observada' y el proveedor subsana ('subsanado_pendiente'); con las 7 aprobadas → 'validada_proveedor'",
   exportar: "columnas fijas: numero, cliente, documento, proveedor, canal, estado, total, cuotas (n.º ítems financiados), fecha",
 } as const;
 

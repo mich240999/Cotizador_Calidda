@@ -20,6 +20,14 @@ type Proveedor = {
   email?: string | null;
   telefono?: string | null;
   estado?: string | null;
+  id_integrador?: string | null;
+  integrador_nombre?: string | null;
+};
+
+type Integrador = {
+  id: string;
+  nombre: string;
+  estado?: string | null;
 };
 
 const razonDe = (p: Proveedor) =>
@@ -160,6 +168,11 @@ export default function ProveedoresPage() {
   const [showEditar, setShowEditar] = useState<Proveedor | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [integradores, setIntegradores] = useState<Integrador[]>([]);
+  const [showIntegradores, setShowIntegradores] = useState(false);
+  const [nuevoIntegrador, setNuevoIntegrador] = useState("");
+  const [errorIntegrador, setErrorIntegrador] = useState<string | null>(null);
+  const [guardandoIntegrador, setGuardandoIntegrador] = useState(false);
   const [nuevo, setNuevo] = useState({
     nombre: "",
     ruc: "",
@@ -167,6 +180,7 @@ export default function ProveedoresPage() {
     nombre_comercial: "",
     email: "",
     telefono: "",
+    id_integrador: "",
   });
 
   const cargar = async (texto?: string) => {
@@ -174,11 +188,21 @@ export default function ProveedoresPage() {
     setError(null);
     try {
       const term = (texto ?? q).trim();
-      const datos = await apiOperacion<unknown>("listarProveedoresSGT", {
-        ...(term ? { q: term } : {}),
-        limit: 200,
-      });
-      setRows(Array.isArray(datos) ? (datos as Proveedor[]) : []);
+      const [datos, ints] = await Promise.allSettled([
+        apiOperacion<unknown>("listarProveedoresSGT", {
+          ...(term ? { q: term } : {}),
+          limit: 200,
+        }),
+        apiOperacion<unknown>("listarIntegradores", {}),
+      ]);
+      if (datos.status === "fulfilled") {
+        setRows(Array.isArray(datos.value) ? (datos.value as Proveedor[]) : []);
+      } else {
+        throw datos.reason;
+      }
+      if (ints.status === "fulfilled" && Array.isArray(ints.value)) {
+        setIntegradores(ints.value as Integrador[]);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar");
       setRows([]);
@@ -235,6 +259,7 @@ export default function ProveedoresPage() {
           : {}),
         ...(nuevo.email.trim() ? { email: nuevo.email.trim() } : {}),
         ...(nuevo.telefono.trim() ? { telefono: nuevo.telefono.trim() } : {}),
+        ...(nuevo.id_integrador ? { id_integrador: nuevo.id_integrador } : {}),
       });
       setShowNuevo(false);
       setNuevo({
@@ -244,6 +269,7 @@ export default function ProveedoresPage() {
         nombre_comercial: "",
         email: "",
         telefono: "",
+        id_integrador: "",
       });
       setInfo("Proveedor registrado correctamente.");
       await cargar(q);
@@ -275,6 +301,9 @@ export default function ProveedoresPage() {
         ...(showEditar.telefono !== undefined
           ? { telefono: String(showEditar.telefono ?? "") }
           : {}),
+        ...(showEditar.id_integrador !== undefined
+          ? { id_integrador: String(showEditar.id_integrador ?? "") }
+          : {}),
       });
       setShowEditar(null);
       setInfo("Proveedor actualizado.");
@@ -285,6 +314,38 @@ export default function ProveedoresPage() {
       setSaving(false);
     }
   };
+
+  const crearIntegrador = async () => {
+    setErrorIntegrador(null);
+    if (nuevoIntegrador.trim().length < 2) {
+      setErrorIntegrador("El nombre de la integradora es obligatorio.");
+      return;
+    }
+    setGuardandoIntegrador(true);
+    try {
+      await apiOperacion("crearIntegrador", { nombre: nuevoIntegrador.trim() });
+      setNuevoIntegrador("");
+      setInfo("Integradora registrada.");
+      await cargar(q);
+    } catch (e) {
+      setErrorIntegrador(e instanceof Error ? e.message : "No se pudo registrar la integradora");
+    } finally {
+      setGuardandoIntegrador(false);
+    }
+  };
+
+  const cambiarEstadoIntegrador = async (i: Integrador) => {
+    const estado = String(i.estado ?? "").toUpperCase() === "ACTIVO" ? "INACTIVO" : "ACTIVO";
+    setError(null);
+    try {
+      await apiOperacion("actualizarIntegrador", { id: i.id, estado });
+      setInfo(`Integradora ${i.nombre} ${estado === "ACTIVO" ? "activada" : "desactivada"}.`);
+      await cargar(q);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo cambiar el estado");
+    }
+  };
+
 
   const cambiarEstado = async (p: Proveedor) => {
     const nuevoEstado =
@@ -320,6 +381,9 @@ export default function ProveedoresPage() {
                 <button className="btn-white" onClick={() => void cargar()} disabled={loading}>
                   {loading ? "Actualizando…" : "Actualizar"}
                 </button>
+                <button className="btn-white" onClick={() => setShowIntegradores((s) => !s)}>
+                  Integradoras
+                </button>
                 <button className="btn-white" onClick={() => setShowCarga(true)}>
                   Carga masiva
                 </button>
@@ -333,6 +397,7 @@ export default function ProveedoresPage() {
                       nombre_comercial: "",
                       email: "",
                       telefono: "",
+                      id_integrador: "",
                     });
                     setFormError(null);
                     setShowNuevo(true);
@@ -344,6 +409,35 @@ export default function ProveedoresPage() {
             }
           />
         </div>
+
+        {showIntegradores && (
+          <section className="card p-4 mt-4 border-emerald-200 bg-emerald-50/40">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex-1 min-w-[220px]">
+                <label className="label">Nueva integradora</label>
+                <input className="input" placeholder="Ej. Grupo Andino" value={nuevoIntegrador} onChange={(e) => setNuevoIntegrador(e.target.value)} />
+              </div>
+              <button className="btn-green !py-2" onClick={() => void crearIntegrador()} disabled={guardandoIntegrador}>
+                {guardandoIntegrador ? "Guardando…" : "+ Agregar integradora"}
+              </button>
+            </div>
+            {errorIntegrador && <p className="text-xs text-red-600 mt-2">{errorIntegrador}</p>}
+            {integradores.length > 0 && (
+              <ul className="mt-3 grid md:grid-cols-2 gap-2">
+                {integradores.map((i) => (
+                  <li key={i.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <span className="font-mono text-[11px] text-slate-400">{i.id}</span>
+                    <span className="font-semibold text-sm">{i.nombre}</span>
+                    <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${String(i.estado).toUpperCase() === "ACTIVO" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{String(i.estado ?? "ACTIVO").toUpperCase()}</span>
+                    <button className="btn-white !py-1 !px-2 !text-[11px]" onClick={() => void cambiarEstadoIntegrador(i)}>
+                      {String(i.estado).toUpperCase() === "ACTIVO" ? "Desactivar" : "Activar"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
 
         <div className="card p-4 mt-4 flex flex-wrap gap-3 items-end">
           <div className="flex-1 min-w-[220px]">
@@ -394,6 +488,7 @@ export default function ProveedoresPage() {
                   <th>ID</th>
                   <th>RUC</th>
                   <th>RAZÓN SOCIAL</th>
+                  <th>INTEGRADORA</th>
                   <th>NOMBRE COMERCIAL</th>
                   <th>INTERLOCUTOR</th>
                   <th>CORREO</th>
@@ -410,6 +505,7 @@ export default function ProveedoresPage() {
                       <td className="font-mono text-xs">{String(p.id)}</td>
                       <td className="font-mono text-xs">{p.ruc ?? "—"}</td>
                       <td className="font-medium">{razonDe(p)}</td>
+                      <td>{p.integrador_nombre || "—"}</td>
                       <td>{p.nombre_comercial || "—"}</td>
                       <td>{interlocutorDe(p) ?? "—"}</td>
                       <td>{correoDe(p) ?? "—"}</td>
@@ -513,6 +609,15 @@ export default function ProveedoresPage() {
                     placeholder="Opcional"
                   />
                 </div>
+                <div className="md:col-span-2">
+                  <label className="label">Empresa integradora</label>
+                  <select className="input" value={nuevo.id_integrador} onChange={(e) => setNuevo({ ...nuevo, id_integrador: e.target.value })}>
+                    <option value="">— Sin integradora —</option>
+                    {integradores.filter((i) => String(i.estado ?? "ACTIVO").toUpperCase() === "ACTIVO").map((i) => (
+                      <option key={i.id} value={i.id}>{i.nombre}</option>
+                    ))}
+                  </select>
+                </div>
                 <div>
                   <label className="label">Correo</label>
                   <input
@@ -580,6 +685,15 @@ export default function ProveedoresPage() {
                       setShowEditar({ ...showEditar, interlocutor: e.target.value })
                     }
                   />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="label">Empresa integradora</label>
+                  <select className="input" value={String(showEditar.id_integrador ?? "")} onChange={(e) => setShowEditar({ ...showEditar, id_integrador: e.target.value })}>
+                    <option value="">— Sin integradora —</option>
+                    {integradores.filter((i) => String(i.estado ?? "ACTIVO").toUpperCase() === "ACTIVO" || i.id === showEditar.id_integrador).map((i) => (
+                      <option key={i.id} value={i.id}>{i.nombre}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="label">Correo</label>

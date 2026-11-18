@@ -340,16 +340,20 @@ export default function VentasPage() {
     setError(null);
     try {
       const d = await apiOperacion<{
-        cotizacion?: { id: string; codigo: string };
+        cotizacion?: { id: string; codigo: string; proveedor?: string; asesor?: string; asesor_telefono?: string; ambiente?: string };
         cliente?: { id: string; nombres: string; doc: string; email: string; telefono: string; cuenta_contrato: string | null; ambiente: string };
-        items?: { descripcion: string; material_codigo: string; cantidad: number; precio_unit: number; descuento_pct: number }[];
-        financiamiento?: { cuota_inicial: number; capital: number; plazo: number; tea: number };
+        items?: { cotizacion_item_id: string; descripcion: string; material_codigo: string; material_id: string; material_nombre: string; cantidad: number; precio_unit: number; descuento_pct: number; importe?: number; ambiente?: string; alto?: number; ancho?: number; fondo?: number }[];
+        financiamiento?: { cuota_inicial: number; capital: number; plazo: number; tea: number; cuota_mensual?: number };
         proveedor?: string; asesor?: string; asesor_telefono?: string;
+        id_proveedor?: string | null; id_integrador?: string | null; id_asesor?: string | null;
       }>("obtenerCotizacionParaVenta", { cotizacion_id: c.id });
       if (!d?.cotizacion || !d?.cliente) throw new Error("Sin datos de la cotización");
       setPrefill({
         cotizacion_id: String(d.cotizacion.id),
         codigo: String(d.cotizacion.codigo ?? c.codigo ?? ""),
+        id_proveedor: d.id_proveedor ?? null,
+        id_integrador: d.id_integrador ?? null,
+        id_asesor: d.id_asesor ?? null,
         cliente: {
           id: String(d.cliente.id ?? ""),
           nombres: String(d.cliente.nombres ?? ""),
@@ -357,24 +361,33 @@ export default function VentasPage() {
           email: String(d.cliente.email ?? ""),
           telefono: String(d.cliente.telefono ?? ""),
           cuenta_contrato: d.cliente.cuenta_contrato ?? null,
-          ambiente: String((d.cliente as { ambiente?: string }).ambiente ?? ""),
+          ambiente: String((d.cotizacion as { ambiente?: string }).ambiente ?? d.cliente.ambiente ?? ""),
         },
         items: (d.items ?? []).map((it) => ({
+          cotizacion_item_id: String(it.cotizacion_item_id ?? ""),
           descripcion: String(it.descripcion ?? ""),
           material_codigo: String(it.material_codigo ?? ""),
+          material_id: String(it.material_id ?? ""),
+          material_nombre: String(it.material_nombre ?? ""),
           cantidad: Number(it.cantidad ?? 0),
           precio_unit: Number(it.precio_unit ?? 0),
           descuento_pct: Number(it.descuento_pct ?? 0),
+          importe: Number(it.importe ?? 0),
+          ambiente: String(it.ambiente ?? ""),
+          alto: Number(it.alto ?? 0),
+          ancho: Number(it.ancho ?? 0),
+          fondo: Number(it.fondo ?? 0),
         })),
         financiamiento: {
           cuota_inicial: Number(d.financiamiento?.cuota_inicial ?? 0),
           capital: Number(d.financiamiento?.capital ?? 0),
           plazo: Number(d.financiamiento?.plazo ?? 9) || 9,
           tea: Number(d.financiamiento?.tea ?? 0.40) || 0.40,
+          cuota_mensual: Number(d.financiamiento?.cuota_mensual ?? 0),
         },
-        proveedor: String(d.proveedor ?? ""),
-        asesor: String(d.asesor ?? ""),
-        asesor_telefono: String(d.asesor_telefono ?? ""),
+        proveedor: String(d.proveedor ?? d.cotizacion.proveedor ?? ""),
+        asesor: String(d.asesor ?? d.cotizacion.asesor ?? ""),
+        asesor_telefono: String(d.asesor_telefono ?? d.cotizacion.asesor_telefono ?? ""),
       });
       setAbrirModal(true);
     } catch (e) {

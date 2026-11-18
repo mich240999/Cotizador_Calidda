@@ -9,6 +9,8 @@ import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
 import {
   BadgeEstadoVenta,
+  BadgeEvidencia,
+  ETIQUETA_EVIDENCIA,
   SUSTENTOS_INSTALACION,
   SelectorRol,
   TimelineVenta,
@@ -54,6 +56,8 @@ export default function VentaDetallePage() {
   const [motivo, setMotivo] = useState("");
   const [etapaObs, setEtapaObs] = useState("aprobación");
   const [subiendo, setSubiendo] = useState<string | null>(null);
+  const [obsEvidencia, setObsEvidencia] = useState<Record<string, string>>({});
+  const [revisando, setRevisando] = useState<string | null>(null);
 
   const subirA = async (f: File, carpeta: "comprobantes" | "sustentos", set: (u: string) => void, marca: string) => {
     setError(null);
@@ -73,7 +77,7 @@ export default function VentaDetallePage() {
     try {
       const d = await apiOperacion<unknown>("getVenta", { id });
       const o = (d ?? {}) as {
-        solicitud?: Venta; items?: Venta[]; abonos?: Venta[]; instalacion?: Venta | null;
+        solicitud?: Venta; items?: Venta[]; abonos?: Venta[]; instalacion?: Venta | null; evidencias?: Venta[];
       };
       const sol = (o.solicitud ?? d) as Venta;
       if (!sol || typeof sol !== "object" || !sol.id) throw new Error("El backend no devolvió el detalle de la venta.");
@@ -84,7 +88,7 @@ export default function VentaDetallePage() {
       if (ins && (ins as Record<string, unknown>).observacion) {
         obs.push({ etapa: "instalación", motivo: (ins as Record<string, unknown>).observacion, created_at: (ins as Record<string, unknown>).updated_at });
       }
-      setVenta({ ...sol, items: o.items ?? [], abonos: o.abonos ?? [], instalacion: ins, observaciones: obs });
+      setVenta({ ...sol, items: o.items ?? [], abonos: o.abonos ?? [], instalacion: ins, evidencias: o.evidencias ?? [], observaciones: obs });
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar el detalle");
       setVenta(null);
@@ -167,25 +171,60 @@ export default function VentaDetallePage() {
       setMotivo("");
     }, "Observación registrada.");
 
-  const cerrar = () => correr(() => apiOperacion("validacionFinal", { solicitud_id: id }), "Stephany validó y liquidó la venta.");
-
-  const revertir = () => {
-    if (!window.confirm("¿Revertir la liquidación? La venta volverá al paso anterior.")) return;
-    void correr(() => apiOperacion("revertirLiquidacion", { solicitud_id: id }), "Liquidación revertida al paso anterior.");
+  const cerrar = () => {
+    const nota = window.prompt("Nota de liquidación (opcional):", "") ?? "";
+    return correr(() => apiOperacion("liquidarVenta", { solicitud_id: id, nota }), "Venta liquidada. Fin del flujo.");
   };
 
-  const validarInstalacion = () =>
-    correr(() => apiOperacion("validarInstalacionProveedor", { solicitud_id: id }), "Instalación validada. Ya se puede liquidar.");
+  const revertir = () => {
+    const nota = window.prompt("Motivo de la reversión (obligatorio):", "");
+    if (nota === null) return;
+    if (!nota.trim()) { setError("La reversión exige una nota."); return; }
+    void correr(() => apiOperacion("revertirLiquidacion", { solicitud_id: id, nota: nota.trim() }), "Liquidación revertida al paso anterior.");
+  };
+
+  const solicitarLiquidacion = () =>
+    correr(() => apiOperacion("registrarLiquidacion", { solicitud_id: id, tipo: "acta" }), "Liquidación solicitada. Administración revisará y liquidará.");
+
+  const revisarEvidencia = (tipo: string, accion: "aprobar" | "rechazar") =>
+    correr(async () => {
+      const observacion = String(obsEvidencia[tipo] ?? "").trim();
+      if (accion === "rechazar" && !observacion) throw new Error("Indica qué debe subsanar el proveedor.");
+      await apiOperacion("revisarEvidencia", { solicitud_id: id, tipo, accion, observacion });
+      setObsEvidencia((p) => ({ ...p, [tipo]: "" }));
+    }, accion === "aprobar" ? "Evidencia aprobada." : "Evidencia rechazada para subsanación.");
+
+  const abrirInstalacion = () => {
+    if (!showInst) {
+      const v = venta as Record<string, unknown> | null;
+      const evs = v && Array.isArray(v.evidencias) ? (v.evidencias as Record<string, unknown>[]) : [];
+      const ins = ((v?.instalacion ?? {}) as Record<string, unknown>);
+      const inicial: Record<string, string> = {};
+      for (const s of SUSTENTOS_INSTALACION) {
+        const ev = evs.find((e) => String(e.tipo) === s.tipo);
+        inicial[s.key] = String(ev?.url ?? ins[s.key] ?? "");
+      }
+      setSustentos(inicial);
+    }
+    setShowInst((s) => !s);
+  };
 
   const items = venta ? ventaItems(venta) : [];
   const obss = venta ? ventaObservaciones(venta) : [];
+  const evidencias = venta && Array.isArray((venta as Record<string, unknown>).evidencias)
+    ? ((venta as Record<string, unknown>).evidencias as Record<string, unknown>[])
+    : [];
   const est = String(venta ? ventaEstado(venta) : "borrador").toLowerCase();
+  const estIns = String(((venta as Record<string, unknown> | null)?.instalacion as Record<string, unknown> | undefined)?.estado ?? "").toLowerCase();
+  const hayRechazadas = evidencias.some((e) => String(e.estado) === "rechazado");
+  const todasAprobadas = SUSTENTOS_INSTALACION.every((s) => evidencias.some((e) => String(e.tipo) === s.tipo && String(e.estado) === "aprobado"));
   // Puertas por estado: nada se puede aprobar/liquidar dos veces.
   const puedeAprobar = ["borrador", "observado"].includes(est);
   const puedeObservarSol = ["borrador", "observado", "aprobada"].includes(est);
-  const puedeInstalar = ["aprobada", "generada", "en_instalacion", "instalada", "observada"].includes(est);
-  const puedeValidarInst = ["instalada", "en_instalacion"].includes(est);
-  const puedeLiquidar = est === "validada_proveedor";
+  const puedeInstalar = ["aprobada", "generada", "en_instalacion", "observada", "subsanado_pendiente", "instalada"].includes(est)
+    && (evidencias.length === 0 || hayRechazadas || estIns === "observada" || estIns === "subsanado_pendiente");
+  const puedeSolicitarLiq = est === "validada_proveedor" && todasAprobadas;
+  const puedeLiquidar = est === "pendiente_liquidar";
   const puedeRevertir = est === "pendiente_liquidar" || (esAdmin && est === "liquidada");
 
   const abrirAprobar = () => {
@@ -313,8 +352,12 @@ export default function VentaDetallePage() {
             {veInstalacion && (
             <section className="card p-5 mt-4">
               <div className="flex items-center gap-2">
-                <h3 className="font-bold">Instalación (4 sustentos)</h3>
-                {!esAdmin && puedeInstalar && <button className="btn-white !py-1 !px-3 text-xs ml-auto" onClick={() => setShowInst((s) => !s)}>Registrar instalación</button>}
+                <div>
+                  <h3 className="font-bold">Instalación · acta y sustentos</h3>
+                  <p className="text-xs text-slate-400">El proveedor entrega 7 evidencias; administración aprueba o rechaza cada una con observación.</p>
+                </div>
+                <span className="ml-auto text-xs font-semibold text-slate-500">{(estIns || "pendiente_instalar").replace(/_/g, " ").toUpperCase()}</span>
+                {!esAdmin && puedeInstalar && <button className="btn-white !py-1 !px-3 text-xs" onClick={abrirInstalacion}>{evidencias.length ? "Subsanar evidencias" : "Registrar instalación"}</button>}
               </div>
               {showInst && !esAdmin ? (
                 <div className="grid md:grid-cols-2 gap-3 mt-3">
@@ -331,44 +374,54 @@ export default function VentaDetallePage() {
                   ))}
                   <div className="md:col-span-2 flex justify-end gap-2">
                     <button className="btn-white" onClick={() => setShowInst(false)}>Cancelar</button>
-                    <button className="btn-green" onClick={registrarInstalacion} disabled={busy}>{busy ? "Guardando…" : "Guardar instalación"}</button>
+                    <button className="btn-green" onClick={registrarInstalacion} disabled={busy}>{busy ? "Guardando…" : "Enviar a revisión"}</button>
                   </div>
                 </div>
               ) : (
-                <>
-                  {(() => {
+                <div className="grid sm:grid-cols-2 gap-3 mt-3">
+                  {SUSTENTOS_INSTALACION.map((s) => {
+                    const ev = evidencias.find((e) => String(e.tipo) === s.tipo);
                     const ins = ((venta as Record<string, unknown>).instalacion ?? {}) as Record<string, unknown>;
-                    const hay = SUSTENTOS_INSTALACION.some((s) => String(ins[s.key] ?? ""));
-                    if (!hay) {
-                      return (
-                        <ul className="mt-2 text-sm text-slate-600 list-disc pl-5">
-                          {SUSTENTOS_INSTALACION.map((s) => <li key={s.key}>{s.label} <span className="text-slate-400">· pendiente</span></li>)}
-                        </ul>
-                      );
-                    }
+                    const url = String(ev?.url ?? ins[s.key] ?? "");
+                    const estadoEv = String(ev?.estado ?? (url ? "pendiente" : "pendiente"));
+                    const esImg = /^data:image|\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
                     return (
-                      <div className="grid sm:grid-cols-2 gap-3 mt-3">
-                        {SUSTENTOS_INSTALACION.map((s) => {
-                          const url = String(ins[s.key] ?? "");
-                          const esImg = /^data:image|\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
-                          return (
-                            <div key={s.key} className="rounded-xl border border-slate-200 overflow-hidden">
-                              <p className="text-xs font-bold px-3 pt-2">{s.label}</p>
-                              {url ? (
-                                <>
-                                  {esImg && <img src={url} alt={s.label} className="mt-2 h-32 w-full object-cover" loading="lazy" />}
-                                  <a className="block px-3 py-2 text-xs font-bold text-[#0099D8] hover:underline" href={url} target="_blank" rel="noreferrer">Ver archivo ↗</a>
-                                </>
-                              ) : (
-                                <p className="px-3 py-2 text-xs text-slate-400">Pendiente</p>
-                              )}
+                      <div key={s.key} className="rounded-xl border border-slate-200 overflow-hidden">
+                        <div className="flex items-center justify-between gap-2 px-3 pt-2">
+                          <p className="text-xs font-bold">{ETIQUETA_EVIDENCIA[s.tipo] ?? s.label}</p>
+                          {url ? <BadgeEvidencia estado={estadoEv} /> : <span className="text-[11px] text-slate-400">PENDIENTE</span>}
+                        </div>
+                        {url ? (
+                          <>
+                            {esImg && <img src={url} alt={s.label} className="mt-2 h-32 w-full object-cover" loading="lazy" />}
+                            <a className="block px-3 py-2 text-xs font-bold text-[#0099D8] hover:underline" href={url} target="_blank" rel="noreferrer">Ver archivo ↗</a>
+                          </>
+                        ) : (
+                          <p className="px-3 py-2 text-xs text-slate-400">Aún no entregado</p>
+                        )}
+                        {ev && String(ev.observacion ?? "").trim() && (
+                          <p className="mx-3 mb-2 rounded-lg bg-red-50 border border-red-200 px-2 py-1 text-[11px] text-red-700">Observación: {String(ev.observacion)}</p>
+                        )}
+                        {esAdmin && ev && (
+                          <div className="border-t border-slate-100 p-3 space-y-2">
+                            <input className="input !py-1 !text-xs" placeholder="Observación de esta evidencia" value={obsEvidencia[s.tipo] ?? ""} onChange={(e) => setObsEvidencia((p) => ({ ...p, [s.tipo]: e.target.value }))} />
+                            <div className="flex gap-2">
+                              <button className="btn-green !py-1 !px-2 !text-[11px]" disabled={busy || revisando === s.tipo} onClick={() => { setRevisando(s.tipo); void revisarEvidencia(s.tipo, "aprobar").finally(() => setRevisando(null)); }}>✓ Aprobar</button>
+                              <button className="btn-white !py-1 !px-2 !text-[11px]" disabled={busy || revisando === s.tipo} onClick={() => { setRevisando(s.tipo); void revisarEvidencia(s.tipo, "rechazar").finally(() => setRevisando(null)); }}>✕ Rechazar</button>
                             </div>
-                          );
-                        })}
+                          </div>
+                        )}
                       </div>
                     );
-                  })()}
-                </>
+                  })}
+                </div>
+              )}
+              {esAdmin && (
+                <p className={`mt-3 text-xs font-semibold ${todasAprobadas ? "text-emerald-700" : "text-amber-700"}`}>
+                  {todasAprobadas
+                    ? "Todas las evidencias aprobadas. El proveedor ya puede solicitar la liquidación."
+                    : `Faltan ${SUSTENTOS_INSTALACION.filter((s) => !evidencias.some((e) => String(e.tipo) === s.tipo && String(e.estado) === "aprobado")).length} evidencia(s) por aprobar.`}
+                </p>
               )}
             </section>
             )}
@@ -393,7 +446,8 @@ export default function VentaDetallePage() {
               <h3 className="font-bold mb-3">Acciones</h3>
               {!esAdmin ? (
                 <div className="flex flex-wrap gap-2">
-                  {veInstalacion && puedeInstalar && <button className="btn-white" onClick={() => setShowInst((s) => !s)}>Registrar instalación</button>}
+                  {veInstalacion && puedeInstalar && <button className="btn-white" onClick={abrirInstalacion}>{evidencias.length ? "Subsanar evidencias" : "Registrar instalación"}</button>}
+                  {veInstalacion && puedeSolicitarLiq && <button className="btn-green" onClick={solicitarLiquidacion} disabled={busy}>Solicitar liquidación</button>}
                   {veInstalacion && puedeRevertir && <button className="btn-white" onClick={revertir} disabled={busy}>Revertir liquidación</button>}
                 </div>
               ) : (
@@ -402,8 +456,7 @@ export default function VentaDetallePage() {
                     ? <button className="btn-green" onClick={abrirAprobar}>✓ Aprobar</button>
                     : <button className="btn-white" onClick={abrirAprobar}>N.º de pedido</button>}
                   {puedeObservarSol && <button className="btn-white" onClick={() => setShowObservar((s) => !s)}>Observar</button>}
-                  {puedeValidarInst && <button className="btn-white" onClick={validarInstalacion} disabled={busy}>Validar instalación</button>}
-                  {puedeLiquidar && <button className="btn-white" onClick={cerrar} disabled={busy}>Validar y liquidar</button>}
+                  {puedeLiquidar && <button className="btn-green" onClick={cerrar} disabled={busy}>✓ Liquidar</button>}
                   {puedeRevertir && <button className="btn-white" onClick={revertir} disabled={busy}>Revertir liquidación</button>}
                 </div>
               )}

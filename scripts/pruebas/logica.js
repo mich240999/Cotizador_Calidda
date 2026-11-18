@@ -27,8 +27,8 @@ function cuotaModal(capital, n) {
   const TEA = 0.4;
   const IGV = 0.18;
   const tem = Math.pow(1 + TEA, 1 / 12) - 1;
-  const i = tem * (1 + IGV);
-  return Math.round(((capital * i) / (1 - Math.pow(1 + i, -n)) + Number.EPSILON) * 100) / 100;
+  const pmt = (capital * tem) / (1 - Math.pow(1 + tem, -n));
+  return Math.round((pmt + (IGV * tem * capital) + Number.EPSILON) * 100) / 100;
 }
 
 function ejecutar() {
@@ -47,6 +47,7 @@ function ejecutar() {
     const b = cuotaModal(cap, n);
     check(`cuota con IGV = modal (${cap}/${n})`, casi(a, b, 0.011), `${a} vs ${b}`);
   }
+  check("cuota coincide con Excel Simulador_CuotasAMCA 5000/12", fin.cuotaFrancesaConIgv(5000, 0.4, 12) === 523.23, String(fin.cuotaFrancesaConIgv(5000, 0.4, 12)));
   const cuota = fin.cuotaFrancesaConIgv(10000, 0.4, 9);
   check("cuota > capital/n", cuota > 10000 / 9, String(cuota));
   check("cuota < 2x capital/n", cuota < (10000 / 9) * 2, String(cuota));

@@ -35,28 +35,26 @@ type Opcion = { id: string; etiqueta: string };
 
 const CABECERAS_PLANTILLA = [
   "ESPACIO",
+  "ASESOR",
+  "PROVEEDOR",
   "ESPACIO A REMODELAR",
   "MATERIAL",
   "PRODUCTOS/SERVICIOS",
   "PRECIO",
-  "RESPONSABLE DE VENTA",
-  "PROVEEDOR",
-  "ASESOR",
   "OFICINA DE VENTA",
   "GRUPO DE VENDEDORES",
 ];
 
 const FILA_EJEMPLO = [
-  "VENTAS",
+  "VENTA",
+  "RAFAEL GOMEZ",
+  "JECAR",
   "COCINA",
-  "SAP-000123",
-  "Cocina | Muebles Altos (60cm Alto)",
-  "550.00",
-  "JUAN PEREZ",
-  "MUEBLES S.A.C.",
-  "MARIA LOPEZ",
-  "OFV-LIMA",
-  "GVE-LIMA-01",
+  "4509141",
+  "MUEBLE DE COCINA COTIZADO",
+  "",
+  "AMCA",
+  "AC7",
 ];
 
 function aCsvLinea(celdas: (string | number)[]): string {
@@ -102,7 +100,7 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
   const descargarXLSX = async () => {
     const XLSX = await import("xlsx");
     const ws = XLSX.utils.aoa_to_sheet([CABECERAS_PLANTILLA, FILA_EJEMPLO]);
-    ws["!cols"] = [{ wch: 12 }, { wch: 20 }, { wch: 14 }, { wch: 40 }, { wch: 10 }, { wch: 22 }, { wch: 20 }, { wch: 18 }, { wch: 18 }, { wch: 20 }];
+    ws["!cols"] = [{ wch: 12 }, { wch: 24 }, { wch: 26 }, { wch: 20 }, { wch: 14 }, { wch: 48 }, { wch: 12 }, { wch: 18 }, { wch: 20 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "MATERIALES");
     XLSX.writeFile(wb, "plantilla_materiales.xlsx");
@@ -659,6 +657,35 @@ export default function MaterialesPage() {
     }
   };
 
+  const exportar = async () => {
+    setError(null);
+    if (!rows.length) {
+      setError("No hay materiales para exportar con los filtros actuales.");
+      return;
+    }
+    try {
+      const XLSX = await import("xlsx");
+      const filas = rows.map((m) => ({
+        ESPACIO: String(m.espacio ?? ""),
+        ASESOR: String(m.asesor_nombre ?? ""),
+        PROVEEDOR: String(m.proveedor_nombre ?? ""),
+        "ESPACIO A REMODELAR": String(m.espacio_remodelar ?? ""),
+        MATERIAL: String(m.codigo_sap ?? m.codigo ?? m.id),
+        "PRODUCTOS/SERVICIOS": String(m.nombre ?? ""),
+        PRECIO: m.precio_vigente ?? "",
+        "OFICINA DE VENTA": String(m.oficina ?? m.id_oficina ?? ""),
+        "GRUPO DE VENDEDORES": String(m.grupo ?? m.id_grupo ?? ""),
+      }));
+      const ws = XLSX.utils.json_to_sheet(filas, { header: CABECERAS_PLANTILLA });
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "MATERIALES VF");
+      XLSX.writeFile(wb, "materiales_venta.xlsx");
+      setInfo(`Exportadas ${filas.length} asignaciones de material.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo exportar");
+    }
+  };
+
   return (
     <AuthGate>
       <Shell>
@@ -670,6 +697,9 @@ export default function MaterialesPage() {
             <>
               <button className="btn-white" onClick={() => cargar(qEnviado, espacio)} disabled={loading}>
                 {loading ? "Cargando…" : "Actualizar"}
+              </button>
+              <button className="btn-white" onClick={exportar} disabled={loading || rows.length === 0}>
+                Exportar XLSX
               </button>
               <button className="btn-white" onClick={() => setModal("carga")}>
                 Carga masiva

@@ -6,11 +6,9 @@ import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
 import { AccAprobar, AccVer } from "@/components/Accion";
-import { BadgeEstadoVenta, subirArchivoStorage, useRolVista } from "@/components/VentasComun";
+import { BadgeEstadoVenta, BadgeEvidencia, ETIQUETA_EVIDENCIA, useRolVista } from "@/components/VentasComun";
 
 type Fila = Record<string, unknown>;
-
-const INSTALABLE = ["generada", "aprobada", "en_instalacion", "instalada", "observada", "validada_proveedor"];
 
 const enRango = (iso: unknown, desde: string, hasta: string) => {
   if (!desde && !hasta) return true;
@@ -23,64 +21,20 @@ const enRango = (iso: unknown, desde: string, hasta: string) => {
 
 const estadoInstDe = (v: Fila) => String(v.instalacion_estado ?? "pendiente_instalar");
 
-function CampoArchivo({ titulo, url, setUrl, obligatorio }: {
-  titulo: string; url: string; setUrl: (u: string) => void; obligatorio?: boolean;
-}) {
-  const [subiendo, setSubiendo] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const subir = async (f: File) => {
-    setErr(null);
-    setSubiendo(true);
-    try {
-      setUrl(await subirArchivoStorage(f, "sustentos"));
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "No se pudo subir");
-    } finally {
-      setSubiendo(false);
-    }
-  };
-  return (
-    <div>
-      <label className="label">{titulo} {obligatorio && <span className="text-red-600">*</span>}</label>
-      <input className="input" placeholder="https://… (o sube el archivo)" value={url} onChange={(e) => setUrl(e.target.value)} />
-      <input
-        type="file" accept=".pdf,image/*" className="input mt-2"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) subir(f); e.target.value = ""; }}
-      />
-      {subiendo && <p className="text-[11px] text-slate-500 mt-1">Subiendo…</p>}
-      {err && <p className="text-[11px] text-red-600 mt-1">{err}</p>}
-      {url && <p className="text-[11px] text-emerald-700 mt-1 break-all">✓ Listo</p>}
-    </div>
-  );
-}
-
 function RegistroLiquidacion({ v, onClose, onHecho }: { v: Fila; onClose: () => void; onHecho: () => void }) {
-  const [tipo, setTipo] = useState<"anticipo" | "acta">("acta");
-  const [urls, setUrls] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
-  const set = (k: string) => (u: string) => setUrls((p) => ({ ...p, [k]: u }));
+  const pedidos = Array.isArray(v.items) ? (v.items as Fila[]) : [];
+  const sinPedido = pedidos.filter((it) => !String(it.numero_pedido_venta ?? "").trim() && !String(it.numero_pedido_abono ?? "").trim());
 
   const guardar = async () => {
     setMsg(null);
     setGuardando(true);
     try {
-      const r = await apiOperacion<{ parcial?: boolean }>("registrarLiquidacion", {
+      await apiOperacion("registrarLiquidacion", {
         solicitud_id: String(v.id),
-        tipo,
-        voucher_url: urls.voucher ?? "",
-        foto_antes_url: urls.antes ?? "",
-        foto_durante_url: urls.durante ?? "",
-        foto_despues_url: urls.despues ?? "",
-        foto_dni_url: urls.dni ?? "",
-        foto_cliente_dni_url: urls.cliente_dni ?? "",
-        acta_url: urls.acta ?? "",
-        boleta_url: urls.boleta ?? "",
+        tipo: "acta",
       });
-      if ((r as { parcial?: boolean })?.parcial) {
-        setMsg("Guardado parcial (instalada): falta la migración de BD para el flujo nuevo.");
-        return;
-      }
       onHecho();
       onClose();
     } catch (e) {
@@ -92,95 +46,110 @@ function RegistroLiquidacion({ v, onClose, onHecho }: { v: Fila; onClose: () => 
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl w-full max-w-3xl shadow-xl my-6 overflow-hidden">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl my-6 overflow-hidden">
         <div className="flex items-start justify-between px-6 py-4 border-b bg-slate-50">
           <div>
-            <h2 className="font-bold text-lg">Solicitar liquidación · {String(v.id)}</h2>
-            <p className="text-xs text-slate-500">Elige UNA forma. Al guardar pasa a pendiente de liquidar.</p>
+            <h2 className="font-bold text-lg">Solicitar liquidación por acta · {String(v.id)}</h2>
+            <p className="text-xs text-slate-500">Solo existe la vía de acta de entrega. Las evidencias ya fueron aprobadas una por una.</p>
           </div>
           <button className="btn-white !px-3" onClick={onClose}>✕</button>
         </div>
         <div className="p-6 space-y-4">
-          <div className="grid md:grid-cols-2 gap-3">
-            <label className={`rounded-xl border p-4 cursor-pointer ${tipo === "anticipo" ? "border-[#0099D8] bg-sky-50" : "border-slate-200"}`}>
-              <input type="radio" checked={tipo === "anticipo"} onChange={() => setTipo("anticipo")} className="mr-2" />
-              <span className="font-bold text-sm">Por anticipo / adelanto</span>
-              <span className="block text-xs text-slate-500 mt-1">Sube el voucher (PDF o foto).</span>
-            </label>
-            <label className={`rounded-xl border p-4 cursor-pointer ${tipo === "acta" ? "border-[#0099D8] bg-sky-50" : "border-slate-200"}`}>
-              <input type="radio" checked={tipo === "acta"} onChange={() => setTipo("acta")} className="mr-2" />
-              <span className="font-bold text-sm">Por acta de entrega</span>
-              <span className="block text-xs text-slate-500 mt-1">Fotos + acta + boleta (foto o PDF).</span>
-            </label>
+          <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+            <p className="font-bold">Acta de entrega y sustentos aprobados</p>
+            <p className="text-xs mt-1">Al solicitar, la venta pasa a <b>pendiente de liquidar</b>. Administración verificará los pedidos registrados y liquidará.</p>
           </div>
-          {tipo === "anticipo" ? (
-            <CampoArchivo titulo="Voucher del anticipo (PDF o foto)" url={urls.voucher ?? ""} setUrl={set("voucher")} obligatorio />
-          ) : (
-            <div className="grid md:grid-cols-2 gap-3">
-              <CampoArchivo titulo="Foto del antes" url={urls.antes ?? ""} setUrl={set("antes")} obligatorio />
-              <CampoArchivo titulo="Foto del durante" url={urls.durante ?? ""} setUrl={set("durante")} obligatorio />
-              <CampoArchivo titulo="Foto del después" url={urls.despues ?? ""} setUrl={set("despues")} obligatorio />
-              <CampoArchivo titulo="Foto del DNI" url={urls.dni ?? ""} setUrl={set("dni")} obligatorio />
-              <CampoArchivo titulo="Foto del cliente con su DNI" url={urls.cliente_dni ?? ""} setUrl={set("cliente_dni")} obligatorio />
-              <CampoArchivo titulo="Acta de conformidad (foto o PDF)" url={urls.acta ?? ""} setUrl={set("acta")} obligatorio />
-              <CampoArchivo titulo="Boleta de venta (foto o PDF)" url={urls.boleta ?? ""} setUrl={set("boleta")} obligatorio />
-            </div>
-          )}
+          <div className={`rounded-xl border p-4 text-sm ${sinPedido.length ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
+            {sinPedido.length
+              ? `Faltan números de pedido en ${sinPedido.length} ítem(s). Regístralos en el detalle de la venta antes de solicitar.`
+              : "Todos los ítems tienen número de pedido de venta o abono."}
+          </div>
           {msg && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
         </div>
         <div className="flex justify-end gap-2 px-6 py-4 border-t bg-slate-50">
           <button className="btn-white" onClick={onClose}>Cancelar</button>
-          <button className="btn-green" onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Guardar y pasar a pendiente de liquidar"}</button>
+          <button className="btn-green" onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Solicitar liquidación"}</button>
         </div>
       </div>
     </div>
   );
 }
 
-function VerInstalacion({ v, onClose }: { v: Fila; onClose: () => void }) {
+function VerInstalacion({ v, esAdmin, onClose, onChanged }: { v: Fila; esAdmin: boolean; onClose: () => void; onChanged: () => void }) {
   const ins = (v.instalacion ?? {}) as Record<string, unknown>;
-  const archivos = ([
-    ["Voucher del anticipo", ins.voucher_url],
-    ["Foto del antes", ins.foto_antes_url],
-    ["Foto del durante", ins.foto_durante_url],
-    ["Foto del después", ins.foto_despues_url],
-    ["Foto del DNI", ins.foto_dni_url],
-    ["Foto del cliente con su DNI", ins.foto_cliente_dni_url],
-    ["Acta de conformidad", ins.acta_url],
-    ["Boleta de venta", ins.boleta_url],
-  ] as [string, unknown][]).filter(([, u]) => String(u ?? "").trim() !== "");
+  const evidencias = Array.isArray(v.evidencias) ? (v.evidencias as Fila[]) : [];
+  const [lista, setLista] = useState<Fila[]>(evidencias);
+  const [obs, setObs] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const revisar = async (tipo: string, accion: "aprobar" | "rechazar") => {
+    setMsg(null);
+    setBusy(tipo);
+    try {
+      const observacion = String(obs[tipo] ?? "").trim();
+      if (accion === "rechazar" && !observacion) throw new Error("Indica qué debe subsanar el proveedor.");
+      const r = await apiOperacion<{ evidencias?: Fila[] }>("revisarEvidencia", { solicitud_id: String(v.id), tipo, accion, observacion });
+      if (Array.isArray(r?.evidencias)) setLista(r.evidencias);
+      setObs((p) => ({ ...p, [tipo]: "" }));
+      onChanged();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "No se pudo revisar la evidencia");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl my-6 overflow-hidden">
+      <div className="bg-white rounded-2xl w-full max-w-4xl shadow-xl my-6 overflow-hidden">
         <div className="flex items-start justify-between px-6 py-4 border-b bg-slate-50">
           <div>
-            <h2 className="font-bold text-lg">Instalación · {String(v.id)}</h2>
+            <h2 className="font-bold text-lg">Evidencias de instalación · {String(v.id)}</h2>
             <p className="text-xs text-slate-500">
-              Estado: {estadoInstDe(v).replace(/_/g, " ").toUpperCase()}
-              {ins.tipo_liquidacion ? ` · Vía ${String(ins.tipo_liquidacion) === "anticipo" ? "anticipo" : "acta de entrega"}` : ""}
+              Estado: {estadoInstDe(v).replace(/_/g, " ").toUpperCase()} · Vía acta de entrega
             </p>
           </div>
           <button className="btn-white !px-3" onClick={onClose}>✕</button>
         </div>
         <div className="p-6">
-          {archivos.length === 0 ? (
-            <p className="text-sm text-slate-500">El proveedor aún no sube evidencias (pendiente de instalar).</p>
+          {lista.length === 0 ? (
+            <p className="text-sm text-slate-500">El proveedor aún no entrega el acta ni los sustentos.</p>
           ) : (
-            <div className="grid sm:grid-cols-2 gap-2">
-              {archivos.map(([t, u]) => {
-                const href = /^https?:\/\//i.test(String(u ?? "").trim()) ? String(u).trim() : null;
+            <div className="grid sm:grid-cols-2 gap-3">
+              {lista.map((ev) => {
+                const tipo = String(ev.tipo ?? "");
+                const url = String(ev.url ?? "");
+                const esImg = /^data:image|\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+                const estado = String(ev.estado ?? "pendiente");
                 return (
-                  <div key={t} className="rounded-xl border border-slate-200 p-3">
-                    <p className="font-bold text-sm">{t}</p>
-                    {href ? (
-                      <a href={href} target="_blank" rel="noreferrer" className="text-xs text-[#0099D8] mt-1 break-all block">Abrir archivo →</a>
-                    ) : (
-                      <p className="text-xs text-slate-400 mt-1">Enlace no válido</p>
+                  <div key={tipo} className="rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="flex items-center justify-between gap-2 px-3 pt-2">
+                      <p className="font-bold text-sm">{ETIQUETA_EVIDENCIA[tipo] ?? tipo}</p>
+                      <BadgeEvidencia estado={estado} />
+                    </div>
+                    {esImg && <img src={url} alt={tipo} className="mt-2 h-36 w-full object-cover" loading="lazy" />}
+                    <a href={url} target="_blank" rel="noreferrer" className="block px-3 py-2 text-xs font-bold text-[#0099D8] hover:underline">Abrir archivo ↗</a>
+                    {String(ev.observacion ?? "").trim() && (
+                      <p className="mx-3 mb-2 rounded-lg bg-red-50 border border-red-200 px-2 py-1 text-[11px] text-red-700">Observación: {String(ev.observacion)}</p>
+                    )}
+                    {esAdmin && (
+                      <div className="border-t border-slate-100 p-3 space-y-2">
+                        <input className="input !py-1 !text-xs" placeholder="Observación de esta evidencia" value={obs[tipo] ?? ""} onChange={(e) => setObs((p) => ({ ...p, [tipo]: e.target.value }))} />
+                        <div className="flex gap-2">
+                          <button className="btn-green !py-1 !px-2 !text-[11px]" disabled={busy === tipo} onClick={() => void revisar(tipo, "aprobar")}>✓ Aprobar</button>
+                          <button className="btn-white !py-1 !px-2 !text-[11px]" disabled={busy === tipo} onClick={() => void revisar(tipo, "rechazar")}>✕ Rechazar</button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 );
               })}
             </div>
+          )}
+          {msg && <p className="mt-3 text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
+          {String(ins.observacion ?? "").trim() && (
+            <p className="mt-3 text-sm rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">Subsanación pendiente: {String(ins.observacion)}</p>
           )}
         </div>
         <div className="flex justify-end px-6 py-4 border-t bg-slate-50">
@@ -244,7 +213,10 @@ export default function InstalacionesPage() {
   const puedeRegistrar = (v: Fila) => {
     const est = String(v.estado ?? "").toLowerCase();
     const ei = estadoInstDe(v);
-    return INSTALABLE.includes(est) && !["pendiente_liquidar", "liquidada"].includes(ei) && est !== "liquidada";
+    const evs = Array.isArray(v.evidencias) ? (v.evidencias as Fila[]) : [];
+    const todas = ["foto_antes", "foto_durante", "foto_despues", "foto_dni", "foto_cliente_dni", "acta", "boleta"]
+      .every((t) => evs.some((e) => String(e.tipo) === t && String(e.estado) === "aprobado"));
+    return est === "validada_proveedor" && todas && !["pendiente_liquidar", "liquidada"].includes(ei);
   };
   const puedeLiquidar = (v: Fila) => esAdmin && estadoInstDe(v) === "pendiente_liquidar" && String(v.estado ?? "").toLowerCase() !== "liquidada";
   const puedeRevertir = (v: Fila) => {
@@ -253,11 +225,12 @@ export default function InstalacionesPage() {
   };
 
   const liquidar = async (v: Fila) => {
+    const nota = window.prompt("Nota de liquidación (opcional):", "") ?? "";
     setError(null);
     setInfo(null);
     setLiquidando(String(v.id));
     try {
-      await apiOperacion("liquidarVenta", { solicitud_id: String(v.id) });
+      await apiOperacion("liquidarVenta", { solicitud_id: String(v.id), nota });
       setInfo(`Venta ${String(v.id)} liquidada. Fin del flujo.`);
       await cargar();
     } catch (e) {
@@ -269,13 +242,15 @@ export default function InstalacionesPage() {
 
   const revertir = async (v: Fila) => {
     const id = String(v.id);
-    if (!window.confirm(`¿Revertir la liquidación de ${id}? La venta volverá al paso anterior.`)) return;
+    const nota = window.prompt(`Motivo de la reversión de ${id} (obligatorio):`, "");
+    if (nota === null) return;
+    if (!nota.trim()) { setError("La reversión exige una nota."); return; }
     setError(null);
     setInfo(null);
     setRevirtiendo(id);
     try {
-      const r = await apiOperacion<{ estado?: string }>("revertirLiquidacion", { solicitud_id: id });
-      setInfo(`Venta ${id} revertida a ${r?.estado ?? "validada_proveedor"}.`);
+      const r = await apiOperacion<{ estado?: string }>("revertirLiquidacion", { solicitud_id: id, nota: nota.trim() });
+      setInfo(`Venta ${id} revertida a ${r?.estado ?? "validada_proveedor"} con nota registrada.`);
       await cargar();
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo revertir la liquidación");
@@ -339,7 +314,7 @@ export default function InstalacionesPage() {
           <label className="label">Estado venta</label>
           <select className="input !w-auto" value={fSol} onChange={(e) => setFSol(e.target.value)}>
             <option value="">Todos</option>
-            {["generada", "aprobada", "en_instalacion", "instalada", "pendiente_liquidar", "validada_proveedor", "observada", "cerrada", "liquidada"].map((e) => (
+            {["generada", "aprobada", "en_instalacion", "instalada", "subsanado_pendiente", "pendiente_liquidar", "validada_proveedor", "observada", "cerrada", "liquidada"].map((e) => (
               <option key={e} value={e}>{e.replace(/_/g, " ")}</option>
             ))}
           </select>
@@ -348,7 +323,7 @@ export default function InstalacionesPage() {
           <label className="label">Instalación</label>
           <select className="input !w-auto" value={fInst} onChange={(e) => setFInst(e.target.value)}>
             <option value="">Todas</option>
-            {["pendiente_instalar", "registrada", "pendiente_liquidar", "validada_proveedor", "observada", "cerrada", "liquidada"].map((e) => (
+            {["pendiente_instalar", "registrada", "subsanado_pendiente", "pendiente_liquidar", "validada_proveedor", "observada", "cerrada", "liquidada"].map((e) => (
               <option key={e} value={e}>{e.replace(/_/g, " ")}</option>
             ))}
           </select>
@@ -418,7 +393,7 @@ export default function InstalacionesPage() {
       )}
 
       {reg && <RegistroLiquidacion v={reg} onClose={() => setReg(null)} onHecho={() => cargar()} />}
-      {ver && <VerInstalacion v={ver} onClose={() => setVer(null)} />}
+      {ver && <VerInstalacion v={ver} esAdmin={esAdmin} onClose={() => setVer(null)} onChanged={() => void cargar()} />}
     </Shell></AuthGate>
   );
 }

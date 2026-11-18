@@ -11,6 +11,7 @@ import { extraerDetalles, DETALLES_LABELS } from "./detallesMueble";
 
 export interface ItemPdf {
   cantidad?: number; precio_unit?: number; descuento_pct?: number; total_linea?: number;
+  alto?: number; ancho?: number; fondo?: number; ambiente?: string;
   materiales?: { codigo?: string; nombre?: string; unidad?: string } | null;
 }
 export interface DatosPdf {  codigo: string; estado?: string; fecha?: string; observaciones?: string;
@@ -22,7 +23,7 @@ export interface DatosPdf {  codigo: string; estado?: string; fecha?: string; ob
   asesor?: string; asesorTelefono?: string; asesorEmail?: string;
   cuotaInicial: number; capital: number; tea: number; plazo: number; cuotaMensual: number;
   tabla: { plazo: number; cuota: number }[];
-  items: { idx: number; material: string; cant: number; punit: number; dscto: number; neto: number }[];
+  items: { idx: number; material: string; cant: number; punit: number; dscto: number; neto: number; alto?: number; ancho?: number; fondo?: number; ambiente?: string }[];
 }
 
 const TEAL = [0, 133, 173] as const;
@@ -101,8 +102,11 @@ async function obtenerDatosSGT(service: SupabaseClient, numero: string): Promise
     const desc = String(mat.descripcion ?? "");
     const cod = String(mat.codigo_tmp ?? mat.id ?? "");
     const base = cod ? `${cod} · ${nombre}` : nombre;
-    const material = desc ? `${base} — ${desc}` : base;
-    return { idx: i + 1, material, cant, punit, dscto, neto };
+    const dims = [it.alto, it.ancho, it.fondo].some((v) => Number(v) > 0)
+      ? ` · ${Number(it.alto ?? 0)} × ${Number(it.ancho ?? 0)} × ${Number(it.fondo ?? 0)} m`
+      : "";
+    const material = `${desc ? `${base} — ${desc}` : base}${dims}`;
+    return { idx: i + 1, material, cant, punit, dscto, neto, alto: it.alto, ancho: it.ancho, fondo: it.fondo, ambiente: it.ambiente };
   });
 
   const subtotal = Number(c.subtotal ?? 0);
@@ -197,7 +201,10 @@ async function obtenerDatosLegacy(service: SupabaseClient, id: string): Promise<
     const mat = snap || (it.materiales
       ? `${it.materiales?.codigo ?? ""} ${it.materiales?.nombre ?? "Ítem"}`.trim()
       : (matMae || `Ítem ${it.material_id ?? ""}`.trim() || "Ítem"));
-    return { idx: i + 1, material: mat, cant, punit, dscto, neto };
+    const dims = [it.alto, it.ancho, it.fondo].some((v) => Number(v) > 0)
+      ? ` · ${Number(it.alto ?? 0)} × ${Number(it.ancho ?? 0)} × ${Number(it.fondo ?? 0)} m`
+      : "";
+    return { idx: i + 1, material: `${mat}${dims}`, cant, punit, dscto, neto, alto: it.alto, ancho: it.ancho, fondo: it.fondo, ambiente: it.ambiente };
   });
   const bruto = items.reduce((a, it) => a + it.cant * it.punit, 0);
   const netoSum = items.reduce((a, it) => a + it.neto, 0);

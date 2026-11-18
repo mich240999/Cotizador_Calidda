@@ -8,16 +8,19 @@ import { ordenarMateriales } from "@/lib/materialMatch";
 import { TEA_FIJA, cuotaMensual, subirArchivoStorage, useRolVista } from "./VentasComun";
 
 type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; documento?: string; email?: string; correo?: string; telefono?: string };
-type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string };
+type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string; id_integrador?: string | null; integrador_nombre?: string | null };
 type Material = { id: string; codigo?: string; codigo_sap?: string; codigo_tmp?: string; nombre: string; descripcion?: string; espacio_remodelar?: string; id_proveedor?: string | number | null; proveedor_nombre?: string | null; precio_unit?: number; precio_vigente?: number };
 
 /** Cotización origen para prellenar la solicitud (Etapa 3). */
 export interface PrefillVenta {
   cotizacion_id: string;
   codigo: string;
+  id_proveedor?: string | null;
+  id_integrador?: string | null;
+  id_asesor?: string | null;
   cliente: { id: string; nombres: string; doc: string; email: string; telefono: string; cuenta_contrato: string | null; ambiente: string };
-  items: { descripcion: string; material_codigo: string; cantidad: number; precio_unit: number; descuento_pct: number }[];
-  financiamiento: { cuota_inicial: number; capital: number; plazo: number; tea: number };
+  items: { cotizacion_item_id: string; descripcion: string; material_codigo: string; material_id: string; material_nombre: string; cantidad: number; precio_unit: number; descuento_pct: number; importe?: number; ambiente?: string; alto?: number; ancho?: number; fondo?: number }[];
+  financiamiento: { cuota_inicial: number; capital: number; plazo: number; tea: number; cuota_mensual?: number };
   proveedor: string;
   asesor: string;
   asesor_telefono: string;
@@ -32,15 +35,76 @@ type Item = {
   material_id: string; nombre: string; cantidad: number; precio: number;
   tarifaOK: boolean;
   dscto_monto: number; modo: "financiado" | "contado";
-  medio: "financiado" | "efectivo" | "tarjeta";
+  medio: "financiado" | "efectivo" | "tarjeta" | "abono";
   tea: number; cuotas: number;
+  material_codigo?: string;
+  material_nombre?: string;
+  cotizacion_item_id?: string;
+  tipo_pedido?: "VENTA" | "ABONO";
+  alto?: number; ancho?: number; fondo?: number;
 };
 
-const ITEM_VACIO: Item = { material_id: "", nombre: "", cantidad: 1, precio: 0, tarifaOK: false, dscto_monto: 0, modo: "financiado", medio: "financiado", tea: 40, cuotas: 9 };
+const ITEM_VACIO: Item = { material_id: "", nombre: "", cantidad: 1, precio: 0, tarifaOK: false, dscto_monto: 0, modo: "financiado", medio: "financiado", tea: 40, cuotas: 9, tipo_pedido: "VENTA" };
 const CUOTAS = [3, 6, 9, 12, 18, 24, 36, 48, 60];
+
+function lineasDesdeCotizacion(prefill: PrefillVenta): Item[] {
+  const lineas = prefill.items.map((it) => ({
+    ...it,
+    importe: Number(it.importe ?? it.cantidad * it.precio_unit * (1 - it.descuento_pct / 100)) || 0,
+  }));
+  const total = lineas.reduce((sum, it) => sum + it.importe, 0);
+  const abono = Math.max(Number(prefill.financiamiento.cuota_inicial ?? 0) || 0, 0);
+  let distribuido = 0;
+  const salida: Item[] = [];
+  lineas.forEach((it, i) => {
+    const parteAbono = abono <= 0 || total <= 0
+      ? 0
+      : i === lineas.length - 1
+        ? Math.round((abono - distribuido) * 100) / 100
+        : Math.round((abono * it.importe / total) * 100) / 100;
+    distribuido = Math.round((distribuido + parteAbono) * 100) / 100;
+    const financiado = Math.max(Math.round((it.importe - parteAbono) * 100) / 100, 0);
+    const comun = {
+      material_id: it.material_id,
+      material_codigo: it.material_codigo,
+      material_nombre: it.material_nombre,
+      nombre: `${it.material_codigo} ${it.material_nombre || it.descripcion}`.trim(),
+      cantidad: 1,
+      tarifaOK: true,
+      dscto_monto: 0,
+      tea: Number(prefill.financiamiento.tea ?? TEA_FIJA),
+      cuotas: Number(prefill.financiamiento.plazo ?? 9) || 9,
+      cotizacion_item_id: it.cotizacion_item_id,
+      alto: Number(it.alto ?? 0),
+      ancho: Number(it.ancho ?? 0),
+      fondo: Number(it.fondo ?? 0),
+    };
+    if (financiado > 0) {
+      salida.push({
+        ...comun,
+        precio: financiado,
+        modo: "financiado",
+        medio: "financiado",
+        tipo_pedido: "VENTA",
+      });
+    }
+    if (parteAbono > 0) {
+      salida.push({
+        ...comun,
+        precio: parteAbono,
+        modo: "contado",
+        medio: "abono",
+        tipo_pedido: "ABONO",
+        cuotas: 1,
+      });
+    }
+  });
+  return salida;
+}
 
 const MEDIO_LABEL: Record<Item["medio"], string> = {
   financiado: "Pedido financiado",
+  abono: "Pedido de abono",
   efectivo: "Efectivo",
   tarjeta: "Tarjeta",
 };
@@ -77,11 +141,12 @@ function Adjunto({
 export default function VentaModal({ onClose, prefill }: { onClose: () => void; prefill?: PrefillVenta }) {
   const { esAdmin } = useRolVista();
   const esPrefill = !!prefill;
+  const anticipoPrefill = prefill ? Math.max(Number(prefill.financiamiento.cuota_inicial ?? 0) || 0, 0) : 0;
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [materiales, setMateriales] = useState<Material[]>([]);
-  const [asesores, setAsesores] = useState<{ id: string; nombre?: string; telefono?: string; correo?: string; id_proveedor?: string | null }[]>([]);
+  const [asesores, setAsesores] = useState<{ id: string; nombre?: string; telefono?: string; correo?: string; id_proveedor?: string | null; id_integrador?: string | null }[]>([]);
   const [cargando, setCargando] = useState(true);
   const [avisos, setAvisos] = useState<string[]>([]);
 
@@ -94,6 +159,11 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
   const [asesorId, setAsesorId] = useState("");
   const [asesorTel, setAsesorTel] = useState("");
   const [pago, setPago] = useState("financiado_total");
+  const [medioRespaldo, setMedioRespaldo] = useState<"audio" | "voucher" | "contrato">("audio");
+  const [codigoAudio, setCodigoAudio] = useState("");
+  const [voucherSolicitud, setVoucherSolicitud] = useState("");
+  const [contratoFisico, setContratoFisico] = useState("");
+  const [idIntegradorSel, setIdIntegradorSel] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [cotUrl, setCotUrl] = useState("");
   const [dniUrl, setDniUrl] = useState("");
@@ -134,7 +204,7 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
       if (rm.status === "fulfilled" && Array.isArray(rm.value)) setMateriales(rm.value as Material[]);
       else w.push("No se pudieron cargar los materiales del backend.");
       if (ra.status === "fulfilled" && Array.isArray(ra.value)) {
-        const lista = (ra.value as { id: string; nombre?: string; telefono?: string; correo?: string; id_proveedor?: string | null; rol?: string; rol_codigo?: string }[])
+        const lista = (ra.value as { id: string; nombre?: string; telefono?: string; correo?: string; id_proveedor?: string | null; id_integrador?: string | null; rol?: string; rol_codigo?: string }[])
           .filter((u) => ["ASESOR", "SUPERVISOR"].includes(String(u.rol ?? u.rol_codigo ?? "").toUpperCase()));
         setAsesores(lista);
         // Asesor por defecto: el usuario logueado (teléfono de su ficha + su empresa).
@@ -142,11 +212,12 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
           const { data: ses } = await getSupabaseBrowser().auth.getSession();
           const mail = ses.session?.user?.email?.toLowerCase();
           const yo = mail ? lista.find((x) => String(x.correo ?? "").toLowerCase() === mail) : undefined;
-          if (yo) {
-            setAsesorId(String(yo.id));
-            if (yo.telefono) setAsesorTel(String(yo.telefono));
-            if (yo.id_proveedor) setProveedorSel(String(yo.id_proveedor));
-          }
+            if (yo) {
+              setAsesorId(String(yo.id));
+              if (yo.telefono) setAsesorTel(String(yo.telefono));
+              if (yo.id_proveedor) setProveedorSel(String(yo.id_proveedor));
+              setIdIntegradorSel(String(yo.id_integrador ?? ""));
+            }
         } catch { /* sin sesión legible: selección manual */ }
       }
       setAvisos(w);
@@ -160,76 +231,39 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
   useEffect(() => {
     if (!prefill || cargando || prefillListo) return;
     setClienteId(prefill.cliente.id);
-    // Mismo asesor de la cotización (por nombre); teléfono y proveedor de su ficha.
+    // La cotización fija asesor y proveedor; la tabla ya devuelve el material
+    // asignado por ambiente, proveedor e identidad del asesor.
     const nomAse = normTxt(prefill.asesor);
-    const ase = asesores.find((x) => normTxt(x.nombre ?? "") === nomAse)
+    setIdIntegradorSel(String(prefill.id_integrador ?? ""));
+    const ase = asesores.find((x) => prefill.id_asesor && String(x.id) === prefill.id_asesor)
+      ?? asesores.find((x) => normTxt(x.nombre ?? "") === nomAse)
       ?? asesores.find((x) => nomAse && normTxt(x.nombre ?? "").includes(nomAse));
     if (ase) {
       setAsesorId(String(ase.id));
       setAsesorTel(prefill.asesor_telefono || String(ase.telefono ?? ""));
-      if (ase.id_proveedor) setProveedorSel(String(ase.id_proveedor));
+      if (!prefill.id_integrador) setIdIntegradorSel(String(ase.id_integrador ?? ""));
+      if (prefill.id_proveedor || ase.id_proveedor) setProveedorSel(String(prefill.id_proveedor ?? ase.id_proveedor));
     } else {
       if (prefill.asesor_telefono) setAsesorTel(prefill.asesor_telefono);
     }
-    // Proveedor por nombre de la cotización (si la ficha del asesor no lo dio).
+    // La empresa elegida en la cotización se conserva en la solicitud.
     setProveedorSel((prev) => {
+      if (prefill.id_proveedor) return prefill.id_proveedor;
       if (prev) return prev;
       const nomProv = normTxt(prefill.proveedor);
       const pv = proveedores.find((x) => normTxt(nombreProv(x)) === nomProv);
       return pv ? String(pv.id) : prev;
     });
-    // Ítems de la cotización: match por descripción + mismo proveedor (editables).
-    setItems(prefill.items.map((pi) => {
-      const mejor = mejorMaterial(pi.descripcion, pi.material_codigo, normTxt(prefill.proveedor));
-      const bruto = pi.cantidad * pi.precio_unit;
-      const pct = Math.min(100, Math.max(0, pi.descuento_pct || 0));
-      return {
-        material_id: mejor?.id ?? "",
-        nombre: pi.descripcion || (mejor ? `${codMat(mejor)} ${mejor.nombre}`.trim() : ""),
-        cantidad: pi.cantidad,
-        precio: pi.precio_unit,
-        tarifaOK: mejor ? precioMat(mejor) > 0 : false,
-        dscto_monto: Math.round(bruto * (pct / 100) * 100) / 100,
-        modo: "financiado" as const,
-        medio: "financiado" as const,
-        tea: Math.round(prefill.financiamiento.tea * 100),
-        cuotas: prefill.financiamiento.plazo,
-      };
-    }));
+    setItems(lineasDesdeCotizacion(prefill));
     setPrefillListo(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cargando, prefill, prefillListo, asesores, proveedores, materiales]);
 
-  /** Mejor material del catálogo por código o por coincidencia de descripción + proveedor. */
-  function mejorMaterial(descripcion: string, codigo: string, proveedorNorm: string): Material | null {
-    const cod = normTxt(codigo);
-    if (cod) {
-      const porCod = materiales.find((m) => normTxt(codMat(m)) === cod);
-      if (porCod) return porCod;
-    }
-    const descToks = new Set(normTxt(descripcion).split(" ").filter((t) => t.length > 2));
-    if (descToks.size === 0) return null;
-    let mejor: Material | null = null;
-    let mejorScore = 0;
-    for (const m of materiales) {
-      if (proveedorNorm && m.proveedor_nombre && normTxt(m.proveedor_nombre) !== proveedorNorm) continue;
-      const toks = normTxt(`${codMat(m)} ${m.nombre}`).split(" ").filter((t) => t.length > 2);
-      if (toks.length === 0) continue;
-      const hit = toks.filter((t) => descToks.has(t)).length / toks.length;
-      if (hit > mejorScore) { mejorScore = hit; mejor = m; }
-    }
-    return mejorScore >= 0.4 ? mejor : null;
-  }
-
-  // Pago automático según modos de ítems (prefill): todo financiado / todo contado / mixto.
+  // El pago derivado de la cotización tiene solo dos estados: financiado o con abono.
   useEffect(() => {
     if (!esPrefill || items.length === 0) return;
-    const modos = items.map((it) => it.modo);
-    setPago(
-      modos.every((m) => m === "financiado") ? "financiado_total"
-      : modos.every((m) => m === "contado") ? "contado_total" : "mixto"
-    );
-  }, [items, esPrefill]);
+    setPago(anticipoPrefill > 0 ? "con_abono" : "financiado");
+  }, [items.length, esPrefill, anticipoPrefill]);
 
   const clientesFiltrados = useMemo(() => {
     const s = buscaCliente.trim().toLowerCase();
@@ -243,6 +277,10 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
     const p = proveedores.find((x) => String(x.id) === proveedorSel);
     return p ? nombreProv(p) : (prefill?.proveedor ?? "");
   }, [proveedores, proveedorSel, prefill]);
+  const integradorSelNombre = useMemo(() => {
+    const p = proveedores.find((x) => String(x.id) === proveedorSel);
+    return String(p?.integrador_nombre ?? "");
+  }, [proveedores, proveedorSel]);
 
   // Materiales sugeridos: primero los del proveedor elegido y los que
   // coinciden con el ambiente/descripción de la cotización de origen.
@@ -294,11 +332,11 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
 
   const [subiendo, setSubiendo] = useState<string | null>(null);
 
-  const subirArchivo = async (f: File, set: (u: string) => void, marca: string) => {
+  const subirArchivo = async (f: File, set: (u: string) => void, marca: string, carpeta: "adjuntos" | "comprobantes" = "adjuntos") => {
     setError(null);
     setSubiendo(marca);
     try {
-      set(await subirArchivoStorage(f, "adjuntos"));
+      set(await subirArchivoStorage(f, carpeta));
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo subir el archivo");
     } finally {
@@ -307,7 +345,6 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
   };
 
   const nombreAsesorActual = asesores.find((x) => String(x.id) === asesorId)?.nombre ?? prefill?.asesor ?? "";
-  const anticipoPrefill = prefill ? Math.max(Number(prefill.financiamiento.cuota_inicial ?? 0) || 0, 0) : 0;
 
   const guardar = async () => {
     setError(null);
@@ -317,14 +354,13 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
     if (canal !== "contratista" && !proveedorSel) { setError(`Selecciona el ${canal}.`); return; }
     if (canal === "contratista" && !contratista.trim()) { setError("Indica el contratista."); return; }
     if (items.length === 0) { setError("Agrega al menos un material."); return; }
+    if (medioRespaldo === "audio" && !codigoAudio.trim()) { setError("Ingresa el código de audio de la llamada."); return; }
+    if (medioRespaldo === "voucher" && !voucherSolicitud.trim()) { setError("Sube el voucher de la solicitud."); return; }
+    if (medioRespaldo === "contrato" && !contratoFisico.trim()) { setError("Sube el contrato físico firmado."); return; }
     for (const it of items) {
       if (!it.material_id) { setError("Cada ítem debe tener un material del catálogo (selecciónalo en su lista)."); return; }
       if (!(it.cantidad > 0)) { setError("Cada ítem debe tener cantidad mayor a 0."); return; }
       if (!(it.precio >= 0)) { setError("Precio inválido en un ítem."); return; }
-    }
-    if (!esPrefill) {
-      if (!cotUrl.trim()) { setError("La cotización del cliente (PDF/foto) es obligatoria."); return; }
-      if (!dniUrl.trim()) { setError("La foto del DNI es obligatoria."); return; }
     }
     setGuardando(true);
     try {
@@ -334,6 +370,7 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
       const creada = await apiOperacion("crearSolicitudVenta", {
         id_cliente: clienteId,
         ...(canal === "contratista" ? {} : { id_proveedor: proveedorSel }),
+        ...(idIntegradorSel ? { id_integrador: idIntegradorSel } : {}),
         canal,
         es_microaliado: canal === "microaliado",
         visita_estado: estadoVisita,
@@ -343,6 +380,10 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
         ...(esPrefill && nombreAsesorActual ? { asesor: nombreAsesorActual } : {}),
         asesor_telefono: asesorTel.trim(),
         tea: esAdmin ? Number(items[0]?.tea ?? 40) : 40,
+        medio_respaldo: medioRespaldo,
+        ...(medioRespaldo === "audio" ? { codigo_llamada: codigoAudio.trim() } : {}),
+        ...(medioRespaldo === "voucher" ? { voucher_solicitud_url: voucherSolicitud.trim() } : {}),
+        ...(medioRespaldo === "contrato" ? { contrato_fisico_url: contratoFisico.trim() } : {}),
         observaciones: obsFinal,
         ...(esPrefill
           ? {
@@ -350,19 +391,29 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
               anticipo: anticipoPrefill,
               ambiente: prefill!.cliente.ambiente || "",
               nro_cuotas: prefill!.financiamiento.plazo,
+              cuota_mensual: prefill!.financiamiento.cuota_mensual ?? 0,
             }
           : {
-              adjunto_cotizacion_url: cotUrl.trim(),
-              adjunto_dni_url: dniUrl.trim(),
+              ...(cotUrl.trim() ? { adjunto_cotizacion_url: cotUrl.trim() } : {}),
+              ...(dniUrl.trim() ? { adjunto_dni_url: dniUrl.trim() } : {}),
               foto_espacio_url: espacioUrl.trim(),
             }),
         items: items.map((it) => ({
           id_material: it.material_id,
+          ...(it.cotizacion_item_id ? { cotizacion_item_id: it.cotizacion_item_id } : {}),
+          material_codigo: it.material_codigo ?? codMat(materiales.find((m) => String(m.id) === it.material_id) ?? { id: "", nombre: it.nombre }),
+          material_nombre: it.material_nombre ?? it.nombre,
+          tipo_pedido: it.tipo_pedido ?? "VENTA",
           cantidad: it.cantidad,
           precio_unit: it.precio,
           descuento_monto: it.dscto_monto,
           modo: it.modo,
           medio_pago: it.medio,
+          nro_cuotas: it.tipo_pedido === "ABONO" ? 1 : (esPrefill ? prefill!.financiamiento.plazo : it.cuotas),
+          cuota_mensual: it.tipo_pedido === "ABONO" ? 0 : cuotaMensual(it.precio, esPrefill ? prefill!.financiamiento.plazo : it.cuotas, TEA_FIJA),
+          alto: it.alto ?? 0,
+          ancho: it.ancho ?? 0,
+          fondo: it.fondo ?? 0,
         })),
       });
       const cod = (creada as { numero?: string; codigo?: string; id?: string })?.numero
@@ -472,10 +523,16 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
               ) : (
                 <div>
                   <label className="label">{canal === "microaliado" ? "Microaliado *" : "Proveedor *"}</label>
-                  <select className="input" value={proveedorSel} onChange={(e) => setProveedorSel(e.target.value)}>
+                   <select className="input" value={proveedorSel} onChange={(e) => {
+                     const id = e.target.value;
+                     setProveedorSel(id);
+                     const prov = proveedores.find((p) => String(p.id) === id);
+                     setIdIntegradorSel(String(prov?.id_integrador ?? ""));
+                   }} disabled={esPrefill}>
                     <option value="">— Seleccionar —</option>
                     {proveedores.map((p) => <option key={String(p.id)} value={String(p.id)}>{nombreProv(p)}</option>)}
                   </select>
+                  {integradorSelNombre && <p className="text-[11px] text-slate-400 mt-1">Integradora: {integradorSelNombre}</p>}
                 </div>
               )}
             </div>
@@ -501,24 +558,33 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
                 <label className="label">Teléfono del asesor</label>
                 <input className="input" placeholder="999 999 999" value={asesorTel} onChange={(e) => setAsesorTel(e.target.value)} />
               </div>
-            <div>
-              <label className="label">Pago{esPrefill ? " (según modos de ítems)" : ""}</label>
-              <select className="input" value={pago} onChange={(e) => setPago(e.target.value)} disabled={esPrefill}>
-                <option value="financiado_total">Financiado total</option>
-                <option value="mixto">Mixto (financiado + contado)</option>
-                <option value="contado_total">Contado</option>
-              </select>
-            </div>
+              <div>
+                <label className="label">Pago{esPrefill ? " (según modos de ítems)" : ""}</label>
+                <select className="input" value={pago} onChange={(e) => setPago(e.target.value)} disabled={esPrefill}>
+                 {esPrefill ? (
+                   <>
+                     <option value="financiado">Pago financiado</option>
+                     <option value="con_abono">Pago con abono</option>
+                   </>
+                 ) : (
+                   <>
+                     <option value="financiado_total">Financiado total</option>
+                     <option value="mixto">Mixto (financiado + contado)</option>
+                     <option value="contado_total">Contado</option>
+                   </>
+                 )}
+                </select>
+              </div>
             </div>
           </section>
 
           <section className="card !shadow-none p-5">
             <div className="flex items-center justify-between mb-1">
               <div>
-                <h3 className="font-bold">Ítems por material</h3>
-                <p className="text-xs text-slate-400">Precio editable. Financiamiento por material con TEA {esAdmin ? "editable (admin)" : "fija 40%"}. Contado: efectivo o tarjeta.</p>
+                <h3 className="font-bold">{esPrefill ? "Materiales asignados a la cotización" : "Ítems por material"}</h3>
+                <p className="text-xs text-slate-400">{esPrefill ? "El código se seleccionó según proveedor, asesor y ambiente. Si hubo abono, se repite la línea con el monto abonado." : `Precio editable. Financiamiento según fórmula AMCA (TEA ${esAdmin ? "editable" : "fija 40%"}).`}</p>
               </div>
-              <button className="btn-white !py-1.5 !text-xs whitespace-nowrap" onClick={() => setItems((p) => [...p, { material_id: "", nombre: "", cantidad: 1, precio: 0, tarifaOK: false, dscto_monto: 0, modo: "financiado", medio: "financiado", tea: 40, cuotas: 9 }])}>Agregar material</button>
+              {!esPrefill && <button className="btn-white !py-1.5 !text-xs whitespace-nowrap" onClick={() => setItems((p) => [...p, { ...ITEM_VACIO }])}>Agregar material</button>}
             </div>
             {items.length === 0 ? (
               <p className="text-center text-slate-400 py-8 text-sm">Agrega al menos un material.</p>
@@ -530,13 +596,16 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
                   const teaDec = (esAdmin ? it.tea : 40) / 100 || TEA_FIJA;
                   return (
                     <div key={i} className="rounded-xl border border-slate-200 p-4">
+                      {esPrefill && <p className={`mb-3 inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${it.tipo_pedido === "ABONO" ? "bg-amber-100 text-amber-800" : "bg-sky-100 text-sky-800"}`}>{it.tipo_pedido === "ABONO" ? "Pedido de abono · 1 cuota · S/ 0.00 de cuota" : `Pedido de venta · ${it.cuotas} cuotas`}</p>}
                       <div className="grid md:grid-cols-4 gap-3">
                         <div className="md:col-span-2">
-                          <label className="label">Material (lista desplegable) *</label>
-                          <select className="input" value={it.material_id} onChange={(e) => {
+                          <label className="label">Material (asignado automáticamente) *</label>
+                          <select className="input" value={it.material_id} disabled={esPrefill} onChange={(e) => {
                             const m = materiales.find((x) => String(x.id) === e.target.value);
                             setItem(i, {
                               material_id: e.target.value,
+                              material_codigo: m ? codMat(m) : "",
+                              material_nombre: m?.nombre ?? "",
                               nombre: m ? `${codMat(m)} ${m.nombre}`.trim() : it.nombre,
                               precio: m ? precioMat(m) : it.precio,
                               tarifaOK: m ? precioMat(m) > 0 : false,
@@ -557,19 +626,24 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
                             </optgroup>
                           </select>
                         </div>
-                        <div><label className="label">Cantidad *</label><input type="number" min={0.01} step="any" className="input" value={it.cantidad} onChange={(e) => setItem(i, { cantidad: Number(e.target.value) })} /></div>
-                        <div><label className="label">Precio (S/) *</label><input type="number" min={0} step="any" className="input font-semibold text-emerald-700" value={it.precio} onChange={(e) => setItem(i, { precio: Number(e.target.value) })} />
+                        <div><label className="label">Cantidad *</label><input type="number" min={0.01} step="any" className="input" value={it.cantidad} disabled={esPrefill} onChange={(e) => setItem(i, { cantidad: Number(e.target.value) })} /></div>
+                        <div><label className="label">Precio (S/) *</label><input type="number" min={0} step="any" className="input font-semibold text-emerald-700" value={it.precio} disabled={esPrefill} onChange={(e) => setItem(i, { precio: Number(e.target.value) })} />
                         {!it.tarifaOK && it.material_id !== "" && <p className="text-[11px] text-amber-600 mt-1">Sin tarifa vigente: precio manual.</p>}</div>
-                        <div><label className="label">Dscto. monto (S/)</label><input type="number" min={0} step="any" className="input" value={it.dscto_monto} onChange={(e) => setItem(i, { dscto_monto: Number(e.target.value) })} />
+                        <div><label className="label">Dscto. monto (S/)</label><input type="number" min={0} step="any" className="input" value={it.dscto_monto} disabled={esPrefill} onChange={(e) => setItem(i, { dscto_monto: Number(e.target.value) })} />
                         {(() => { const b = it.cantidad * it.precio; const p = b > 0 ? (Math.min(it.dscto_monto, b) / b) * 100 : 0; return <p className="text-[11px] text-slate-400 mt-1">= {p.toFixed(1)}% de la línea</p>; })()}</div>
                         <div>
                           <label className="label">Modo</label>
-                          <select className="input" value={it.modo} onChange={(e) => setItem(i, { modo: e.target.value as Item["modo"] })}>
+                          <select className="input" value={it.modo} disabled={esPrefill} onChange={(e) => setItem(i, { modo: e.target.value as Item["modo"] })}>
                             <option value="financiado">Financiado</option>
-                            <option value="contado">Contado</option>
+                            <option value="contado">Contado / abono</option>
                           </select>
                         </div>
-                        {it.modo === "financiado" ? (
+                        {esPrefill ? (
+                          <div>
+                            <label className="label">Tipo de pedido</label>
+                            <div className="input bg-slate-50">{it.tipo_pedido === "ABONO" ? "Pedido de abono" : "Pedido de venta"}</div>
+                          </div>
+                        ) : it.modo === "financiado" ? (
                           <div>
                             <label className="label">Medio</label>
                             <div className="input bg-emerald-50/60 border-emerald-200 font-semibold text-emerald-700">Pedido financiado</div>
@@ -585,7 +659,7 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
                         )}
                         <div>
                           <label className="label">TEA % {esAdmin ? "(editable: admin)" : "(fija 40%)"}</label>
-                          <input type="number" min={0} step="any" className="input" value={esAdmin ? it.tea : 40} readOnly={!esAdmin} onChange={(e) => setItem(i, { tea: Number(e.target.value) })} />
+                          <input type="number" min={0} step="any" className="input" value={esAdmin ? it.tea : 40} readOnly={!esAdmin || esPrefill} onChange={(e) => setItem(i, { tea: Number(e.target.value) })} />
                         </div>
                         {it.modo === "financiado" ? (
                           <div>
@@ -635,17 +709,48 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
           </section>
           ) : (
           <section className="card !shadow-none p-5">
-            <h3 className="font-bold">Adjuntos obligatorios</h3>
-            <p className="text-xs text-slate-400 mb-3">Sin ambos adjuntos no se puede registrar la solicitud.</p>
+            <h3 className="font-bold">Adjuntos de referencia</h3>
+            <p className="text-xs text-slate-400 mb-3">Opcionales: cotización del cliente, DNI y foto del espacio.</p>
             <div className="grid md:grid-cols-2 gap-3">
-            <Adjunto titulo="Cotización del cliente (PDF/foto)" url={cotUrl} setUrl={setCotUrl} onFile={(f) => subirArchivo(f, setCotUrl, "cot")} obligatorio />
-            <Adjunto titulo="Foto DNI" url={dniUrl} setUrl={setDniUrl} onFile={(f) => subirArchivo(f, setDniUrl, "dni")} obligatorio />
+            <Adjunto titulo="Cotización del cliente (PDF/foto)" url={cotUrl} setUrl={setCotUrl} onFile={(f) => subirArchivo(f, setCotUrl, "cot")} />
+            <Adjunto titulo="Foto DNI" url={dniUrl} setUrl={setDniUrl} onFile={(f) => subirArchivo(f, setDniUrl, "dni")} />
             </div>
             <div className="mt-3">
             <Adjunto titulo="Foto del espacio" url={espacioUrl} setUrl={setEspacioUrl} onFile={(f) => subirArchivo(f, setEspacioUrl, "espacio")} />
             </div>
           </section>
           )}
+
+          <section className="card !shadow-none p-5">
+            <h3 className="font-bold">Respaldo de la solicitud <span className="text-red-600">*</span></h3>
+            <p className="text-xs text-slate-400 mb-3">Registra solo una opción: código de audio, voucher o contrato físico.</p>
+            <label className="label">Tipo de respaldo</label>
+            <select className="input" value={medioRespaldo} onChange={(e) => {
+              const medio = e.target.value as "audio" | "voucher" | "contrato";
+              setMedioRespaldo(medio);
+              setCodigoAudio("");
+              setVoucherSolicitud("");
+              setContratoFisico("");
+            }}>
+              <option value="audio">Código de audio de la llamada</option>
+              <option value="voucher">Voucher</option>
+              <option value="contrato">Contrato físico firmado</option>
+            </select>
+            {medioRespaldo === "audio" ? (
+              <div className="mt-3">
+                <label className="label">Código de audio *</label>
+                <input className="input" value={codigoAudio} onChange={(e) => setCodigoAudio(e.target.value)} placeholder="Ingresa el código de la llamada" />
+              </div>
+            ) : medioRespaldo === "voucher" ? (
+              <div className="mt-3">
+                <Adjunto titulo="Voucher (PDF o foto)" url={voucherSolicitud} setUrl={setVoucherSolicitud} onFile={(f) => subirArchivo(f, setVoucherSolicitud, "voucher", "comprobantes")} obligatorio />
+              </div>
+            ) : (
+              <div className="mt-3">
+                <Adjunto titulo="Contrato físico firmado (PDF o foto)" url={contratoFisico} setUrl={setContratoFisico} onFile={(f) => subirArchivo(f, setContratoFisico, "contrato", "adjuntos")} obligatorio />
+              </div>
+            )}
+          </section>
 
           <section>
             <label className="label">Observaciones</label>

@@ -1,15 +1,11 @@
 /**
  * lib/financiamiento.ts — Matemática financiera Ambientes Cáliddos.
  *
- * Fórmula usada (cuota fija / sistema francés CON IGV del interés):
- *   TEM      = (1 + TEA)^(1/12) − 1     (TEA en decimal, ej. 40% = 0.40)
- *   TEM_IGV  = TEM × (1 + IGV)           (IGV del interés, por defecto 18%)
- *   cuota    = capital · TEM_IGV·(1+TEM_IGV)^n / ((1+TEM_IGV)^n − 1)
- * Redondeo a 2 decimales (medio punto hacia arriba).
- *
- * El IGV grava solo el componente de interés de cada cuota; a cuota fija
- * constante esto equivale a calcular el sistema francés con la tasa
- * efectiva mensual recargada TEM×(1+IGV).
+ * Fórmula del archivo Simulador_CuotasAMCA.xlsx:
+ *   TEM   = (1 + TEA)^(1/12) − 1
+ *   cuota = PMT(TEM, n, -capital) + IGV × TEM × capital
+ * El interés/IGV se usa para calcular el pago periódico, no se agrega al
+ * precio de la cotización ni al monto financiado de la venta.
  */
 
 export const PLAZOS_SIMULACION = [3, 6, 9, 12, 18, 24, 36, 48, 60] as const;
@@ -40,19 +36,20 @@ export function cuotaFrancesa(capital: number, tea: number, n: number): number {
   return redondeo2((capital * tem * pot) / (pot - 1));
 }
 
-/** TEM recargada con el IGV del interés: TEM × (1 + IGV). */
+/** Tasa mensual recargada (solo para compatibilidad con respuestas antiguas). */
 export function temConIgv(tea: number, igv = IGV_INTERES): number {
   return temDesdeTea(tea) * (1 + igv);
 }
 
-/** Cuota fija mensual CON IGV del interés incluido, redondeada a 2 decimales. */
+/** PMT francés mensual más 18% del interés mensual sobre el capital original. */
 export function cuotaFrancesaConIgv(capital: number, tea: number, n: number, igv = IGV_INTERES): number {
   if (!Number.isFinite(capital) || capital <= 0) throw new Error("capital debe ser > 0");
   if (!Number.isInteger(n) || n <= 0 || n > 360) throw new Error("n debe ser entero 1..360");
-  const temIgv = temConIgv(tea, igv);
-  if (temIgv <= 0) return redondeo2(capital / n);
-  const pot = Math.pow(1 + temIgv, n);
-  return redondeo2((capital * temIgv * pot) / (pot - 1));
+  const tem = temDesdeTea(tea);
+  const pmt = tem === 0
+    ? capital / n
+    : (capital * tem) / (1 - Math.pow(1 + tem, -n));
+  return redondeo2(pmt + igv * tem * capital);
 }
 
 export interface FilaSimulacion {
@@ -70,7 +67,9 @@ export function tablaSimulacion(
   plazos: readonly number[] = PLAZOS_SIMULACION,
   conIgv = true
 ): FilaSimulacion[] {
-  const tem = conIgv ? temConIgv(tea) : temDesdeTea(tea);
+  // El libro reporta TEM antes del recargo de IGV, que se agrega como término
+  // aparte al PMT (no multiplicando la tasa dentro de la amortización).
+  const tem = temDesdeTea(tea);
   const fn = conIgv ? cuotaFrancesaConIgv : cuotaFrancesa;
   return plazos.map((plazo) => ({
     plazo,

@@ -15,6 +15,8 @@ export interface SesionInfo {
   segId?: string | null;
   /** Proveedor de su ficha (para alcance EMPRESA). */
   idProveedor?: string | null;
+  /** Empresa integradora a la que pertenece el asesor. */
+  idIntegrador?: string | null;
 }
 
 /**
@@ -124,6 +126,7 @@ export async function getSession(): Promise<SesionInfo | null> {
   let alcance = rol === "admin" ? "GLOBAL" : "PROPIO";
   let segId: string | null = null;
   let idProveedor: string | null = null;
+  let idIntegrador: string | null = null;
   let nombreSgt: string | null = null;
   let rolSgt = "";
 
@@ -132,18 +135,25 @@ export async function getSession(): Promise<SesionInfo | null> {
   // Usa service_role (solo lectura) para no depender del RLS.
   try {
     const svc = createSupabaseServiceRole();
-    const { data: ficha } = await svc
+    let consultaFicha = await svc
       .from("seg_usuarios")
-      .select("id,nombre,rol_codigo,estado,id_proveedor")
+      .select("id,nombre,rol_codigo,estado,id_proveedor,id_integrador")
       .eq("correo", email)
       .maybeSingle();
-    const f = ficha as { id?: string; nombre?: string; rol_codigo?: string; estado?: string; id_proveedor?: string | null } | null;
+    if (consultaFicha.error && /id_integrador|column|schema cache/i.test(consultaFicha.error.message)) {
+      consultaFicha = await svc.from("seg_usuarios")
+        .select("id,nombre,rol_codigo,estado,id_proveedor")
+        .eq("correo", email)
+        .maybeSingle();
+    }
+    const f = consultaFicha.data as { id?: string; nombre?: string; rol_codigo?: string; estado?: string; id_proveedor?: string | null; id_integrador?: string | null } | null;
     if (f) {
       if (String(f.estado ?? "").toUpperCase() !== "ACTIVO") return null; // inactivo SGT
       segId = f.id ?? null;
       nombreSgt = f.nombre ?? null;
       rolSgt = String(f.rol_codigo ?? "").toUpperCase();
       idProveedor = f.id_proveedor ?? null;
+      idIntegrador = f.id_integrador ?? null;
       if (rolSgt === "ADMIN") rol = "admin";
       const { data: r } = await svc.from("seg_roles").select("alcance").eq("codigo", rolSgt).maybeSingle();
       const al = String((r as { alcance?: string } | null)?.alcance ?? "").toUpperCase();
@@ -170,7 +180,8 @@ export async function getSession(): Promise<SesionInfo | null> {
     rol,
     alcance,
     segId,
-    idProveedor
+    idProveedor,
+    idIntegrador
   };
 }
 
