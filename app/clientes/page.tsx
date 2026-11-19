@@ -783,14 +783,16 @@ export default function ClientesPage() {
           <div className="p-4"><EmptyState titulo="Sin clientes" detalle={puedeGestionar ? "No hay clientes con esos filtros. Crea uno o usa carga masiva." : "No hay clientes con esos filtros."} /></div>
         ) : (
           <div className="overflow-x-auto"><table className="tabla">
-            <thead><tr><th>ID</th><th>DOCUMENTO</th><th>CLIENTE</th><th>CTA. CONTRATO</th><th>CONTACTO</th><th>DISTRITO</th><th>CÓDIGO SAP</th><th>REVISIÓN</th><th>ESTADO</th><th>ACCIONES</th></tr></thead>
+            <thead><tr><th className="w-[96px] min-w-[96px] max-w-[96px]">ID</th><th>DOCUMENTO</th><th>CLIENTE</th><th>CTA. CONTRATO</th><th>CONTACTO</th><th>DISTRITO</th><th>CÓDIGO SAP</th><th>REVISIÓN</th><th>ESTADO</th><th>ACCIONES</th></tr></thead>
             <tbody>
               {rows.map((c) => {
                 const activo = String(c.estado ?? "").toUpperCase() === "ACTIVO";
                 const rev = revisionDe(c);
                 return (
                   <tr key={String(c.id)}>
-                    <td className="font-mono text-xs whitespace-nowrap" title={String(c.id)}>{String(c.id)}</td>
+                    <td className="w-[96px] min-w-[96px] max-w-[96px] font-mono text-xs whitespace-nowrap">
+                      <span className="block truncate" title={String(c.id)}>{String(c.id)}</span>
+                    </td>
                     <td><p className="font-bold">{docDe(c)}</p><p className="text-[11px] text-slate-400">{tipoDocDe(c)}</p></td>
                     <td><p className="font-bold uppercase">{nombreDe(c)}</p><p className="text-[11px] text-slate-400 uppercase">{c.contacto || ""}</p></td>
                     <td className="font-bold">{c.cuenta_contrato || "—"}</td>
