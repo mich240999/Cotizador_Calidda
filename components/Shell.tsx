@@ -195,8 +195,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[#F4F7FA] dark:bg-slate-950">
-      {/* Header blanco */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 sticky top-0 z-30">
+      {/* Cabecera delineada con la paleta Cálidda */}
+      <header className="bg-white dark:bg-slate-900 border-x border-t border-b-2 border-x-[#0099D8]/45 border-t-[#0099D8]/45 border-b-[#0099D8] dark:border-x-[#00A9CE]/45 dark:border-t-[#00A9CE]/45 dark:border-b-[#00A9CE] shadow-sm sticky top-0 z-30">
         <div className="flex items-center gap-3 px-4 lg:px-6 h-16 group/barra">
           <Link href="/dashboard" title="Ambientes Cáliddos" className="flex items-center gap-2 shrink-0">
             <LogoCalidda priority className={`${plegado ? "h-8 w-auto max-w-[44px]" : "h-7 w-auto max-w-[110px]"} object-contain`} />
@@ -230,9 +230,18 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               onClick={alternarTema}
               title={oscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
               aria-label={oscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-300 dark:border-slate-600 text-base hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#0099D8]/45 dark:border-[#00A9CE]/55 text-[#0077B6] dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-slate-800 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0099D8]"
             >
-              <span aria-hidden>{oscuro ? "☀" : "🌙"}</span>
+              <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                {oscuro ? (
+                  <>
+                    <circle cx="12" cy="12" r="4" />
+                    <path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" />
+                  </>
+                ) : (
+                  <path d="M20.2 15.4A8.4 8.4 0 0 1 8.6 3.8 8.5 8.5 0 1 0 20.2 15.4Z" />
+                )}
+              </svg>
             </button>
             <div className="text-right hidden sm:block">
               <p className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-none max-w-[220px] truncate">{nombre || email?.split("@")[0] || "Usuario"}</p>
@@ -264,7 +273,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <div className="flex">
         {/* Sidebar */}
         <aside className={`hidden md:flex shrink-0 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 sticky top-16 min-h-[calc(100vh-4rem)] transition-all duration-200 ${plegado ? "w-[68px]" : "w-60"}`}>
-          <nav className="p-3 space-y-1">
+          <nav className="m-3 rounded-2xl border border-[#0099D8]/35 bg-white/70 p-2 space-y-1 shadow-sm dark:border-[#00A9CE]/45 dark:bg-slate-900/70">
             {visibles.map((it) => {
               const active = pathname === it.href || pathname?.startsWith(it.href + "/");
               return (
@@ -294,7 +303,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         </aside>
 
         {/* Mobile nav: centrado y repartido; si hay muchos módulos, scroll horizontal */}
-        <div className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-900 border-t border-slate-200 overflow-x-auto [scrollbar-width:thin]">
+        <div className="md:hidden fixed bottom-0 inset-x-0 z-30 rounded-t-2xl bg-white dark:bg-slate-900 border-x border-t-2 border-[#0099D8]/55 dark:border-[#00A9CE]/60 shadow-[0_-4px_18px_rgba(0,119,182,0.12)] overflow-x-auto [scrollbar-width:thin] pb-[env(safe-area-inset-bottom)]">
           <nav className="flex w-max min-w-full items-center justify-center gap-1 px-2 py-2">
             {visibles.map((it) => {
               const active = pathname === it.href || pathname?.startsWith(it.href + "/");
