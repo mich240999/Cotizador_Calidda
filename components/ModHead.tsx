@@ -5,7 +5,6 @@
 export default function ModHead({
   eyebrow,
   title,
-  desc,
   actions,
   centro,
 }: {
@@ -22,7 +21,6 @@ export default function ModHead({
       <div className="relative flex flex-wrap items-start gap-4">
         <div className="flex-1 min-w-[220px]">
           <h1 className="text-xl md:text-2xl font-extrabold tracking-tight">{`Módulo ${title}`}</h1>
-          {desc && <p className="text-sm text-white/80 mt-1 max-w-2xl">{desc}</p>}
         </div>
         {centro && <div className="flex flex-1 min-w-[200px] items-center justify-center self-center">{centro}</div>}
         {actions && <div className="flex gap-2 flex-wrap">{actions}</div>}
