@@ -281,8 +281,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                   key={it.href}
                   href={it.href}
                   title={it.label}
-                  className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition ${
-                    plegado ? "justify-center px-0" : ""
+                  className={`flex items-center gap-3 py-2.5 rounded-xl text-sm font-medium transition ${
+                    plegado ? "justify-center px-0" : "px-4"
                   } ${
                     active
                       ? "bg-gradient-to-r from-[#0B5FA5] to-[#0099D8] text-white shadow-md shadow-sky-900/20"
