@@ -264,7 +264,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
         {/* Derecha: acceso */}
         <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-3 sm:p-8 lg:overflow-hidden lg:p-10 xl:p-16 bg-white dark:bg-slate-950 transition-colors">
-          <div className="w-full max-w-sm rounded-3xl border border-slate-100 bg-white p-5 shadow-xl shadow-slate-900/5 transition-colors dark:border-[#0099D8]/25 dark:bg-slate-900 dark:shadow-black/30 sm:p-8">
+          <div className="w-full max-w-sm py-2">
             <div className="flex items-center gap-2.5 sm:gap-3">
               <LogoCalidda className="h-9 sm:h-11 w-auto" />
               <span className="text-xl sm:text-2xl font-extrabold text-slate-950 dark:text-white tracking-tight">Ambientes Cáliddos</span>
