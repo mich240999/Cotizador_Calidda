@@ -222,7 +222,7 @@ export default function DashboardPage() {
           eyebrow="RESUMEN GENERAL"
           title="Dashboard"
           desc="Indicadores y gráficos de la operación comercial. Los filtros cambian todo el tablero."
-          actions={<button className="btn-white !bg-white/95" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>}
+          actions={<button className="btn-white !bg-white/95 dark:!bg-slate-800 dark:!text-slate-100 dark:!border-slate-600" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>}
         />
 
         <div className="card p-4 mt-4 flex flex-wrap gap-3 items-end">

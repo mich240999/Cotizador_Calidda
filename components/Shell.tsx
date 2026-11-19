@@ -101,9 +101,20 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
   const [nombre, setNombre] = useState(() => nombreCache ?? "");
+  const [telefono, setTelefono] = useState("");
   const [oscuro, setOscuro] = useState(() => estadoTema ?? false);
   const [plegado, setPlegado] = useState(() => estadoPlegado ?? false);
   const [miRol, setMiRol] = useState(() => rolCache ?? "");
+  const [menuCuenta, setMenuCuenta] = useState(false);
+  const [popupCuenta, setPopupCuenta] = useState<"datos" | "contrasena" | null>(null);
+  const [emailForm, setEmailForm] = useState("");
+  const [telefonoForm, setTelefonoForm] = useState("");
+  const [contrasenaActual, setContrasenaActual] = useState("");
+  const [nuevaContrasena, setNuevaContrasena] = useState("");
+  const [repetirContrasena, setRepetirContrasena] = useState("");
+  const [guardandoCuenta, setGuardandoCuenta] = useState(false);
+  const [errorCuenta, setErrorCuenta] = useState("");
+  const [resultadoCuenta, setResultadoCuenta] = useState("");
 
   useEffect(() => {
     const sb = getSupabaseBrowser();
@@ -114,6 +125,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           if (!j?.ok) return;
           const rol = String(j.rol ?? "").toUpperCase();
           const nombreUsuario = String(j.nombre ?? "").trim();
+          setTelefono(String(j.telefono ?? ""));
           if (rol) {
             rolCache = rol;
             setMiRol(rol);
@@ -193,6 +205,78 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     } catch { /* sin storage */ }
   };
 
+  const abrirPopupCuenta = (tipo: "datos" | "contrasena") => {
+    setMenuCuenta(false);
+    setPopupCuenta(tipo);
+    setErrorCuenta("");
+    setResultadoCuenta("");
+    setContrasenaActual("");
+    setNuevaContrasena("");
+    setRepetirContrasena("");
+    if (tipo === "datos") {
+      setEmailForm(email ?? "");
+      setTelefonoForm(telefono);
+    }
+  };
+
+  const guardarCuenta = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setErrorCuenta("");
+    setResultadoCuenta("");
+    if (!contrasenaActual) {
+      setErrorCuenta("Ingresa tu contraseña actual para confirmar el cambio.");
+      return;
+    }
+    if (popupCuenta === "contrasena") {
+      if (nuevaContrasena.length < 10) {
+        setErrorCuenta("La contraseña debe tener al menos 10 caracteres.");
+        return;
+      }
+      if (!/\p{Lu}/u.test(nuevaContrasena)) {
+        setErrorCuenta("Incluye al menos una letra mayúscula.");
+        return;
+      }
+      if (!/[\p{P}\p{S}]/u.test(nuevaContrasena)) {
+        setErrorCuenta("Incluye al menos un símbolo.");
+        return;
+      }
+      if (nuevaContrasena !== repetirContrasena) {
+        setErrorCuenta("Las contraseñas nuevas no coinciden.");
+        return;
+      }
+    }
+
+    setGuardandoCuenta(true);
+    try {
+      const payload = popupCuenta === "datos"
+        ? { tipo: "datos", contrasenaActual, email: emailForm.trim(), telefono: telefonoForm.trim() }
+        : { tipo: "contrasena", contrasenaActual, nuevaContrasena, repetirContrasena };
+      const response = await fetch("/api/mi-perfil/actualizar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await response.json();
+      if (!response.ok || !json?.ok) throw new Error(json?.error || "No se pudo guardar el cambio.");
+      if (popupCuenta === "datos") {
+        if (!json.emailConfirmationRequired && json.email) setEmail(String(json.email));
+        setTelefono(String(json.telefono ?? telefonoForm.trim()));
+        setResultadoCuenta(json.emailConfirmationRequired
+          ? "Teléfono actualizado. Confirma el cambio de correo desde el mensaje que enviamos a esa dirección."
+          : "Tus datos se actualizaron correctamente.");
+      } else {
+        setResultadoCuenta("Contraseña actualizada correctamente.");
+      }
+      setContrasenaActual("");
+      setNuevaContrasena("");
+      setRepetirContrasena("");
+    } catch (err) {
+      setErrorCuenta(err instanceof Error ? err.message : "No se pudo guardar el cambio.");
+    } finally {
+      setGuardandoCuenta(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#F4F7FA] dark:bg-slate-950">
       {/* Cabecera delineada con la paleta Cálidda */}
@@ -225,7 +309,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           >
             <span aria-hidden className="text-sm font-bold">{plegado ? "→" : "←"}</span>
           </button>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-3 relative">
             <button
               onClick={alternarTema}
               title={oscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
@@ -249,9 +333,27 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 {email ?? "usuario@calidda.com.pe"}
               </p>
             </div>
-            <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[#0B5FA5] to-[#00A9CE] text-white flex items-center justify-center text-xs font-bold shadow-sm">
+            <button
+              type="button"
+              onClick={() => setMenuCuenta((v) => !v)}
+              aria-label="Opciones de perfil"
+              aria-haspopup="menu"
+              aria-expanded={menuCuenta}
+              className="h-9 w-9 rounded-full bg-gradient-to-br from-[#0B5FA5] to-[#00A9CE] text-white flex items-center justify-center text-xs font-bold shadow-sm ring-2 ring-white/80 dark:ring-slate-700 hover:scale-105 transition"
+            >
               {initials(nombre, email)}
-            </div>
+            </button>
+            {menuCuenta && (
+              <div role="menu" className="absolute right-10 top-12 z-50 w-56 overflow-hidden rounded-2xl border border-[#0099D8]/30 bg-white p-2 shadow-xl shadow-slate-900/15 dark:border-[#00A9CE]/40 dark:bg-slate-900">
+                <p className="truncate px-3 py-2 text-[11px] font-semibold text-slate-400">{nombre || email || "Mi perfil"}</p>
+                <button type="button" role="menuitem" onClick={() => abrirPopupCuenta("datos")} className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-sky-50 dark:text-slate-200 dark:hover:bg-slate-800">
+                  Actualizar datos
+                </button>
+                <button type="button" role="menuitem" onClick={() => abrirPopupCuenta("contrasena")} className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-sky-50 dark:text-slate-200 dark:hover:bg-slate-800">
+                  Actualizar contraseña
+                </button>
+              </div>
+            )}
               <button
                 onClick={async () => {
                   try {
@@ -327,6 +429,68 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         {/* Content */}
         <main className="flex-1 p-4 lg:p-8 pb-20 md:pb-8 min-w-0">{children}</main>
       </div>
+
+      {popupCuenta && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm"
+          onMouseDown={(e) => { if (e.target === e.currentTarget && !guardandoCuenta) setPopupCuenta(null); }}
+        >
+          <section role="dialog" aria-modal="true" aria-labelledby="cuenta-titulo" className="w-full max-w-md rounded-3xl border border-[#0099D8]/30 bg-white p-5 shadow-2xl shadow-slate-950/25 dark:border-[#00A9CE]/45 dark:bg-slate-900 sm:p-6">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-extrabold tracking-[0.18em] text-[#0077B6] dark:text-sky-300">PERFIL DE USUARIO</p>
+                <h2 id="cuenta-titulo" className="mt-1 text-xl font-extrabold text-slate-900 dark:text-white">
+                  {popupCuenta === "datos" ? "Actualizar datos" : "Actualizar contraseña"}
+                </h2>
+              </div>
+              <button type="button" aria-label="Cerrar" disabled={guardandoCuenta} onClick={() => setPopupCuenta(null)} className="rounded-lg px-2 py-1 text-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-white">×</button>
+            </div>
+            <form onSubmit={guardarCuenta} className="space-y-4">
+              {popupCuenta === "datos" ? (
+                <>
+                  <div>
+                    <label className="label" htmlFor="perfil-email">Correo electrónico</label>
+                    <input id="perfil-email" className="input" type="email" autoComplete="email" required maxLength={160} value={emailForm} onChange={(e) => setEmailForm(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="perfil-telefono">Teléfono</label>
+                    <input id="perfil-telefono" className="input" type="tel" autoComplete="tel" placeholder="+51 999 999 999" maxLength={30} value={telefonoForm} onChange={(e) => setTelefonoForm(e.target.value)} />
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Solo puedes cambiar tu correo y teléfono. El cambio de correo requiere confirmación.</p>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="label" htmlFor="clave-actual">Contraseña actual</label>
+                    <input id="clave-actual" className="input" type="password" autoComplete="current-password" required value={contrasenaActual} onChange={(e) => setContrasenaActual(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="clave-nueva">Nueva contraseña</label>
+                    <input id="clave-nueva" className="input" type="password" autoComplete="new-password" required minLength={10} value={nuevaContrasena} onChange={(e) => setNuevaContrasena(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label" htmlFor="clave-repetir">Repite la nueva contraseña</label>
+                    <input id="clave-repetir" className="input" type="password" autoComplete="new-password" required value={repetirContrasena} onChange={(e) => setRepetirContrasena(e.target.value)} />
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Mínimo 10 caracteres, una mayúscula y un símbolo.</p>
+                </>
+              )}
+              {popupCuenta === "datos" && (
+                <div>
+                  <label className="label" htmlFor="datos-clave-actual">Confirma con tu contraseña actual</label>
+                  <input id="datos-clave-actual" className="input" type="password" autoComplete="current-password" required value={contrasenaActual} onChange={(e) => setContrasenaActual(e.target.value)} />
+                </div>
+              )}
+              {errorCuenta && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{errorCuenta}</p>}
+              {resultadoCuenta && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">{resultadoCuenta}</p>}
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" className="btn-white" onClick={() => setPopupCuenta(null)} disabled={guardandoCuenta}>Cerrar</button>
+                {!resultadoCuenta && <button type="submit" className="btn-green" disabled={guardandoCuenta}>{guardandoCuenta ? "Guardando…" : "Guardar cambios"}</button>}
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
 
       <footer className="hidden md:block text-center text-[11px] text-slate-400 pb-6">
         Versión 1.0.0 · Ambientes Cáliddos

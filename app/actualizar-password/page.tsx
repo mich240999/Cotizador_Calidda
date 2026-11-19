@@ -48,8 +48,16 @@ export default function ActualizarPasswordPage() {
 
   const guardar = async () => {
     setError(null);
-    if (clave1.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres.");
+    if (clave1.length < 10) {
+      setError("La contraseña debe tener al menos 10 caracteres.");
+      return;
+    }
+    if (!/\p{Lu}/u.test(clave1)) {
+      setError("La contraseña debe incluir al menos una letra mayúscula.");
+      return;
+    }
+    if (!/[\p{P}\p{S}]/u.test(clave1)) {
+      setError("La contraseña debe incluir al menos un símbolo.");
       return;
     }
     if (clave1 !== clave2) {
@@ -104,7 +112,7 @@ export default function ActualizarPasswordPage() {
             <span className="text-xl sm:text-2xl font-extrabold text-black tracking-tight">Ambientes Cáliddos</span>
           </div>
           <h1 className="mt-8 text-2xl sm:text-3xl font-extrabold text-black tracking-tight">Actualiza tu contraseña</h1>
-          <p className="mt-2 text-sm text-slate-500">Ingrésala dos veces para confirmar el cambio.</p>
+          <p className="mt-2 text-sm text-slate-500">Mínimo 10 caracteres, al menos una mayúscula y un símbolo. Ingrésala dos veces para confirmar.</p>
 
           {estado === "verificando" && (
             <div className="mt-8 flex items-center gap-3 text-sm text-slate-500">
@@ -131,7 +139,7 @@ export default function ActualizarPasswordPage() {
                   type={ver ? "text" : "password"}
                   autoComplete="new-password"
                   className="w-full border-0 border-b-2 border-slate-200 bg-transparent pl-8 pr-10 py-2.5 text-[15px] text-black placeholder:text-slate-400 focus:border-black focus:outline-none focus:ring-0"
-                  placeholder="Nueva contraseña (mín. 8)"
+                  placeholder="Nueva contraseña (mín. 10)"
                   value={clave1}
                   onChange={(e) => setClave1(e.target.value)}
                 />

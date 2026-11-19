@@ -20,23 +20,32 @@ export async function GET() {
   const email = (data.user.email ?? "").toLowerCase();
   const metadata = data.user.user_metadata ?? {};
   const nombreAuth = String(metadata.nombre ?? metadata.full_name ?? metadata.name ?? "").trim();
+  const telefonoAuth = String(metadata.telefono ?? "").trim();
+  const tieneTelefonoAuth = Object.prototype.hasOwnProperty.call(metadata, "telefono");
   let nombrePerfil = "";
   let rolPerfil = "";
   let perfilActivo = true;
+  let correoAnterior = email;
+  let telefonoPerfil = telefonoAuth;
 
   // 1) profiles + roles (schema base).
   try {
     const { data: p } = await service
       .from("profiles")
-      .select("nombre,activo,roles(nombre)")
+      .select("nombre,email,activo,roles(nombre)")
       .eq("id", uid)
       .maybeSingle();
     if (p) {
-      const r = p as { nombre?: string; activo?: boolean; roles?: { nombre?: string } | { nombre?: string }[] };
+      const r = p as { nombre?: string; email?: string; activo?: boolean; roles?: { nombre?: string } | { nombre?: string }[] };
       const nombre = Array.isArray(r.roles) ? r.roles[0]?.nombre : r.roles?.nombre;
       nombrePerfil = String(r.nombre ?? "").trim();
       rolPerfil = String(nombre ?? "").trim().toUpperCase();
       perfilActivo = r.activo !== false;
+      correoAnterior = String(r.email ?? email).trim().toLowerCase() || email;
+      if (email && correoAnterior && email !== correoAnterior) {
+        await service.from("profiles").update({ email }).eq("id", uid);
+        await service.from("seg_usuarios").update({ correo: email }).eq("correo", correoAnterior);
+      }
     }
   } catch { /* sigue a SGT */ }
 
@@ -44,11 +53,18 @@ export async function GET() {
   try {
     const { data: s } = await service
       .from("seg_usuarios")
-      .select("nombre,rol_codigo,estado")
+      .select("nombre,rol_codigo,estado,telefono")
       .eq("correo", email)
       .maybeSingle();
-    if (s) {
-      const u = s as { nombre?: string; rol_codigo?: string; estado?: string };
+    let ficha = s;
+    if (!ficha && correoAnterior && correoAnterior !== email) {
+      const { data: anterior } = await service.from("seg_usuarios")
+        .select("nombre,rol_codigo,estado,telefono").eq("correo", correoAnterior).maybeSingle();
+      ficha = anterior;
+    }
+    if (ficha) {
+      const u = ficha as { nombre?: string; rol_codigo?: string; estado?: string; telefono?: string | null };
+      telefonoPerfil = tieneTelefonoAuth ? telefonoAuth : String(u.telefono ?? "").trim();
       const estadoSgt = String(u.estado ?? "").toUpperCase() === "ACTIVO";
       const rolSgt = String(u.rol_codigo ?? "").toUpperCase();
       const rolPrincipal = rolPerfil === "ADMIN" || rolSgt === "ADMIN"
@@ -59,6 +75,8 @@ export async function GET() {
         nombre: nombrePerfil || String(u.nombre ?? "").trim() || nombreAuth || email.split("@")[0] || "Usuario",
         rol: rolPrincipal,
         estado: perfilActivo && estadoSgt ? "Activa" : "Inactivo",
+        email,
+        telefono: telefonoPerfil,
       }, { headers: { "Cache-Control": "no-store" } });
     }
   } catch { /* sin SGT */ }
@@ -68,5 +86,7 @@ export async function GET() {
     nombre: nombrePerfil || nombreAuth || email.split("@")[0] || "Usuario",
     rol: rolPerfil || "—",
     estado: perfilActivo ? "Activa" : "Inactivo",
+    email,
+    telefono: telefonoPerfil,
   }, { headers: { "Cache-Control": "no-store" } });
 }
