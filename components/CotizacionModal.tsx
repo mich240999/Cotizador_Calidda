@@ -22,9 +22,9 @@ type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: stri
 type UsuarioSGT = { id: string | number; nombre: string; telefono?: string; correo?: string; id_proveedor?: string | number | null; id_integrador?: string | null; rol?: string; rol_codigo?: string };
 type Material = { id: string; codigo?: string; codigo_sap?: string; codigo_tmp?: string; nombre: string; descripcion?: string; espacio?: string | null; espacio_remodelar?: string; id_proveedor?: string | number | null; proveedor_nombre?: string | null; precio_unit?: number; precio_vigente?: number };
 
-type Fila = { material_id: string; nombre: string; descripcion: string; ambiente: string; alto: string; ancho: string; fondo: string; precio: number };
+type Fila = { material_id: string; nombre: string; descripcion: string; ambiente: string; tipo_remodelacion: string; alto: string; ancho: string; fondo: string; precio: number };
 
-const FILA_VACIA: Fila = { material_id: "", nombre: "", descripcion: "", ambiente: "", alto: "", ancho: "", fondo: "", precio: 0 };
+const FILA_VACIA: Fila = { material_id: "", nombre: "", descripcion: "", ambiente: "", tipo_remodelacion: "", alto: "", ancho: "", fondo: "", precio: 0 };
 
 const nombreCliente = (c: Cliente) => c.nombres ?? c.nombre ?? c.nombre_razon_social ?? c.id;
 const docCliente = (c: Cliente) => c.dni ?? c.nro_doc ?? "";
@@ -58,6 +58,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   const [errorBusqueda, setErrorBusqueda] = useState<string | null>(null);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [materiales, setMateriales] = useState<Material[]>([]);
+  const [materialesRemodelacion, setMaterialesRemodelacion] = useState<Material[]>([]);
   const [cargando, setCargando] = useState(true);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [guardando, setGuardando] = useState(false);
@@ -69,9 +70,10 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     let vivo = true;
     (async () => {
       // Carga tolerante: si un catálogo falla, los otros igual se muestran.
-      const [rp, rm, ru] = await Promise.allSettled([
+      const [rp, rm, rr, ru] = await Promise.allSettled([
         apiOperacion<unknown>("listarProveedoresSGT", { limit: 200 }),
         apiOperacion<unknown>("listarMaterialesSGT", { limit: 500, espacio: "COTIZACION" }),
+        apiOperacion<unknown>("listarMaterialesSGT", { limit: 500, espacio: "VENTAS", espacio_remodelar: "REMODELACION" }),
         apiOperacion<unknown>("listarUsuariosSGT", {}),
       ]);
       if (!vivo) return;
@@ -80,6 +82,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       else warns.push("No se pudieron cargar los proveedores (ejecuta schema_sgt360.sql).");
       if (rm.status === "fulfilled" && Array.isArray(rm.value)) setMateriales(rm.value as Material[]);
       else warns.push("No se pudieron cargar los materiales con tarifa (ejecuta schema_sgt360.sql).");
+      if (rr.status === "fulfilled" && Array.isArray(rr.value)) setMaterialesRemodelacion(rr.value as Material[]);
       if (ru.status === "fulfilled" && Array.isArray(ru.value)) {
         const soloAsesores = (ru.value as UsuarioSGT[]).filter((u) => {
           const rol = String(u.rol_codigo ?? u.rol ?? "").toUpperCase();
@@ -209,6 +212,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
               nombre: m ? `${codMat(m)} ${m.nombre}`.trim() : f.nombre,
               descripcion: m?.descripcion ?? "",
               ambiente: String(m?.espacio_remodelar ?? f.ambiente),
+              tipo_remodelacion: String(m?.espacio_remodelar ?? "").toUpperCase() === "REMODELACION" ? f.tipo_remodelacion : "",
               precio: m ? 0 : f.precio,
             }
           : f
@@ -218,6 +222,31 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
 
   const setFila = (i: number, patch: Partial<Fila>) =>
     setMat((prev) => prev.map((f, j) => (j === i ? { ...f, ...patch } : f)));
+
+  const opcionesRemodelacion = useMemo(() => {
+    const etiquetas = new Map<string, string>();
+    for (const m of materialesRemodelacion) {
+      const nombre = String(m.nombre ?? "").trim();
+      if (!nombre) continue;
+      let etiqueta = nombre;
+      const separador = etiqueta.lastIndexOf(" - ");
+      if (separador >= 0) {
+        const sufijo = etiqueta.slice(separador + 3);
+        const proveedor = String(m.proveedor_nombre ?? "");
+        const normalizar = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+        const sufijoNorm = normalizar(sufijo);
+        const proveedorNorm = normalizar(proveedor);
+        if (sufijoNorm && proveedorNorm && (proveedorNorm.includes(sufijoNorm) || sufijoNorm.includes(proveedorNorm))) {
+          etiqueta = etiqueta.slice(0, separador);
+        }
+      }
+      etiqueta = etiqueta.replace(/^remodelaci[oó]n\s+cotizado\s+/i, "").trim();
+      if (!etiqueta) continue;
+      const clave = etiqueta.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+      if (!etiquetas.has(clave)) etiquetas.set(clave, etiqueta);
+    }
+    return [...etiquetas.values()].sort((a, b) => a.localeCompare(b, "es"));
+  }, [materialesRemodelacion]);
 
   const total = mat.reduce((a, f) => a + Math.max(Number(f.precio) || 0, 0), 0);
   const capital = Math.max(total - inicial, 0);
@@ -251,6 +280,10 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
         setError("Cada fila debe tener un material del catálogo.");
         return;
       }
+      if (String(f.ambiente).toUpperCase() === "REMODELACION" && !f.tipo_remodelacion) {
+        setError("Selecciona qué se va a remodelar en cada material de remodelación.");
+        return;
+      }
       if (!Number.isFinite(Number(f.precio)) || f.precio < 0) {
         setError("Cada material debe tener un precio válido.");
         return;
@@ -277,7 +310,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
         return {
           material_id: f.material_id,
           codigo: m ? codMat(m) : "",
-          descripcion: `${f.nombre}${f.descripcion ? ` — ${f.descripcion}` : ""}`.slice(0, 300),
+          descripcion: `${f.nombre}${f.descripcion ? ` — ${f.descripcion}` : ""}${f.tipo_remodelacion ? ` — Tipo de remodelación: ${f.tipo_remodelacion}` : ""}`.slice(0, 300),
           ambiente: f.ambiente || String(m?.espacio_remodelar ?? ""),
           alto: Number(f.alto) || 0,
           ancho: Number(f.ancho) || 0,
@@ -480,6 +513,23 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                             .map(opcionMaterial)}
                         </select>
                         {f.descripcion && <p className="text-[11px] text-slate-400 mt-1 leading-snug">{f.descripcion}</p>}
+                        {String(f.ambiente).toUpperCase() === "REMODELACION" && (
+                          <div className="mt-2">
+                            <label className="label">¿Qué se va a remodelar?</label>
+                            <select
+                              className="input !py-1"
+                              value={f.tipo_remodelacion}
+                              onChange={(e) => setFila(i, { tipo_remodelacion: e.target.value })}
+                              required
+                            >
+                              <option value="">— Selecciona el tipo de remodelación —</option>
+                              {opcionesRemodelacion.map((opcion) => <option key={opcion} value={opcion}>{opcion}</option>)}
+                            </select>
+                            {opcionesRemodelacion.length === 0 && (
+                              <p className="mt-1 text-[11px] text-amber-600">No hay materiales de remodelación cargados para generar esta lista.</p>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td><input type="number" min={0} step="0.01" className="input !w-24 !py-1" value={f.alto} onChange={(e) => setFila(i, { alto: e.target.value })} title="Alto en metros" /></td>
                       <td><input type="number" min={0} step="0.01" className="input !w-24 !py-1" value={f.ancho} onChange={(e) => setFila(i, { ancho: e.target.value })} title="Ancho en metros" /></td>
