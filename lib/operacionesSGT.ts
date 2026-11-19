@@ -2359,8 +2359,8 @@ async function hCargaMasivaMateriales(args: z.infer<typeof EsquemaCargaMateriale
   for (const f of filas) {
     try {
       if (f.espacio === "COTIZACION") {
-        const permitidos = new Set(["COT-COCINA", "COT-SALA", "COT-DORMITORIO", "COT-OTROS"]);
-        if (!permitidos.has(f.codigo_sap)) throw new Error("COTIZACION solo admite las cuatro categorías oficiales (COT-COCINA/SALA/DORMITORIO/OTROS)");
+        const permitidos = new Set(["COT-COCINA", "COT-SALA", "COT-DORMITORIO", "COT-OTROS", "COT-DISENO", "COT-REMODELACION"]);
+        if (!permitidos.has(f.codigo_sap)) throw new Error("COTIZACION solo admite las categorías oficiales de ambientes (COCINA/SALA/DORMITORIO/OTROS/DISEÑO/REMODELACION)");
       }
       const idProveedor = await resProv(f.proveedor);
       const idAsesor = await resAse(f.asesor);

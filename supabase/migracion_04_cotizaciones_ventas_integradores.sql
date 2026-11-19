@@ -133,7 +133,7 @@ ALTER TABLE public.vta_instalaciones
     'pendiente','registrada','validada_proveedor','observada','subsanado_pendiente',
     'pendiente_liquidar','cerrada','liquidada'));
 
--- 7) Semilla de las únicas cuatro categorías habilitadas para cotizar.
+-- 7) Categorías cotizables: muebles, otros ambientes, diseño y remodelación.
 DO $$
 DECLARE
   r RECORD;
@@ -145,7 +145,9 @@ BEGIN
       ('COT-COCINA',     'Ambiente cocina',     'COCINA',     'Ambiente cocina · mueble de cocina cotizado'),
       ('COT-SALA',       'Ambiente sala',       'SALA',       'Ambiente sala · mueble de sala cotizado'),
       ('COT-DORMITORIO', 'Ambiente dormitorio', 'DORMITORIO', 'Ambiente dormitorio · mueble de dormitorio cotizado'),
-      ('COT-OTROS',      'Ambiente otros',      'OTROS',      'Otros ambientes · incluye diseño y remodelación')
+      ('COT-OTROS',      'Ambiente otros',      'OTROS',      'Otros ambientes no clasificados'),
+      ('COT-DISENO',     'Diseño',              'DISEÑO',     'Servicio de diseño de muebles'),
+      ('COT-REMODELACION','Remodelación',       'REMODELACION','Servicios de remodelación del hogar')
     ) AS x(codigo, nombre, ambiente, descripcion)
   LOOP
     SELECT id INTO v_id
