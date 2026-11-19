@@ -273,7 +273,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <div className="flex">
         {/* Sidebar */}
         <aside className={`hidden md:flex shrink-0 flex-col items-center bg-white dark:bg-slate-900 border-r border-slate-200 sticky top-16 min-h-[calc(100vh-4rem)] transition-all duration-200 ${plegado ? "w-[68px]" : "w-60"}`}>
-          <nav className="my-3 w-[calc(100%_-_1.5rem)] rounded-2xl border border-[#0099D8]/35 bg-white/70 p-2 space-y-1 shadow-sm dark:border-[#00A9CE]/45 dark:bg-slate-900/70">
+          <nav className={`my-3 rounded-2xl border border-[#0099D8]/35 bg-white/70 p-2 space-y-1 shadow-sm dark:border-[#00A9CE]/45 dark:bg-slate-900/70 ${plegado ? "w-[calc(100%_-_1rem)]" : "w-[calc(100%_-_1.5rem)]"}`}>
             {visibles.map((it) => {
               const active = pathname === it.href || pathname?.startsWith(it.href + "/");
               return (
