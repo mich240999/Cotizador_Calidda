@@ -239,9 +239,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!email) {
     return (
-      <div className="h-[100dvh] overflow-hidden flex flex-col lg:h-auto lg:min-h-screen lg:flex-row lg:overflow-visible bg-white dark:bg-slate-950 transition-colors">
+      <div className="flex h-[100dvh] flex-col overflow-hidden lg:flex-row bg-white dark:bg-slate-950 transition-colors">
         {/* Izquierda: panel marca azul profundo */}
-        <div className="relative hidden overflow-hidden lg:flex lg:w-[46%] bg-gradient-to-br from-[#0B5FA5] via-[#0088C7] to-[#00A9CE] text-white flex-col justify-between p-16 min-h-[100svh]">
+        <div className="relative hidden h-full min-h-0 overflow-hidden lg:flex lg:w-[46%] bg-gradient-to-br from-[#0B5FA5] via-[#0088C7] to-[#00A9CE] text-white flex-col justify-between p-10 xl:p-16">
           <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.14]" viewBox="0 0 600 800" fill="none" stroke="white" strokeWidth="1.5" preserveAspectRatio="xMidYMid slice">
             <path d="M-40 140 C 160 200, 300 320, 380 560" />
             <path d="M-40 190 C 170 250, 320 370, 410 610" />
@@ -251,19 +251,19 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           </svg>
           <div className="relative">
             <Asterisco className="h-12 w-12 sm:h-16 sm:w-16 lg:h-20 lg:w-20 text-white" />
-            <h2 className="mt-6 lg:mt-10 text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight">
+            <h2 className="mt-6 lg:mt-6 xl:mt-10 text-4xl sm:text-5xl lg:text-5xl xl:text-6xl font-extrabold leading-[1.05] tracking-tight">
               Hola,<br />Ambientes<br />Cáliddos!
             </h2>
-            <p className="mt-4 lg:mt-8 text-white/85 text-sm sm:text-base leading-relaxed max-w-sm">
+            <p className="mt-4 lg:mt-6 xl:mt-8 text-white/85 text-sm sm:text-base leading-relaxed max-w-sm">
               Cotizaciones, clientes y gestión comercial en un solo lugar.
               Cotiza más rápido, simula financiamiento y cierra más ventas.
             </p>
           </div>
-          <p className="relative mt-10 text-sm text-white/60">© 2026 Cálidda. Todos los derechos reservados.</p>
+          <p className="relative mt-6 text-xs xl:mt-10 xl:text-sm text-white/60">© 2026 Cálidda. Todos los derechos reservados.</p>
         </div>
 
         {/* Derecha: acceso */}
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-3 sm:p-8 lg:overflow-visible lg:p-16 bg-white dark:bg-slate-950 transition-colors">
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-3 sm:p-8 lg:overflow-hidden lg:p-10 xl:p-16 bg-white dark:bg-slate-950 transition-colors">
           <div className="w-full max-w-sm rounded-3xl border border-slate-100 bg-white p-5 shadow-xl shadow-slate-900/5 transition-colors dark:border-[#0099D8]/25 dark:bg-slate-900 dark:shadow-black/30 sm:p-8">
             <div className="flex items-center gap-2.5 sm:gap-3">
               <LogoCalidda className="h-9 sm:h-11 w-auto" />
