@@ -313,10 +313,25 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     onClick={() => setVerClave((v) => !v)}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 text-slate-400 hover:text-black text-base"
+                    className="absolute right-0 top-1/2 -translate-y-1/2 rounded-md p-1 text-[#0077B6] transition hover:bg-sky-50 hover:text-[#005B96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0099D8]"
                     title={verClave ? "Ocultar" : "Mostrar"}
+                    aria-label={verClave ? "Ocultar contraseña" : "Mostrar contraseña"}
                   >
-                    {verClave ? "◠" : "👁"}
+                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      {verClave ? (
+                        <>
+                          <path d="M3 3 21 21" />
+                          <path d="M10.6 10.7a2 2 0 0 0 2.7 2.7" />
+                          <path d="M9.9 5.2A10.8 10.8 0 0 1 12 5c5.5 0 9 7 9 7a15 15 0 0 1-3 3.8" />
+                          <path d="M6.2 6.3C3.9 8 3 12 3 12s3.5 7 9 7a10 10 0 0 0 3-.5" />
+                        </>
+                      ) : (
+                        <>
+                          <path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z" />
+                          <circle cx="12" cy="12" r="2.5" />
+                        </>
+                      )}
+                    </svg>
                   </button>
                 </div>
               )}
