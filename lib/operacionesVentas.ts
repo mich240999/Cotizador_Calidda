@@ -5,6 +5,7 @@ import { resolverAlcance, aplicarAlcanceVentas, puedeVerVenta, puedeVerCotizacio
 import { correoConfigurado, enviarCorreo, MSG_CORREO_NO_CONFIGURADO } from "./mailer";
 import { CLAVE_CORREO_COTIZACION, obtenerConfigCorreoCotizacion } from "./correoCotizacion";
 import { cuotaFrancesaConIgv } from "./financiamiento";
+import { tokensMaterial } from "./materialMatch";
 
 /**
  * lib/operacionesVentas.ts — Operaciones del módulo Ventas (prefijo VTA-).
@@ -1693,11 +1694,16 @@ async function resolverMaterialVentaCotizacion(ctx: OperacionContext, cot: Fila,
     .limit(1000);
   if (error) throw new Error(error.message);
 
-  const candidates = ((data ?? []) as Fila[]).flatMap((m) => {
+  // Preferencia: asignación del proveedor para el asesor → asignación del
+  // proveedor (mismo código SAP) → material genérico, que es el respaldo.
+  const todos = ((data ?? []) as Fila[]).flatMap((m) => {
     const env = normalizarClaveVenta(m.espacio_remodelar);
     const envExacta = env === ambiente;
     const envGenerica = ["otros", "general", "diseno", "diseño"].includes(env);
-    if (!envExacta && !envGenerica) return [];
+    // "Otros" en la cotización agrupa diseño y remodelación: esos materiales
+    // también son válidos para la línea, con menor prioridad que el ambiente exacto.
+    const envOtros = ambiente === "otros" && ["remodelacion", "diseno", "diseño"].includes(env);
+    if (!envExacta && !envGenerica && !envOtros) return [];
 
     const mapProvId = String(m.id_proveedor ?? "");
     const mapIntId = String(m.id_integrador ?? "");
@@ -1715,15 +1721,30 @@ async function resolverMaterialVentaCotizacion(ctx: OperacionContext, cot: Fila,
     const asesorGlobal = esValorGlobalVenta(m.asesor_nombre) && !mapAsesorId;
     const asesorExact = Boolean(asesorId && mapAsesorId === asesorId);
     const asesorNameExact = Boolean(asesorNombre && mapAsesorName === asesorNombre);
-    if (mapAsesorId && !asesorExact) return [];
-    if (!mapAsesorId && !asesorGlobal && !asesorNameExact) return [];
+    const asesorOk = mapAsesorId ? asesorExact : (asesorGlobal || asesorNameExact);
+
+    // Coincidencia de texto (descripción de la línea vs. nombre del material)
+    // para elegir el servicio correcto dentro del mismo ambiente.
+    const buscados = tokensMaterial(item.descripcion);
+    const enNombre = tokensMaterial(`${m.nombre ?? ""} ${m.descripcion ?? ""}`);
+    const coincidencias = buscados.filter((t) => enNombre.includes(t)).length;
 
     const score =
-      (envExacta ? 100 : 0)
+      (envExacta ? 100 : envOtros ? 60 : 0)
       + (providerExact ? 100 : integratorExact ? 80 : providerNameExact ? 60 : 10)
-      + (asesorExact ? 100 : asesorNameExact ? 60 : 10);
-    return [{ ...m, _score: score }];
+      + (asesorExact ? 100 : asesorNameExact ? 60 : asesorOk ? 20 : 0)
+      + Math.min(coincidencias, 3) * 8;
+    return [{
+      ...m,
+      _score: score,
+      _propio: providerExact || integratorExact || providerNameExact ? 1 : 0,
+      _asesor: asesorOk ? 1 : 0,
+    }];
   });
+
+  const delProveedor = todos.filter((m) => Number(m._propio) === 1);
+  const conAsesor = delProveedor.filter((m) => Number(m._asesor) === 1);
+  let candidates = conAsesor.length ? conAsesor : delProveedor.length ? delProveedor : todos;
 
   candidates.sort((a, b) => Number(b._score) - Number(a._score));
   if (!candidates.length) {

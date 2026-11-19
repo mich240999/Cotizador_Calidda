@@ -142,11 +142,11 @@ DECLARE
 BEGIN
   FOR r IN
     SELECT * FROM (VALUES
-      ('COT-COCINA',     'Ambiente cocina',     'COCINA'),
-      ('COT-SALA',       'Ambiente sala',       'SALA'),
-      ('COT-DORMITORIO', 'Ambiente dormitorio', 'DORMITORIO'),
-      ('COT-OTROS',      'Ambiente otros',      'OTROS')
-    ) AS x(codigo, nombre, ambiente)
+      ('COT-COCINA',     'Ambiente cocina',     'COCINA',     'Ambiente cocina · mueble de cocina cotizado'),
+      ('COT-SALA',       'Ambiente sala',       'SALA',       'Ambiente sala · mueble de sala cotizado'),
+      ('COT-DORMITORIO', 'Ambiente dormitorio', 'DORMITORIO', 'Ambiente dormitorio · mueble de dormitorio cotizado'),
+      ('COT-OTROS',      'Ambiente otros',      'OTROS',      'Otros ambientes · incluye diseño y remodelación')
+    ) AS x(codigo, nombre, ambiente, descripcion)
   LOOP
     SELECT id INTO v_id
       FROM public.mae_materiales
@@ -160,11 +160,11 @@ BEGIN
       INSERT INTO public.mae_materiales (
         id,codigo_sap,nombre,descripcion,unidad,tipo_medida,decimales,estado,espacio,espacio_remodelar
       ) VALUES (
-        v_id,r.codigo,r.nombre,'Material genérico para cotización','UND','LONGITUD',2,'ACTIVO','COTIZACION',r.ambiente
+        v_id,r.codigo,r.nombre,r.descripcion,'UND','LONGITUD',2,'ACTIVO','COTIZACION',r.ambiente
       );
     ELSE
       UPDATE public.mae_materiales
-        SET nombre=r.nombre, espacio='COTIZACION', espacio_remodelar=r.ambiente, estado='ACTIVO'
+        SET nombre=r.nombre, descripcion=r.descripcion, espacio='COTIZACION', espacio_remodelar=r.ambiente, estado='ACTIVO'
         WHERE id=v_id;
     END IF;
 
