@@ -57,12 +57,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [recordarme, setRecordarme] = useState(true);
   const [conflicto, setConflicto] = useState(false);
-  const [oscuro, setOscuro] = useState(false);
 
   useEffect(() => {
     try {
       const temaOscuro = localStorage.getItem("sh-theme") === "dark";
-      setOscuro(temaOscuro);
       document.documentElement.classList.toggle("dark", temaOscuro);
       const guardado = localStorage.getItem("calidda_correo");
       if (guardado) setCorreo(guardado);
@@ -203,15 +201,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     setAviso("Mantuvimos la sesión abierta en el otro equipo.");
   };
 
-  const alternarTema = () => {
-    const nuevoTema = !oscuro;
-    setOscuro(nuevoTema);
-    document.documentElement.classList.toggle("dark", nuevoTema);
-    try {
-      localStorage.setItem("sh-theme", nuevoTema ? "dark" : "light");
-    } catch { /* almacenamiento no disponible */ }
-  };
-
   const recuperar = useCallback(async () => {
     setError(null);
     setAviso(null);
@@ -250,9 +239,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!email) {
     return (
-      <div className="min-h-screen flex flex-col lg:flex-row bg-white dark:bg-slate-950 transition-colors">
+      <div className="h-[100dvh] overflow-hidden flex flex-col lg:h-auto lg:min-h-screen lg:flex-row lg:overflow-visible bg-white dark:bg-slate-950 transition-colors">
         {/* Izquierda: panel marca azul profundo */}
-        <div className="relative overflow-hidden lg:w-[46%] bg-gradient-to-br from-[#0B5FA5] via-[#0088C7] to-[#00A9CE] text-white flex flex-col justify-between p-6 sm:p-8 lg:p-16 min-h-0 lg:min-h-[420px]">
+        <div className="relative hidden overflow-hidden lg:flex lg:w-[46%] bg-gradient-to-br from-[#0B5FA5] via-[#0088C7] to-[#00A9CE] text-white flex-col justify-between p-16 min-h-[100svh]">
           <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.14]" viewBox="0 0 600 800" fill="none" stroke="white" strokeWidth="1.5" preserveAspectRatio="xMidYMid slice">
             <path d="M-40 140 C 160 200, 300 320, 380 560" />
             <path d="M-40 190 C 170 250, 320 370, 410 610" />
@@ -270,36 +259,18 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               Cotiza más rápido, simula financiamiento y cierra más ventas.
             </p>
           </div>
-          <p className="relative mt-6 lg:mt-10 text-xs sm:text-sm text-white/60">© 2026 Cálidda. Todos los derechos reservados.</p>
+          <p className="relative mt-10 text-sm text-white/60">© 2026 Cálidda. Todos los derechos reservados.</p>
         </div>
 
         {/* Derecha: acceso */}
-        <div className="relative flex-1 flex items-center justify-center p-5 pt-16 sm:p-8 sm:pt-20 lg:p-16 bg-white dark:bg-slate-950 transition-colors">
-          <button
-            type="button"
-            onClick={alternarTema}
-            title={oscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
-            aria-label={oscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
-            className="absolute right-5 top-5 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#0099D8]/30 bg-white text-[#0077B6] shadow-sm transition hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0099D8] dark:border-[#00A9CE]/40 dark:bg-slate-900 dark:text-sky-300 dark:hover:bg-slate-800 sm:right-8 sm:top-8"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              {oscuro ? (
-                <>
-                  <circle cx="12" cy="12" r="4" />
-                  <path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" />
-                </>
-              ) : (
-                <path d="M20.2 15.4A8.4 8.4 0 0 1 8.6 3.8 8.5 8.5 0 1 0 20.2 15.4Z" />
-              )}
-            </svg>
-          </button>
-          <div className="w-full max-w-sm rounded-3xl border border-slate-100 bg-white p-6 shadow-xl shadow-slate-900/5 transition-colors dark:border-[#0099D8]/25 dark:bg-slate-900 dark:shadow-black/30 sm:p-8">
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-3 sm:p-8 lg:overflow-visible lg:p-16 bg-white dark:bg-slate-950 transition-colors">
+          <div className="w-full max-w-sm rounded-3xl border border-slate-100 bg-white p-5 shadow-xl shadow-slate-900/5 transition-colors dark:border-[#0099D8]/25 dark:bg-slate-900 dark:shadow-black/30 sm:p-8">
             <div className="flex items-center gap-2.5 sm:gap-3">
               <LogoCalidda className="h-9 sm:h-11 w-auto" />
               <span className="text-xl sm:text-2xl font-extrabold text-slate-950 dark:text-white tracking-tight">Ambientes Cáliddos</span>
             </div>
 
-            <h1 className="mt-8 text-2xl sm:text-3xl font-extrabold text-slate-950 dark:text-white tracking-tight">
+            <h1 className="mt-6 text-2xl sm:mt-8 sm:text-3xl font-extrabold text-slate-950 dark:text-white tracking-tight">
               {vista === "login" ? "¡Bienvenido de nuevo!" : "Recupera tu acceso"}
             </h1>
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
@@ -310,7 +281,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               )}
             </p>
 
-            <div className="mt-8 space-y-7">
+            <div className="mt-6 space-y-5 sm:mt-8 sm:space-y-7">
               <div className="relative">
                 <svg className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                   <rect x="3" y="5" width="18" height="14" rx="2" />
@@ -403,7 +374,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               <p className="mt-5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-4 py-2.5 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300">{aviso}</p>
             )}
 
-            <p className="mt-8 text-center text-sm text-slate-500 dark:text-slate-400">
+            <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400 sm:mt-8">
               {vista === "login" ? (
                 <>¿Olvidaste tu contraseña? <button className="font-bold text-slate-950 underline underline-offset-2 hover:no-underline dark:text-sky-300" onClick={() => { setVista("recuperar"); setError(null); setAviso(null); }}>Clic aquí</button></>
               ) : (
