@@ -57,9 +57,13 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [recordarme, setRecordarme] = useState(true);
   const [conflicto, setConflicto] = useState(false);
+  const [oscuro, setOscuro] = useState(false);
 
   useEffect(() => {
     try {
+      const temaOscuro = localStorage.getItem("sh-theme") === "dark";
+      setOscuro(temaOscuro);
+      document.documentElement.classList.toggle("dark", temaOscuro);
       const guardado = localStorage.getItem("calidda_correo");
       if (guardado) setCorreo(guardado);
     } catch {
@@ -199,6 +203,15 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     setAviso("Mantuvimos la sesión abierta en el otro equipo.");
   };
 
+  const alternarTema = () => {
+    const nuevoTema = !oscuro;
+    setOscuro(nuevoTema);
+    document.documentElement.classList.toggle("dark", nuevoTema);
+    try {
+      localStorage.setItem("sh-theme", nuevoTema ? "dark" : "light");
+    } catch { /* almacenamiento no disponible */ }
+  };
+
   const recuperar = useCallback(async () => {
     setError(null);
     setAviso(null);
@@ -237,7 +250,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!email) {
     return (
-      <div className="min-h-screen flex flex-col lg:flex-row bg-white">
+      <div className="min-h-screen flex flex-col lg:flex-row bg-white dark:bg-slate-950 transition-colors">
         {/* Izquierda: panel marca azul profundo */}
         <div className="relative overflow-hidden lg:w-[46%] bg-gradient-to-br from-[#0B5FA5] via-[#0088C7] to-[#00A9CE] text-white flex flex-col justify-between p-6 sm:p-8 lg:p-16 min-h-0 lg:min-h-[420px]">
           <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.14]" viewBox="0 0 600 800" fill="none" stroke="white" strokeWidth="1.5" preserveAspectRatio="xMidYMid slice">
@@ -261,19 +274,37 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Derecha: acceso */}
-        <div className="flex-1 flex items-center justify-center p-5 sm:p-8 lg:p-16 bg-white">
-          <div className="w-full max-w-sm py-6 lg:py-0">
+        <div className="relative flex-1 flex items-center justify-center p-5 pt-16 sm:p-8 sm:pt-20 lg:p-16 bg-white dark:bg-slate-950 transition-colors">
+          <button
+            type="button"
+            onClick={alternarTema}
+            title={oscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+            aria-label={oscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+            className="absolute right-5 top-5 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#0099D8]/30 bg-white text-[#0077B6] shadow-sm transition hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0099D8] dark:border-[#00A9CE]/40 dark:bg-slate-900 dark:text-sky-300 dark:hover:bg-slate-800 sm:right-8 sm:top-8"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              {oscuro ? (
+                <>
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" />
+                </>
+              ) : (
+                <path d="M20.2 15.4A8.4 8.4 0 0 1 8.6 3.8 8.5 8.5 0 1 0 20.2 15.4Z" />
+              )}
+            </svg>
+          </button>
+          <div className="w-full max-w-sm rounded-3xl border border-slate-100 bg-white p-6 shadow-xl shadow-slate-900/5 transition-colors dark:border-[#0099D8]/25 dark:bg-slate-900 dark:shadow-black/30 sm:p-8">
             <div className="flex items-center gap-2.5 sm:gap-3">
               <LogoCalidda className="h-9 sm:h-11 w-auto" />
-              <span className="text-xl sm:text-2xl font-extrabold text-black tracking-tight">Ambientes Cáliddos</span>
+              <span className="text-xl sm:text-2xl font-extrabold text-slate-950 dark:text-white tracking-tight">Ambientes Cáliddos</span>
             </div>
 
-            <h1 className="mt-8 lg:mt-12 text-2xl sm:text-3xl font-extrabold text-black tracking-tight">
+            <h1 className="mt-8 text-2xl sm:text-3xl font-extrabold text-slate-950 dark:text-white tracking-tight">
               {vista === "login" ? "¡Bienvenido de nuevo!" : "Recupera tu acceso"}
             </h1>
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
               {vista === "login" ? (
-                <>Ingresa con tu <u className="font-semibold text-slate-700">cuenta autorizada</u>, es rápido y seguro.</>
+                <>Ingresa con tu <u className="font-semibold text-slate-700 dark:text-slate-200">cuenta autorizada</u>, es rápido y seguro.</>
               ) : (
                 "Te enviaremos un enlace para crear una nueva contraseña."
               )}
@@ -281,14 +312,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
             <div className="mt-8 space-y-7">
               <div className="relative">
-                <svg className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <svg className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                   <rect x="3" y="5" width="18" height="14" rx="2" />
                   <path d="m3 7 9 6 9-6" />
                 </svg>
                 <input
                   type="email"
                   autoComplete="email"
-                  className="w-full border-0 border-b-2 border-slate-200 bg-transparent pl-8 pr-0 py-2.5 text-[15px] font-semibold text-black placeholder:font-normal placeholder:text-slate-400 focus:border-black focus:outline-none focus:ring-0"
+                  className="w-full border-0 border-b-2 border-slate-200 bg-transparent pl-8 pr-0 py-2.5 text-[15px] font-semibold text-slate-950 placeholder:font-normal placeholder:text-slate-400 focus:border-[#0099D8] focus:outline-none focus:ring-0 dark:border-slate-700 dark:text-slate-100 dark:placeholder:text-slate-500"
                   placeholder="tucorreo@empresa.com"
                   value={correo}
                   onChange={(e) => setCorreo(e.target.value)}
@@ -297,14 +328,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               </div>
               {vista === "login" && (
                 <div className="relative">
-                  <svg className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <svg className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <rect x="4" y="10" width="16" height="10" rx="2" />
                     <path d="M8 10V7a4 4 0 0 1 8 0v3" />
                   </svg>
                   <input
                     type={verClave ? "text" : "password"}
                     autoComplete="current-password"
-                    className="w-full border-0 border-b-2 border-slate-200 bg-transparent pl-8 pr-10 py-2.5 text-[15px] text-black placeholder:text-slate-400 focus:border-black focus:outline-none focus:ring-0"
+                    className="w-full border-0 border-b-2 border-slate-200 bg-transparent pl-8 pr-10 py-2.5 text-[15px] text-slate-950 placeholder:text-slate-400 focus:border-[#0099D8] focus:outline-none focus:ring-0 dark:border-slate-700 dark:text-slate-100 dark:placeholder:text-slate-500"
                     placeholder="Password"
                     value={clave}
                     onChange={(e) => setClave(e.target.value)}
@@ -313,7 +344,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     onClick={() => setVerClave((v) => !v)}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 rounded-md p-1 text-[#0077B6] transition hover:bg-sky-50 hover:text-[#005B96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0099D8]"
+                    className="absolute right-0 top-1/2 -translate-y-1/2 rounded-md p-1 text-[#0077B6] transition hover:bg-sky-50 hover:text-[#005B96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0099D8] dark:text-sky-300 dark:hover:bg-slate-800 dark:hover:text-sky-200"
                     title={verClave ? "Ocultar" : "Mostrar"}
                     aria-label={verClave ? "Ocultar contraseña" : "Mostrar contraseña"}
                   >
@@ -336,7 +367,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                 </div>
               )}
               {vista === "login" && (
-                <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={recordarme}
@@ -348,7 +379,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               )}
               {vista === "login" ? (
                 <button
-                  className="w-full rounded-xl bg-[#0077B6] py-3.5 text-[15px] font-semibold text-white transition hover:bg-[#005B96] active:bg-[#004E89] disabled:opacity-60"
+                  className="w-full rounded-xl bg-[#0077B6] py-3.5 text-[15px] font-semibold text-white transition hover:bg-[#005B96] active:bg-[#004E89] disabled:opacity-60 dark:bg-sky-700 dark:hover:bg-sky-600 dark:active:bg-sky-800"
                   onClick={() => ingresar()}
                   disabled={busy}
                 >
@@ -356,7 +387,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                 </button>
               ) : (
                 <button
-                  className="w-full rounded-xl bg-[#0077B6] py-3.5 text-[15px] font-semibold text-white transition hover:bg-[#005B96] active:bg-[#004E89] disabled:opacity-60"
+                  className="w-full rounded-xl bg-[#0077B6] py-3.5 text-[15px] font-semibold text-white transition hover:bg-[#005B96] active:bg-[#004E89] disabled:opacity-60 dark:bg-sky-700 dark:hover:bg-sky-600 dark:active:bg-sky-800"
                   onClick={recuperar}
                   disabled={busy}
                 >
@@ -366,17 +397,17 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
             </div>
 
             {error && (
-              <p className="mt-5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-2.5">{error}</p>
+              <p className="mt-5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-2.5 dark:bg-red-950/40 dark:border-red-900 dark:text-red-300">{error}</p>
             )}
             {aviso && (
-              <p className="mt-5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-4 py-2.5">{aviso}</p>
+              <p className="mt-5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-4 py-2.5 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300">{aviso}</p>
             )}
 
-            <p className="mt-8 text-center text-sm text-slate-500">
+            <p className="mt-8 text-center text-sm text-slate-500 dark:text-slate-400">
               {vista === "login" ? (
-                <>¿Olvidaste tu contraseña? <button className="font-bold text-black underline underline-offset-2 hover:no-underline" onClick={() => { setVista("recuperar"); setError(null); setAviso(null); }}>Clic aquí</button></>
+                <>¿Olvidaste tu contraseña? <button className="font-bold text-slate-950 underline underline-offset-2 hover:no-underline dark:text-sky-300" onClick={() => { setVista("recuperar"); setError(null); setAviso(null); }}>Clic aquí</button></>
               ) : (
-                <button className="font-bold text-black underline underline-offset-2 hover:no-underline" onClick={() => { setVista("login"); setError(null); setAviso(null); }}>← Volver a iniciar sesión</button>
+                <button className="font-bold text-slate-950 underline underline-offset-2 hover:no-underline dark:text-sky-300" onClick={() => { setVista("login"); setError(null); setAviso(null); }}>← Volver a iniciar sesión</button>
               )}
             </p>
           </div>
@@ -387,7 +418,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               role="dialog"
               aria-modal="true"
               aria-labelledby="conflicto-sesion-titulo"
-              className="w-full max-w-xl rounded-2xl border border-amber-200 bg-[#fffdf5] p-5 text-amber-950 shadow-2xl sm:p-7"
+              className="w-full max-w-xl rounded-2xl border border-amber-200 bg-[#fffdf5] p-5 text-amber-950 shadow-2xl dark:border-amber-800 dark:bg-slate-900 dark:text-slate-100 sm:p-7"
             >
               <div className="flex items-start gap-3">
                 <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xl">!</span>
@@ -395,7 +426,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                   <h2 id="conflicto-sesion-titulo" className="text-lg font-extrabold sm:text-xl">
                     Tu cuenta ya tiene una sesión activa
                   </h2>
-                  <p className="mt-2 text-sm leading-relaxed text-amber-900/80">
+                  <p className="mt-2 text-sm leading-relaxed text-amber-900/80 dark:text-slate-300">
                     Si continúas, se cerrará la sesión anterior. ¿Cómo deseas proceder?
                   </p>
                 </div>
@@ -405,7 +436,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
                   type="button"
                   onClick={mantenerSesion}
                   disabled={busy}
-                  className="min-h-12 flex-1 rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-bold text-amber-950 transition hover:bg-amber-50 disabled:opacity-60"
+                  className="min-h-12 flex-1 rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-bold text-amber-950 transition hover:bg-amber-50 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                 >
                   Mantener la sesión actual
                 </button>
