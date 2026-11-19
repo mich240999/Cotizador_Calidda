@@ -5,7 +5,7 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
-import { AccAprobar, AccVer } from "@/components/Accion";
+import { AccAprobar, AccSolicitar, AccVer } from "@/components/Accion";
 import { BadgeEstadoVenta, BadgeEvidencia, ETIQUETA_EVIDENCIA, useRolVista } from "@/components/VentasComun";
 
 type Fila = Record<string, unknown>;
@@ -300,8 +300,8 @@ export default function InstalacionesPage() {
         title="Instalaciones"
         desc="Ventas con PV generado: el proveedor solicita liquidación y luego se liquida. Busca arriba, tabla debajo."
         actions={<>
-          <button className="btn-white !bg-white/95" onClick={() => cargar()} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
-          <button className="btn-white !bg-white/95" onClick={exportar} disabled={filtradas.length === 0}>Exportar XLSX</button>
+          <button className="btn-white !bg-white/95 dark:!bg-slate-800 dark:!text-slate-100 dark:!border-slate-600" onClick={() => cargar()} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
+          <button className="btn-white !bg-white/95 dark:!bg-slate-800 dark:!text-slate-100 dark:!border-slate-600" onClick={exportar} disabled={filtradas.length === 0}>Exportar XLSX</button>
         </>}
       />
       <div className="card p-4 mt-4 flex flex-wrap gap-3 items-end">
@@ -370,7 +370,7 @@ export default function InstalacionesPage() {
                   <td className="whitespace-nowrap">
                     <div className="flex gap-1.5">
                       {puedeRegistrar(v) && (
-                        <button className="btn-green !py-1 !px-3 !text-xs" title="Solicitar liquidación" onClick={() => setReg(v)}>🔧</button>
+                        <AccSolicitar title="Solicitar liquidación" onClick={() => setReg(v)} />
                       )}
                       <AccVer title="Ver evidencias" onClick={() => setVer(v)} />
                       {puedeLiquidar(v) && (
