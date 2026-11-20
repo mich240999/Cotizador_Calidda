@@ -1607,13 +1607,18 @@ async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionCo
         for (const m of ((mats ?? []) as Fila[])) mMat.set(String(m.id), m);
       } catch { /* sin maestro: se muestra el id */ }
     }
+    const numeroPedidoVenta = String(sol.numero_pedido ?? "");
+    const numeroPedidoAbono = String(sol.pv_abono ?? "");
     const items = itemsRaw.map((it) => {
       const m = mMat.get(String(it.id_material ?? ""));
       const codigo = String(m?.codigo_tmp ?? m?.codigo_sap ?? "");
       const nombre = String(m?.nombre ?? "");
       const desc = String(m?.descripcion ?? "");
+      const tipoPedido = String(it.tipo_pedido ?? "VENTA").toUpperCase();
       return {
         ...it,
+        numero_pedido_venta: tipoPedido === "VENTA" ? (it.numero_pedido_venta || numeroPedidoVenta || null) : it.numero_pedido_venta,
+        numero_pedido_abono: tipoPedido === "ABONO" ? (it.numero_pedido_abono || numeroPedidoAbono || null) : it.numero_pedido_abono,
         material_codigo: codigo,
         material_nombre: nombre || String(it.id_material ?? ""),
         material_descripcion: desc || nombre || String(it.id_material ?? ""),
@@ -1972,6 +1977,17 @@ async function hRegistrarPV(args: z.infer<typeof EsquemaRegistrarPV>, ctx: Opera
       const m = error?.message ?? "No se pudo registrar el PV";
       if (/duplicate|unique|llave duplicada|ya existe/i.test(m)) lanzar(409, `Ese pedido de venta ya está registrado: ${args.numero_pedido_venta}`);
       throw new Error(m);
+    }
+    const numeroVenta = String(args.numero_pedido_venta).trim();
+    const { error: errorLineasVenta } = await ctx.service.from(T_ITEM)
+      .update({ numero_pedido_venta: numeroVenta })
+      .eq("solicitud_id", args.solicitud_id).eq("tipo_pedido", "VENTA");
+    if (errorLineasVenta) throw new Error(`El pedido de venta se registró, pero no se pudo copiar a sus líneas: ${errorLineasVenta.message}`);
+    if (pvAbono) {
+      const { error: errorLineasAbono } = await ctx.service.from(T_ITEM)
+        .update({ numero_pedido_abono: pvAbono })
+        .eq("solicitud_id", args.solicitud_id).eq("tipo_pedido", "ABONO");
+      if (errorLineasAbono) throw new Error(`El pedido de abono se registró, pero no se pudo copiar a sus líneas: ${errorLineasAbono.message}`);
     }
     return { solicitud: data, parcial };
   } catch (e) {
@@ -2383,7 +2399,14 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
           .in("solicitud_id", rows.map((r) => String(r.id))).limit(2000);
         for (const it of ((its ?? []) as Fila[])) {
           const k = String(it.solicitud_id);
-          mItems.set(k, [...(mItems.get(k) ?? []), it]);
+          const sol = rows.find((r) => String(r.id) === k);
+          const tipo = String(it.tipo_pedido ?? "VENTA").toUpperCase();
+          const item = {
+            ...it,
+            numero_pedido_venta: tipo === "VENTA" ? (it.numero_pedido_venta || sol?.numero_pedido || null) : it.numero_pedido_venta,
+            numero_pedido_abono: tipo === "ABONO" ? (it.numero_pedido_abono || sol?.pv_abono || null) : it.numero_pedido_abono,
+          };
+          mItems.set(k, [...(mItems.get(k) ?? []), item]);
         }
       } catch { /* sin ítems */ }
     }
