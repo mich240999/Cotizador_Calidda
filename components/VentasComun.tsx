@@ -53,7 +53,7 @@ export function fileToDataURL(f: File, maxMB = 6): Promise<string> {
 /** Detecta el rol real del usuario para mostrar las acciones disponibles. */
 export function useRolVista() {
   const [detectado, setDetectado] = useState(false);
-  const [esAdmin, setEsAdmin] = useState(false);
+  const [rol, setRol] = useState("");
   useEffect(() => {
     let vivo = true;
     (async () => {
@@ -62,8 +62,7 @@ export function useRolVista() {
         const perfil = await respuesta.json();
         if (!respuesta.ok || !perfil?.ok) return;
         if (vivo) {
-          const admin = String(perfil.rol).toUpperCase() === "ADMIN";
-          setEsAdmin(admin);
+          setRol(String(perfil.rol).toUpperCase());
           setDetectado(true);
         }
       } catch {
@@ -74,7 +73,7 @@ export function useRolVista() {
       vivo = false;
     };
   }, []);
-  return { esAdmin, detectado };
+  return { esAdmin: rol === "ADMIN", esProveedor: rol === "PROVEEDOR", detectado };
 }
 
 export type Venta = Record<string, unknown>;

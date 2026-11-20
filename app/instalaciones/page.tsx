@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import EntregaInstalacion from "@/components/EntregaInstalacion";
 import RevisionEvidencias from "@/components/RevisionEvidencias";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
-import { AccAprobar, AccSolicitar, AccVer } from "@/components/Accion";
-import { BadgeEstadoVenta, BadgeEvidencia, ETIQUETA_EVIDENCIA, useRolVista } from "@/components/VentasComun";
+import { AccSolicitar } from "@/components/Accion";
+import { BadgeEstadoVenta, SUSTENTOS_INSTALACION, useRolVista } from "@/components/VentasComun";
 
 type Fila = Record<string, unknown>;
 
@@ -77,21 +77,62 @@ function RegistroLiquidacion({ v, onClose, onHecho }: { v: Fila; onClose: () => 
   );
 }
 
-function VerInstalacion({ v, esAdmin, onClose, onChanged }: { v: Fila; esAdmin: boolean; onClose: () => void; onChanged: () => void }) {
-  const evidencias = Array.isArray(v.evidencias) ? (v.evidencias as Fila[]) : [];
+type AccionInstalacion = "detalle" | "entrega" | "revision";
+
+function evidenciasDe(v: Fila): Fila[] {
+  return Array.isArray(v.evidencias) ? v.evidencias : [];
+}
+
+function VentanaInstalacion({ v, accion, onClose, onChanged }: {
+  v: Fila; accion: AccionInstalacion; onClose: () => void; onChanged: () => void;
+}) {
+  const evidencias = evidenciasDe(v);
+  const titulo = accion === "detalle" ? "Detalle de venta e instalación"
+    : accion === "revision" ? "Revisar evidencias"
+    : evidencias.some((e) => e.estado === "rechazado") ? "Subsanar adjuntos" : "Subir adjuntos";
+  const guardar = () => { onChanged(); onClose(); };
+  const campos = [
+    ["Cliente", v.cliente_nombre], ["Cuenta contrato", v.cuenta_contrato],
+    ["Proveedor", v.proveedor_nombre], ["Asesor", v.asesor_nombre],
+    ["Cotización", v.cotizacion_codigo], ["Pedido de venta", v.numero_pedido],
+    ["Estado de venta", <BadgeEstadoVenta estado={String(v.estado ?? "")} />],
+    ["Estado de instalación", estadoInstDe(v).replace(/_/g, " ")],
+    ["Total", formatoMoneda(Number(v.monto_total ?? 0))], ["Ambiente", v.ambiente],
+    ["Anticipo", formatoMoneda(Number(v.anticipo ?? 0))], ["Cuotas", v.nro_cuotas],
+  ] as const;
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl w-full max-w-4xl shadow-xl my-6 overflow-hidden">
-        <div className="px-6 py-4 border-b bg-slate-50"><h2 className="font-bold text-lg">Evidencias de instalación · {String(v.id)}</h2></div>
-        <div className="p-6"><RevisionEvidencias solicitudId={String(v.id)} evidencias={evidencias} esAdmin={esAdmin} onChanged={() => { onChanged(); onClose(); }} /></div>
-        <div className="flex justify-end px-6 py-4 border-t"><button className="btn-white" onClick={onClose}>Cerrar</button></div>
+      <div role="dialog" aria-modal="true" aria-labelledby="instalacion-titulo" className="bg-white rounded-2xl w-full max-w-4xl shadow-xl my-6 overflow-hidden">
+        <div className="px-6 py-4 border-b bg-slate-50 flex justify-between gap-3">
+          <h2 id="instalacion-titulo" className="font-bold text-lg">{titulo} · {String(v.id)}</h2>
+          <button className="btn-white" onClick={onClose}>Cerrar</button>
+        </div>
+        <div className="p-6">
+          {accion === "entrega" ? <EntregaInstalacion id={String(v.id)} evidencias={evidencias} onSaved={guardar} /> : <>
+            {accion === "detalle" && <dl className="grid gap-3 sm:grid-cols-2">
+              {campos.map(([nombre, valor]) => <div key={nombre}><dt className="label">{nombre}</dt><dd>{typeof valor === "object" && valor !== null ? valor as React.ReactNode : String(valor ?? "—")}</dd></div>)}
+            </dl>}
+            {accion === "detalle" && Array.isArray(v.items) && v.items.length > 0 && <div className="mt-4 overflow-x-auto">
+              <table className="tabla">
+                <thead><tr><th>Material</th><th>Cantidad</th><th>Subtotal</th><th>Pedido</th></tr></thead>
+                <tbody>{(v.items as Fila[]).map((item) => <tr key={String(item.id)}>
+                  <td>{String(item.material_nombre ?? item.id_material ?? "—")}</td>
+                  <td>{String(item.cantidad ?? "—")}</td>
+                  <td>{formatoMoneda(Number(item.subtotal ?? 0))}</td>
+                  <td>{String(item.numero_pedido_venta ?? item.numero_pedido_abono ?? "—")}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>}
+            <RevisionEvidencias solicitudId={String(v.id)} evidencias={evidencias} esAdmin={accion === "revision"} onChanged={guardar} />
+          </>}
+        </div>
       </div>
     </div>
   );
 }
 
 export default function InstalacionesPage() {
-  const { esAdmin } = useRolVista();
+  const { esAdmin, esProveedor } = useRolVista();
   const [rows, setRows] = useState<Fila[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +143,7 @@ export default function InstalacionesPage() {
   const [fDesde, setFDesde] = useState("");
   const [fHasta, setFHasta] = useState("");
   const [reg, setReg] = useState<Fila | null>(null);
-  const [ver, setVer] = useState<Fila | null>(null);
+  const [ventana, setVentana] = useState<{ v: Fila; accion: AccionInstalacion } | null>(null);
   const [liquidando, setLiquidando] = useState<string | null>(null);
   const [revirtiendo, setRevirtiendo] = useState<string | null>(null);
 
@@ -302,8 +343,14 @@ export default function InstalacionesPage() {
                       {puedeRegistrar(v) && (
                         <AccSolicitar title="Solicitar liquidación" onClick={() => setReg(v)} />
                       )}
-                      <AccVer title="Ver evidencias" onClick={() => setVer(v)} />
-                      <Link href={`/ventas/${encodeURIComponent(String(v.id))}`} className="btn-white !py-1 !px-3 !text-xs" title="Gestionar instalación y venta">Gestionar</Link>
+                      {esProveedor && ["generada", "aprobada", "en_instalacion", "instalada", "observada", "subsanado_pendiente"].includes(String(v.estado)) &&
+                        (["pendiente_instalar", "pendiente", "observada"].includes(estadoInstDe(v)) || evidenciasDe(v).some((e) => e.estado === "rechazado")) &&
+                        <button className="btn-white !py-1 !px-3 !text-xs" onClick={() => setVentana({ v, accion: "entrega" })}>
+                          {estadoInstDe(v) === "observada" || evidenciasDe(v).some((e) => e.estado === "rechazado") ? "Subsanar adjuntos" : "Subir adjuntos"}
+                        </button>}
+                      {esAdmin && ["instalada", "observada", "subsanado_pendiente"].includes(String(v.estado)) && SUSTENTOS_INSTALACION.every(({ tipo }) => evidenciasDe(v).some((e) => e.tipo === tipo && e.url)) &&
+                        <button className="btn-green !py-1 !px-3 !text-xs" onClick={() => setVentana({ v, accion: "revision" })}>Revisar evidencias</button>}
+                      <button className="btn-white !py-1 !px-3 !text-xs" onClick={() => setVentana({ v, accion: "detalle" })}>Ver detalle</button>
                       {puedeLiquidar(v) && (
                         <button className="btn-green !py-1 !px-3 !text-xs" title="Liquidar (ya liquidado en SAP)" disabled={liquidando === String(v.id)} onClick={() => liquidar(v)}>
                           {liquidando === String(v.id) ? "…" : "✓ Liquidar"}
@@ -324,7 +371,7 @@ export default function InstalacionesPage() {
       )}
 
       {reg && <RegistroLiquidacion v={reg} onClose={() => setReg(null)} onHecho={() => cargar()} />}
-      {ver && <VerInstalacion v={ver} esAdmin={esAdmin} onClose={() => setVer(null)} onChanged={() => void cargar()} />}
+      {ventana && <VentanaInstalacion {...ventana} onClose={() => setVentana(null)} onChanged={() => void cargar()} />}
     </Shell></AuthGate>
   );
 }
