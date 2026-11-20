@@ -14,6 +14,7 @@ type Corte = {
   asunto?: string | null;
   mensaje?: string | null;
   activo?: boolean | null;
+  modo_envio?: "automatico" | "programado" | null;
   ultimo_envio?: string | null;
 };
 
@@ -26,6 +27,10 @@ const TITULOS: Record<string, { titulo: string; desc: string }> = {
     titulo: "Pedidos pendientes de liquidar",
     desc: "Cuenta instalaciones listas para liquidar. Solo envía el aviso si hay pendientes a la hora del corte.",
   },
+  subsanaciones: {
+    titulo: "Avisos de solicitudes por subsanar",
+    desc: "Avisa a cada proveedor por sus solicitudes observadas o evidencias rechazadas. El correo se toma de Administración → Proveedores.",
+  },
 };
 
 function CorteCard({ c, onGuardado }: { c: Corte; onGuardado: () => void }) {
@@ -36,13 +41,15 @@ function CorteCard({ c, onGuardado }: { c: Corte; onGuardado: () => void }) {
   const [asunto, setAsunto] = useState(String(c.asunto ?? ""));
   const [mensaje, setMensaje] = useState(String(c.mensaje ?? ""));
   const [activo, setActivo] = useState(!!c.activo);
+  const esSubsanaciones = c.clave === "subsanaciones";
+  const [modoEnvio, setModoEnvio] = useState<"automatico" | "programado">(c.modo_envio ?? (esSubsanaciones ? "automatico" : "programado"));
   const [msg, setMsg] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [trabajando, setTrabajando] = useState(false);
 
   const guardarConfig = async () => {
     await apiOperacion("cfgCorteGuardar", {
-      clave: c.clave, horas, para, copia, asunto, mensaje, activo,
+      clave: c.clave, horas, para, copia, asunto, mensaje, activo, modo_envio: modoEnvio,
     });
   };
 
@@ -61,15 +68,17 @@ function CorteCard({ c, onGuardado }: { c: Corte; onGuardado: () => void }) {
 
   const enviarAhora = async () => {
     setMsg(null); setOk(null);
-    if (!/@[a-z]/i.test(para.trim())) {
+    if (!esSubsanaciones && !/@[a-z]/i.test(para.trim())) {
       setMsg("Escribe un correo destino válido antes de enviar la prueba.");
       return;
     }
     setTrabajando(true);
     try {
       await guardarConfig();
-      const r = await apiOperacion<{ enviado?: boolean; motivo?: string; cantidad?: number }>("cfgCorteEnviar", { clave: c.clave });
-      setOk(r?.enviado ? `Correo enviado (${r.cantidad ?? 0} pendientes).` : `No enviado: ${r?.motivo ?? ""}`);
+      const r = await apiOperacion<{ enviado?: boolean; motivo?: string; cantidad?: number; proveedores?: number }>("cfgCorteEnviar", { clave: c.clave });
+      setOk(r?.enviado ? (esSubsanaciones
+        ? `Aviso enviado a ${r.proveedores ?? 0} proveedores (${r.cantidad ?? 0} pendientes).`
+        : `Correo enviado (${r.cantidad ?? 0} pendientes).`) : `No enviado: ${r?.motivo ?? ""}`);
       onGuardado();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "No se pudo enviar");
@@ -89,10 +98,18 @@ function CorteCard({ c, onGuardado }: { c: Corte; onGuardado: () => void }) {
       </div>
       <p className="text-xs text-slate-400 mt-1">{t.desc}</p>
       <div className="grid md:grid-cols-2 gap-3 mt-4">
-        <div>
+        {esSubsanaciones && <div>
+          <label className="label">Cuándo enviar</label>
+          <select className="input" value={modoEnvio} onChange={(e) => setModoEnvio(e.target.value as "automatico" | "programado")}>
+            <option value="automatico">Automático al observar o rechazar</option>
+            <option value="programado">A una hora, agrupando todos los pendientes</option>
+          </select>
+        </div>}
+        {(!esSubsanaciones || modoEnvio === "programado") && <div>
           <label className="label">Horas de corte (Lima, separadas por coma)</label>
           <input className="input" placeholder="12:00,17:00" value={horas} onChange={(e) => setHoras(e.target.value)} />
-        </div>
+          {esSubsanaciones && <p className="text-[11px] text-slate-400 mt-1">Usa formato HH:MM, hora de Lima. El proceso revisa cada minuto.</p>}
+        </div>}
         <div className="flex items-end pb-1">
           <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
             <input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
@@ -100,8 +117,9 @@ function CorteCard({ c, onGuardado }: { c: Corte; onGuardado: () => void }) {
           </label>
         </div>
         <div>
-          <label className="label">Correo destino *</label>
-          <input className="input" placeholder="responsable@empresa.com" value={para} onChange={(e) => setPara(e.target.value)} />
+          <label className="label">{esSubsanaciones ? "Correos adicionales (opcional)" : "Correo destino *"}</label>
+          <input className="input" placeholder={esSubsanaciones ? "supervision@empresa.com" : "responsable@empresa.com"} value={para} onChange={(e) => setPara(e.target.value)} />
+          {esSubsanaciones && <p className="text-[11px] text-slate-400 mt-1">También se envía al correo registrado en cada proveedor.</p>}
         </div>
         <div>
           <label className="label">Correos en copia</label>
@@ -109,11 +127,11 @@ function CorteCard({ c, onGuardado }: { c: Corte; onGuardado: () => void }) {
         </div>
       </div>
       <div className="mt-3">
-        <label className="label">Asunto (usa {"{cantidad}"}, {"{hora}"}, {"{fecha}"})</label>
+        <label className="label">Asunto (usa {"{cantidad}"}, {"{proveedor}"}, {"{hora}"}, {"{fecha}"})</label>
         <input className="input" value={asunto} onChange={(e) => setAsunto(e.target.value)} />
       </div>
       <div className="mt-3">
-        <label className="label">Mensaje (usa {"{cantidad}"}, {"{hora}"}, {"{fecha}"}, {"{detalle}"})</label>
+        <label className="label">Mensaje (usa {"{cantidad}"}, {"{proveedor}"}, {"{hora}"}, {"{fecha}"}, {"{detalle}"})</label>
         <textarea className="input min-h-[90px]" value={mensaje} onChange={(e) => setMensaje(e.target.value)} />
       </div>
       {msg && <p className="mt-3 text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
@@ -224,6 +242,7 @@ function CorreoCotizacionCard() {
 export default function CortesPage() {
   const [cortes, setCortes] = useState<Corte[]>([]);
   const [necesitaMigracion, setNecesitaMigracion] = useState(false);
+  const [necesitaMigracionSubsanaciones, setNecesitaMigracionSubsanaciones] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -231,9 +250,10 @@ export default function CortesPage() {
     if (!silencioso) setLoading(true);
     setError(null);
     try {
-      const r = await apiOperacion<{ cortes?: Corte[]; necesitaMigracion?: boolean }>("cfgCortesListar", {});
+      const r = await apiOperacion<{ cortes?: Corte[]; necesitaMigracion?: boolean; necesitaMigracionSubsanaciones?: boolean }>("cfgCortesListar", {});
       setCortes(Array.isArray(r?.cortes) ? r.cortes : []);
       setNecesitaMigracion(!!r?.necesitaMigracion);
+      setNecesitaMigracionSubsanaciones(!!r?.necesitaMigracionSubsanaciones);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar");
     } finally {
@@ -258,6 +278,11 @@ export default function CortesPage() {
         {necesitaMigracion && (
           <p className="card p-4 text-sm text-amber-800 bg-amber-50 border-amber-200">
             Falta la tabla cfg_cortes: ejecuta la migración 03 (etapa 5) en el SQL Editor de Supabase.
+          </p>
+        )}
+        {!necesitaMigracion && necesitaMigracionSubsanaciones && (
+          <p className="card p-4 text-sm text-amber-800 bg-amber-50 border-amber-200">
+            Para habilitar los avisos configurables de subsanación, ejecuta <b>supabase/migracion_subsanaciones_correo_01.sql</b> en el SQL Editor de Supabase.
           </p>
         )}
         {!loading && !necesitaMigracion && cortes.map((c) => (

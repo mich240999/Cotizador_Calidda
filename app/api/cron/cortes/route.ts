@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/cron/cortes?tipo=ventas|instalaciones|todos
- * Lo llama pg_cron cada 15 min (ver supabase/cortes_pg_cron.sql).
+ * Lo llama pg_cron cada minuto (ver supabase/cortes_pg_cron.sql).
  * Envía solo en las horas configuradas en Administración > Cortes.
  * Header: Authorization: Bearer <CRON_SECRET>.
  */
@@ -24,8 +24,8 @@ export async function GET(req: Request) {
   const claves = tipo === "ventas"
     ? ["ventas_pv"] as const
     : tipo === "instalaciones"
-      ? ["instalaciones_liq"] as const
-      : ["ventas_pv", "instalaciones_liq"] as const;
+      ? ["instalaciones_liq", "subsanaciones"] as const
+      : ["ventas_pv", "instalaciones_liq", "subsanaciones"] as const;
   try {
     const service = createSupabaseServiceRole() as unknown as { from(t: string): unknown };
     const resultados = [];

@@ -386,22 +386,35 @@ async function avisarObservacion(
   motivo: string
 ): Promise<"enviado" | "omitido"> {
   try {
-    if (!correoConfigurado()) return "omitido";
-    const { data: sol } = await ctx.service.from(T_SOL).select("created_by").eq("id", solicitudId).maybeSingle();
-    const uid = (sol as { created_by?: string } | null)?.created_by;
-    if (!uid) return "omitido";
-    const { data: usr } = await ctx.service.auth.admin.getUserById(uid);
-    const destino = usr?.user?.email;
-    if (!destino) return "omitido";
-    await enviarCorreo({
-      to: destino,
-      subject: `Subsanar ${etapa} — solicitud ${solicitudId}`,
-      text: `Administración observó ${etapa} de tu solicitud ${solicitudId} y hay algo por subsanar.\n\nMotivo: ${motivo}\n\nCorrige y vuelve a subir los sustentos correctos desde el detalle de la venta; el proceso continúa desde donde quedó.`,
-    });
-    return "enviado";
+    const [{ data: cfg, error: eCfg }, { data: solicitud, error: eSol }] = await Promise.all([
+      ctx.service.from("cfg_cortes").select("activo,modo_envio").eq("clave", "subsanaciones").maybeSingle(),
+      ctx.service.from(T_SOL).select("id_proveedor").eq("id", solicitudId).maybeSingle(),
+    ]);
+    if (eCfg || eSol || !cfg || !solicitud) return "omitido";
+    const { data: aviso, error } = await ctx.service.from("cfg_subsanaciones_cola").insert({
+      solicitud_id: solicitudId,
+      id_proveedor: (solicitud as Fila).id_proveedor ?? null,
+      etapa,
+      motivo: motivo.trim(),
+    }).select("id").single();
+    if (error || !aviso) return "omitido";
+    if (cfg.activo && String(cfg.modo_envio ?? "automatico") === "automatico" && correoConfigurado()) {
+      const resultado = await procesarAvisosSubsanacion(ctx.service, true, [Number((aviso as Fila).id)]);
+      return resultado.enviado ? "enviado" : "omitido";
+    }
+    return "omitido";
   } catch {
     return "omitido";
   }
+}
+
+async function resolverAvisosSubsanacion(service: Servicio, solicitudId: string, etapas?: string[]): Promise<void> {
+  try {
+    let q = service.from("cfg_subsanaciones_cola").update({ resuelto_at: new Date().toISOString() })
+      .eq("solicitud_id", solicitudId).is("enviado_at", null).is("resuelto_at", null);
+    if (etapas?.length) q = q.in("etapa", etapas);
+    await q;
+  } catch { /* la cola se habilita con migracion_subsanaciones_correo_01.sql */ }
 }
 
 // ---------------------------------------------------------------- schemas
@@ -1180,6 +1193,9 @@ async function hValidarAbono(args: z.infer<typeof EsquemaValidarAbono>, ctx: Ope
         const aviso = await avisarObservacion(ctx, sid, "tu abono", args.observacion || "");
         return { ...(data as object), aviso_email: aviso };
       }
+    } else {
+      const sid = String((data as { solicitud_id?: string }).solicitud_id ?? "");
+      if (sid) await resolverAvisosSubsanacion(ctx.service, sid, ["tu abono"]);
     }
     return data;
   } catch (e) {
@@ -1223,6 +1239,7 @@ async function hAprobarSolicitud(args: z.infer<typeof EsquemaAprobar>, ctx: Oper
       .select()
       .single();
     if (error || !data) throw new Error(error?.message ?? `Solicitud no encontrada: ${args.solicitud_id}`);
+    await resolverAvisosSubsanacion(ctx.service, args.solicitud_id, ["tu solicitud"]);
     return data;
   } catch (e) {
     exigirTabla(e);
@@ -1330,6 +1347,7 @@ async function hRegistrarInstalacion(args: z.infer<typeof EsquemaInstalacion>, c
       .select()
       .single();
     if (eCab) throw new Error(eCab.message);
+    await resolverAvisosSubsanacion(ctx.service, args.solicitud_id, ["las evidencias de instalación", "la instalación"]);
     return { solicitud: cab, instalacion, evidencias, estado: estadoSol };
   } catch (e) {
     exigirTabla(e);
@@ -1953,20 +1971,21 @@ async function hRegistrarPV(args: z.infer<typeof EsquemaRegistrarPV>, ctx: Opera
 
 // ---------------------------------------------------------------- Etapa 5: cortes programados
 
-const CLAVES_CORTE = ["ventas_pv", "instalaciones_liq"] as const;
+const CLAVES_CORTE = ["ventas_pv", "instalaciones_liq", "subsanaciones"] as const;
 
 const EsquemaGuardarCorte = z.object({
-  clave: z.enum(["ventas_pv", "instalaciones_liq"]),
+  clave: z.enum(CLAVES_CORTE),
   horas: z.string().trim().max(200).optional().default(""),
   para: z.string().trim().max(500).optional().default(""),
   copia: z.string().trim().max(500).optional().default(""),
   asunto: z.string().trim().max(200).optional().default(""),
   mensaje: z.string().trim().max(4000).optional().default(""),
   activo: z.coerce.boolean().optional().default(true),
+  modo_envio: z.enum(["automatico", "programado"]).optional().default("programado"),
 });
 
 const EsquemaEnviarCorte = z.object({
-  clave: z.enum(["ventas_pv", "instalaciones_liq"]),
+  clave: z.enum(CLAVES_CORTE),
 });
 
 /** Hora actual de Lima (para comparar con las horas configuradas). */
@@ -2017,12 +2036,94 @@ function partirCorreos(s: string): string[] {
   return String(s ?? "").split(/[,;\n]+/).map((x) => x.trim()).filter((x) => /@[a-z]/i.test(x));
 }
 
+/** Envía observaciones a cada correo de proveedor (configurado en Proveedores). */
+async function procesarAvisosSubsanacion(
+  service: Servicio,
+  forzar = false,
+  soloAvisos?: number[],
+): Promise<{ clave: string; enviado: boolean; motivo: string; cantidad?: number; proveedores?: number }> {
+  const { data: cfg, error } = await service.from("cfg_cortes").select("*").eq("clave", "subsanaciones").maybeSingle();
+  if (error) throw new Error(`Falta la configuración de subsanaciones: ${error.message}`);
+  if (!cfg) throw new Error("Falta configurar el corte de subsanaciones.");
+  const c = cfg as Record<string, any>;
+  if (!c.activo && !forzar) return { clave: "subsanaciones", enviado: false, motivo: "aviso inactivo" };
+  const ahora = ahoraLima();
+  const marca = `${ahora.fecha} ${ahora.hora}`;
+  if (!forzar && String(c.modo_envio ?? "programado") === "programado") {
+    const horas = String(c.horas ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+    if (!horas.includes(ahora.hora) || String(c.ultimo_envio ?? "") === marca) {
+      return { clave: "subsanaciones", enviado: false, motivo: "fuera de horario o ya enviado" };
+    }
+  }
+
+  let q = service.from("cfg_subsanaciones_cola").select("id,solicitud_id,id_proveedor,etapa,motivo,creado_at")
+    .is("enviado_at", null).is("resuelto_at", null).order("creado_at", { ascending: true }).limit(5000);
+  if (soloAvisos?.length) q = q.in("id", soloAvisos);
+  const { data: pendientes, error: ePendientes } = await q;
+  if (ePendientes) throw new Error(`No se pudo leer la cola de subsanaciones: ${ePendientes.message}`);
+  const filas = (pendientes ?? []) as Fila[];
+  if (!filas.length) return { clave: "subsanaciones", enviado: false, motivo: "sin pendientes", cantidad: 0, proveedores: 0 };
+
+  const proveedoresIds = [...new Set(filas.map((f) => String(f.id_proveedor ?? "")).filter(Boolean))];
+  const { data: proveedores, error: eProv } = await service.from("mae_proveedores")
+    .select("id,razon_social,nombre_comercial,correo").in("id", proveedoresIds.length ? proveedoresIds : ["__ninguno__"]);
+  if (eProv) throw new Error(`No se pudieron leer los correos de proveedores: ${eProv.message}`);
+  const porProveedor = new Map(((proveedores ?? []) as Fila[]).map((p) => [String(p.id), p]));
+  const adicionales = partirCorreos(String(c.para ?? ""));
+  const cc = partirCorreos(String(c.copia ?? ""));
+  const errores: string[] = [];
+  let enviados = 0;
+  for (const [idProveedor, casos] of agruparPor(filas, (f) => String(f.id_proveedor ?? ""))) {
+    if (!idProveedor) { errores.push("Solicitud sin proveedor asignado"); continue; }
+    const proveedor = porProveedor.get(idProveedor);
+    const correo = String(proveedor?.correo ?? "").trim();
+    if (!/@[a-z]/i.test(correo)) { errores.push(`${idProveedor}: falta correo en Administración > Proveedores`); continue; }
+    const destinatarios = [...new Set([correo, ...adicionales].filter((x) => /@/i.test(x)))];
+    const nombre = String(proveedor?.nombre_comercial ?? proveedor?.razon_social ?? idProveedor);
+    const detalle = casos.map((f) => `• ${f.solicitud_id} — ${f.etapa}: ${f.motivo || "Revisa los datos/evidencias observados."}`).join("\n");
+    const vars = { proveedor: nombre, cantidad: casos.length, fecha: ahora.fecha, hora: ahora.hora, detalle };
+    try {
+      if (!correoConfigurado()) throw new Error(MSG_CORREO_NO_CONFIGURADO);
+      await enviarCorreo({
+        to: destinatarios,
+        cc,
+        subject: aplicarPlantilla(String(c.asunto ?? "Pendientes por subsanar — {proveedor}"), vars),
+        text: aplicarPlantilla(String(c.mensaje ?? "Hola {proveedor}, tienes {cantidad} solicitud(es) por subsanar:\n{detalle}"), vars),
+      });
+      const ids = casos.map((f) => Number(f.id));
+      const { error: eActualiza } = await service.from("cfg_subsanaciones_cola")
+        .update({ enviado_at: new Date().toISOString() }).in("id", ids);
+      if (eActualiza) throw new Error(eActualiza.message);
+      enviados += 1;
+    } catch (e) {
+      errores.push(`${nombre}: ${(e as Error).message}`);
+    }
+  }
+  if (enviados) await service.from("cfg_cortes").update({ ultimo_envio: marca }).eq("clave", "subsanaciones");
+  return {
+    clave: "subsanaciones", enviado: enviados > 0,
+    motivo: errores.join("; ") || (enviados ? "enviado" : "sin proveedores con correo"),
+    cantidad: filas.length, proveedores: enviados,
+  };
+}
+
+function agruparPor<T>(items: T[], clave: (item: T) => string): Map<string, T[]> {
+  const grupos = new Map<string, T[]>();
+  for (const item of items) {
+    const k = clave(item);
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k)!.push(item);
+  }
+  return grupos;
+}
+
 /** Ejecuta un corte: cuenta pendientes y envía el correo configurado. */
 export async function procesarCorte(
   service: Servicio,
-  clave: "ventas_pv" | "instalaciones_liq",
+  clave: "ventas_pv" | "instalaciones_liq" | "subsanaciones",
   forzar = false
 ): Promise<{ clave: string; enviado: boolean; motivo: string; cantidad?: number }> {
+  if (clave === "subsanaciones") return procesarAvisosSubsanacion(service, forzar);
   const { data: cfg, error } = await service.from("cfg_cortes").select("*").eq("clave", clave).maybeSingle();
   if (error) throw new Error(`Falta la tabla cfg_cortes (migración 03, etapa 5): ${error.message}`);
   if (!cfg) throw new Error(`Corte no configurado: ${clave}`);
@@ -2063,7 +2164,8 @@ async function hCortesListar(_args: unknown, ctx: OperacionContext) {
   try {
     const { data, error } = await ctx.service.from("cfg_cortes").select("*").order("clave");
     if (error) throw new Error(error.message);
-    return { cortes: data ?? [], necesitaMigracion: false };
+    const cortes = data ?? [];
+    return { cortes, necesitaMigracion: false, necesitaMigracionSubsanaciones: !cortes.some((c) => c.clave === "subsanaciones") };
   } catch (e) {
     if (esTablaFaltante(e)) return { cortes: [], necesitaMigracion: true };
     throw e;
@@ -2079,6 +2181,7 @@ async function hCorteGuardar(args: z.infer<typeof EsquemaGuardarCorte>, ctx: Ope
     asunto: args.asunto,
     mensaje: args.mensaje,
     activo: args.activo,
+    modo_envio: args.modo_envio,
   }).select().single();
   if (error) throw new Error(/Could not find the table|does not exist|42P01/i.test(error.message)
     ? "Falta la tabla cfg_cortes: ejecuta la migración 03 (etapa 5)"
