@@ -12,7 +12,6 @@ import {
   BadgeEvidencia,
   ETIQUETA_EVIDENCIA,
   SUSTENTOS_INSTALACION,
-  SelectorRol,
   TimelineVenta,
   Venta,
   subirArchivoStorage,
@@ -30,7 +29,7 @@ import {
 export default function VentaDetallePage() {
   const params = useParams();
   const id = String((params as { id?: string })?.id ?? "");
-  const { rol, setRol, esAdmin } = useRolVista();
+  const { esAdmin } = useRolVista();
   const [miRol, setMiRol] = useState("");
   useEffect(() => {
     fetch("/api/mi-perfil")
@@ -39,7 +38,7 @@ export default function VentaDetallePage() {
       .catch(() => {});
   }, []);
   // Instalación = vista del proveedor (y admin). El vendedor no la ve.
-  const veInstalacion = esAdmin || miRol === "PROVEEDOR" || rol === "admin" || rol === "stephany";
+  const veInstalacion = esAdmin || miRol === "PROVEEDOR";
 
   const [venta, setVenta] = useState<Venta | null>(null);
   const [loading, setLoading] = useState(true);
@@ -264,7 +263,7 @@ export default function VentaDetallePage() {
           eyebrow="REGISTRO DE VENTAS"
           title={venta ? `Venta ${ventaNumero(venta)}` : "Detalle de venta"}
           desc={venta ? `${ventaCliente(venta)}${ventaDoc(venta) ? ` · ${ventaDoc(venta)}` : ""} · ${ventaProveedor(venta)} · ${formatoMoneda(totalCalc > 0 ? totalCalc : ventaTotal(venta))}` : "Detalle, instalación y cierre."}
-          actions={<><SelectorRol rol={rol} setRol={setRol} />{venta && <BadgeEstadoVenta estado={ventaEstado(venta)} />}</>}
+          actions={venta && <BadgeEstadoVenta estado={ventaEstado(venta)} />}
         /></div>
 
         {loading ? (

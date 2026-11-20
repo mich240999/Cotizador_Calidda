@@ -50,12 +50,10 @@ export function fileToDataURL(f: File, maxMB = 6): Promise<string> {
   });
 }
 
-export type RolVista = "vendedor" | "admin" | "stephany";
-
 /** Detecta el rol real del usuario para mostrar las acciones disponibles. */
 export function useRolVista() {
-  const [rol, setRol] = useState<RolVista>("vendedor");
   const [detectado, setDetectado] = useState(false);
+  const [esAdmin, setEsAdmin] = useState(false);
   useEffect(() => {
     let vivo = true;
     (async () => {
@@ -64,7 +62,8 @@ export function useRolVista() {
         const perfil = await respuesta.json();
         if (!respuesta.ok || !perfil?.ok) return;
         if (vivo) {
-          if (String(perfil.rol).toUpperCase() === "ADMIN") setRol("admin");
+          const admin = String(perfil.rol).toUpperCase() === "ADMIN";
+          setEsAdmin(admin);
           setDetectado(true);
         }
       } catch {
@@ -75,26 +74,7 @@ export function useRolVista() {
       vivo = false;
     };
   }, []);
-  return { rol, setRol, esAdmin: rol === "admin" || rol === "stephany", detectado };
-}
-
-export function SelectorRol({
-  rol,
-  setRol,
-}: {
-  rol: RolVista;
-  setRol: (r: RolVista) => void;
-}) {
-  return (
-    <label className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-      Vista por rol
-      <select className="input !w-auto !py-1.5 !text-xs" value={rol} onChange={(e) => setRol(e.target.value as RolVista)}>
-        <option value="vendedor">Vendedor</option>
-        <option value="admin">Admin</option>
-        <option value="stephany">Stephany (validación)</option>
-      </select>
-    </label>
-  );
+  return { esAdmin, detectado };
 }
 
 export type Venta = Record<string, unknown>;
