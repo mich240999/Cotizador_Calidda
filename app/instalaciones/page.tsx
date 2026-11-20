@@ -7,7 +7,7 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
-import { BadgeEstadoVenta, SUSTENTOS_INSTALACION, subirArchivoStorage, useRolVista } from "@/components/VentasComun";
+import { BadgeEstadoVenta, SUSTENTOS_INSTALACION, useRolVista } from "@/components/VentasComun";
 
 type Fila = Record<string, unknown>;
 
@@ -58,10 +58,6 @@ function VentanaInstalacion({ v, accion, onClose, onChanged }: {
             {accion === "detalle" && <dl className="grid gap-3 sm:grid-cols-2">
               {campos.map(([nombre, valor]) => <div key={nombre}><dt className="label">{nombre}</dt><dd>{typeof valor === "object" && valor !== null ? valor as React.ReactNode : String(valor ?? "—")}</dd></div>)}
             </dl>}
-            {accion === "detalle" && <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-slate-200 p-3"><p className="label">Sustento de orden de venta</p>{String(v.orden_pedido_venta_sustento_url ?? "") ? <a className="text-sm font-semibold text-sky-700 hover:underline" href={String(v.orden_pedido_venta_sustento_url)} target="_blank" rel="noreferrer">Abrir archivo ↗</a> : <span className="text-sm text-slate-400">Sin archivo</span>}</div>
-              {Number(v.anticipo ?? 0) > 0 && <div className="rounded-xl border border-slate-200 p-3"><p className="label">Sustento de orden de abono</p>{String(v.orden_pedido_abono_sustento_url ?? "") ? <a className="text-sm font-semibold text-sky-700 hover:underline" href={String(v.orden_pedido_abono_sustento_url)} target="_blank" rel="noreferrer">Abrir archivo ↗</a> : <span className="text-sm text-slate-400">Sin archivo</span>}</div>}
-            </div>}
             {accion === "detalle" && Array.isArray(v.items) && v.items.length > 0 && <div className="mt-4 overflow-x-auto">
               <table className="tabla">
                 <thead><tr><th>Material</th><th>Cantidad</th><th>Subtotal</th><th>Pedido de venta</th><th>Pedido de abono</th></tr></thead>
@@ -97,9 +93,6 @@ export default function InstalacionesPage() {
   const [liquidacion, setLiquidacion] = useState<Fila | null>(null);
   const [ordenVenta, setOrdenVenta] = useState("");
   const [ordenAbono, setOrdenAbono] = useState("");
-  const [sustentoOrdenVenta, setSustentoOrdenVenta] = useState("");
-  const [sustentoOrdenAbono, setSustentoOrdenAbono] = useState("");
-  const [subiendoSustento, setSubiendoSustento] = useState<string | null>(null);
   const [notaLiquidacion, setNotaLiquidacion] = useState("");
   const [errorLiquidacion, setErrorLiquidacion] = useState("");
   const [liquidando, setLiquidando] = useState<string | null>(null);
@@ -149,8 +142,6 @@ export default function InstalacionesPage() {
     setLiquidacion(v);
     setOrdenVenta(String(v.orden_pedido_venta ?? ""));
     setOrdenAbono(String(v.orden_pedido_abono ?? ""));
-    setSustentoOrdenVenta(String(v.orden_pedido_venta_sustento_url ?? ""));
-    setSustentoOrdenAbono(String(v.orden_pedido_abono_sustento_url ?? ""));
     setNotaLiquidacion("");
     setErrorLiquidacion("");
   };
@@ -159,9 +150,7 @@ export default function InstalacionesPage() {
     if (!liquidacion) return;
     const v = liquidacion;
     if (!ordenVenta.trim()) { setErrorLiquidacion("Ingresa la orden del PV de venta."); return; }
-    if (!sustentoOrdenVenta.trim()) { setErrorLiquidacion("Adjunta el sustento SAP de la orden de venta."); return; }
     if (Number(v.anticipo ?? 0) > 0 && !ordenAbono.trim()) { setErrorLiquidacion("Esta venta tiene abono; ingresa también la orden del PV de abono."); return; }
-    if (Number(v.anticipo ?? 0) > 0 && !sustentoOrdenAbono.trim()) { setErrorLiquidacion("Adjunta el sustento SAP de la orden de abono."); return; }
     setError(null);
     setInfo(null);
     setErrorLiquidacion("");
@@ -170,9 +159,7 @@ export default function InstalacionesPage() {
       await apiOperacion("liquidarVenta", {
         solicitud_id: String(v.id),
         orden_pedido_venta: ordenVenta.trim(),
-        orden_pedido_venta_sustento_url: sustentoOrdenVenta,
         orden_pedido_abono: ordenAbono.trim(),
-        orden_pedido_abono_sustento_url: sustentoOrdenAbono,
         nota: notaLiquidacion.trim(),
       });
       setInfo(`Venta ${String(v.id)} liquidada. Fin del flujo.`);
@@ -185,17 +172,6 @@ export default function InstalacionesPage() {
     }
   };
 
-  const subirSustentoOrden = async (f: File, tipo: "venta" | "abono") => {
-    setErrorLiquidacion("");
-    setSubiendoSustento(tipo);
-    try {
-      const url = await subirArchivoStorage(f, "sustentos");
-      if (tipo === "venta") setSustentoOrdenVenta(url);
-      else setSustentoOrdenAbono(url);
-    } catch (e) {
-      setErrorLiquidacion(e instanceof Error ? e.message : "No se pudo subir el sustento");
-    } finally { setSubiendoSustento(null); }
-  };
 
   const revertir = async (v: Fila) => {
     const id = String(v.id);
@@ -233,10 +209,8 @@ export default function InstalacionesPage() {
           ASESOR: String(v.asesor_nombre ?? ""),
           PV_VENTA: String(v.numero_pedido ?? ""),
           ORDEN_PV_VENTA: String(v.orden_pedido_venta ?? ""),
-          SUSTENTO_ORDEN_PV_VENTA: String(v.orden_pedido_venta_sustento_url ?? ""),
           PV_ABONO: Number(v.anticipo ?? 0) > 0 ? String(v.pv_abono ?? "") : "",
           ORDEN_PV_ABONO: Number(v.anticipo ?? 0) > 0 ? String(v.orden_pedido_abono ?? "") : "",
-          SUSTENTO_ORDEN_PV_ABONO: Number(v.anticipo ?? 0) > 0 ? String(v.orden_pedido_abono_sustento_url ?? "") : "",
           MONTO_TOTAL: Number(v.monto_total ?? 0),
           ANTICIPO: Number(v.anticipo ?? 0),
           MONTO_FINANCIADO: Number(v.monto_financiado ?? 0),
@@ -313,7 +287,7 @@ export default function InstalacionesPage() {
         <div className="card mt-4">
           <div className="px-5 py-3 border-b font-semibold">Instalaciones · {filtradas.length}</div>
           <div className="overflow-x-auto"><table className="tabla">
-            <thead><tr><th>ESTADO</th><th>N° COTIZACIÓN</th><th>CLIENTE</th><th>CTA CTO</th><th>PROVEEDOR</th><th>ASESOR</th><th>PV VENTA</th><th>ORDEN VENTA (SAP)</th><th>SUSTENTO ORDEN VENTA</th><th>PV ABONO</th><th>ORDEN ABONO (SAP)</th><th>SUSTENTO ORDEN ABONO</th><th>MONTO TOTAL</th><th>ANTICIPO</th><th>MONTO FINANCIADO</th><th>NRO CUOTAS</th><th>AMBIENTE</th><th>MATERIAL</th><th>FECHA VENTA</th><th>ACCIONES</th></tr></thead>
+            <thead><tr><th>ESTADO</th><th>N° COTIZACIÓN</th><th>CLIENTE</th><th>CTA CTO</th><th>PROVEEDOR</th><th>ASESOR</th><th>PV VENTA</th><th>ORDEN VENTA (SAP)</th><th>PV ABONO</th><th>ORDEN ABONO (SAP)</th><th>MONTO TOTAL</th><th>ANTICIPO</th><th>MONTO FINANCIADO</th><th>NRO CUOTAS</th><th>AMBIENTE</th><th>MATERIAL</th><th>FECHA VENTA</th><th>ACCIONES</th></tr></thead>
             <tbody>
               {filtradas.map((v) => (
                 <tr key={String(v.id)}>
@@ -325,10 +299,8 @@ export default function InstalacionesPage() {
                   <td>{String(v.asesor_nombre ?? "—")}</td>
                   <td className="whitespace-nowrap">{String(v.numero_pedido ?? "—")}</td>
                   <td className="whitespace-nowrap">{String(v.orden_pedido_venta ?? "—")}</td>
-                  <td className="whitespace-nowrap">{String(v.orden_pedido_venta_sustento_url ?? "") ? <a className="font-semibold text-sky-700 hover:underline" href={String(v.orden_pedido_venta_sustento_url)} target="_blank" rel="noreferrer">Abrir ↗</a> : "—"}</td>
                   <td className="whitespace-nowrap">{Number(v.anticipo ?? 0) > 0 ? String(v.pv_abono ?? "—") : "—"}</td>
                   <td className="whitespace-nowrap">{Number(v.anticipo ?? 0) > 0 ? String(v.orden_pedido_abono ?? "—") : "—"}</td>
-                  <td className="whitespace-nowrap">{Number(v.anticipo ?? 0) > 0 && String(v.orden_pedido_abono_sustento_url ?? "") ? <a className="font-semibold text-sky-700 hover:underline" href={String(v.orden_pedido_abono_sustento_url)} target="_blank" rel="noreferrer">Abrir ↗</a> : "—"}</td>
                   <td className="whitespace-nowrap font-bold">{formatoMoneda(Number(v.monto_total ?? 0))}</td>
                   <td className="whitespace-nowrap">{formatoMoneda(Number(v.anticipo ?? 0))}</td>
                   <td className="whitespace-nowrap">{formatoMoneda(Number(v.monto_financiado ?? 0))}</td>
@@ -377,8 +349,8 @@ export default function InstalacionesPage() {
               <div><b>PV de venta:</b> {String(liquidacion.numero_pedido ?? "—")}</div>
               {Number(liquidacion.anticipo ?? 0) > 0 && <div className="mt-1"><b>PV de abono:</b> {String(liquidacion.pv_abono ?? "—")}</div>}
             </div>
-            <div className="space-y-2"><label className="label">Orden de venta creada en SAP *</label><input className="input" value={ordenVenta} onChange={(e) => setOrdenVenta(e.target.value)} placeholder="Número de orden de venta" autoFocus /><label className="label">Sustento de la orden de venta *</label><input className="input" type="file" accept=".pdf,image/*" disabled={subiendoSustento !== null} onChange={(e) => { const f = e.target.files?.[0]; if (f) void subirSustentoOrden(f, "venta"); e.currentTarget.value = ""; }} />{subiendoSustento === "venta" && <p className="text-xs text-slate-500">Subiendo sustento…</p>}{sustentoOrdenVenta && <a className="text-xs font-semibold text-sky-700 hover:underline" href={sustentoOrdenVenta} target="_blank" rel="noreferrer">Ver sustento cargado ↗</a>}</div>
-            {Number(liquidacion.anticipo ?? 0) > 0 && <div className="space-y-2"><label className="label">Orden de abono creada en SAP *</label><input className="input" value={ordenAbono} onChange={(e) => setOrdenAbono(e.target.value)} placeholder="Número de orden de abono" /><label className="label">Sustento de la orden de abono *</label><input className="input" type="file" accept=".pdf,image/*" disabled={subiendoSustento !== null} onChange={(e) => { const f = e.target.files?.[0]; if (f) void subirSustentoOrden(f, "abono"); e.currentTarget.value = ""; }} />{subiendoSustento === "abono" && <p className="text-xs text-slate-500">Subiendo sustento…</p>}{sustentoOrdenAbono && <a className="text-xs font-semibold text-sky-700 hover:underline" href={sustentoOrdenAbono} target="_blank" rel="noreferrer">Ver sustento cargado ↗</a>}</div>}
+            <div><label className="label">Orden de venta creada en SAP *</label><input className="input" value={ordenVenta} onChange={(e) => setOrdenVenta(e.target.value)} placeholder="Número de orden de venta" autoFocus /></div>
+            {Number(liquidacion.anticipo ?? 0) > 0 && <div><label className="label">Orden de abono creada en SAP *</label><input className="input" value={ordenAbono} onChange={(e) => setOrdenAbono(e.target.value)} placeholder="Número de orden de abono" /></div>}
             <div><label className="label">Nota de liquidación (opcional)</label><textarea className="input min-h-[80px]" value={notaLiquidacion} onChange={(e) => setNotaLiquidacion(e.target.value)} /></div>
             {errorLiquidacion && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorLiquidacion}</p>}
           </div>
