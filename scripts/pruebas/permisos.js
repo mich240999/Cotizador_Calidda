@@ -108,6 +108,10 @@ async function ejecutar() {
       });
       if (eS) throw eS;
       creados.seg.push(segId);
+      if (idProveedor) {
+        const { error: eRelacion } = await service.from("seg_usuario_proveedores").insert({ id_usuario: segId, id_proveedor: idProveedor });
+        if (eRelacion) throw eRelacion;
+      }
       usuarios[clave] = { email, password, userId: au.user.id, segId, nombre, nombrePerfil };
     };
 
@@ -403,10 +407,11 @@ async function ejecutar() {
     aviso("getVenta expone instalación al proveedor asignado", detalleInstProveedor.status === 200 && detalleInstProveedor.cuerpo?.datos?.instalacion?.solicitud_id === ventasClave("V5"));
     const registrarInstNoAdmin = await op("as1", "registrarInstalacion", {
       solicitud_id: ventasClave("V5"), foto_antes_url: "https://example.com/a.jpg", foto_despues_url: "https://example.com/b.jpg",
+      foto_durante_url: "https://example.com/d.jpg", foto_dni_url: "https://example.com/e.jpg", foto_cliente_dni_url: "https://example.com/f.jpg",
       boleta_url: "https://example.com/b.pdf", acta_url: "https://example.com/c.pdf",
     });
     const liquidarInstNoAdmin = await op("as1", "registrarLiquidacion", {
-      solicitud_id: ventasClave("V5"), tipo: "anticipo", voucher_url: "https://example.com/v.pdf",
+      solicitud_id: ventasClave("V5"), tipo: "acta",
     });
     aviso("asesor no puede registrar instalación -> 403", registrarInstNoAdmin.status === 403, `HTTP ${registrarInstNoAdmin.status}`);
     aviso("asesor no puede registrar liquidación de instalación -> 403", liquidarInstNoAdmin.status === 403, `HTTP ${liquidarInstNoAdmin.status}`);
@@ -424,7 +429,7 @@ async function ejecutar() {
       ["provB", [provB], [provA]],
       ["as1", [provA], [provB]],
     ];
-    if (usuarios.ofi) proveedoresCasos.push(["ofi", [provA, provB], []]);
+    if (usuarios.ofi) proveedoresCasos.push(["ofi", [], [provA, provB]]);
     for (const [clave, permitidos, prohibidos] of proveedoresCasos) {
       const r = await op(clave, "listarProveedoresSGT", { limit: 500 });
       const got = new Set(idsDe(r.cuerpo?.datos).filter((id) => proveedoresPrueba.has(id)));

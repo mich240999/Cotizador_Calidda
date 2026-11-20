@@ -864,7 +864,7 @@ async function hListarUsuariosSGT(args: z.infer<typeof EsquemaQ>, ctx: Operacion
       .select(columnas)
       .order("created_at", { ascending: false }).limit(args.limit);
     if (!alcance.todo) {
-      if (alcance.proveedores.length) {
+      if (alcance.empresaScope && alcance.proveedores.length) {
         const { data: enlaces, error: eEnlaces } = await ctx.service.from("seg_usuario_proveedores")
           .select("id_usuario").in("id_proveedor", alcance.proveedores);
         const idUsuarios = [...new Set([
@@ -880,10 +880,13 @@ async function hListarUsuariosSGT(args: z.infer<typeof EsquemaQ>, ctx: Operacion
         } else {
           return [];
         }
-      } else if (ctx.sesion.alcance === "EQUIPO" && alcance.equipoSeg.length) {
+      } else if (ctx.sesion.alcance === "EQUIPO") {
+        if (!alcance.equipoSeg.length) return [];
         q = q.in("id", alcance.equipoSeg);
       } else if (ctx.sesion.segId) {
         q = q.eq("id", ctx.sesion.segId);
+      } else {
+        return [];
       }
     }
     if (args.q) {
