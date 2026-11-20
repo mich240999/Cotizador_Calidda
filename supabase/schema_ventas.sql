@@ -53,6 +53,8 @@ END $$;
 CREATE TABLE IF NOT EXISTS public.vta_solicitudes_venta (
   id                    TEXT PRIMARY KEY CHECK (id ~ '^VTA-[0-9]{6}$'),
   numero_pedido         TEXT UNIQUE, -- nullable: UNIQUE permite múltiples NULL en Postgres
+  orden_pedido_venta    TEXT,
+  orden_pedido_abono    TEXT,
   id_cliente            TEXT NOT NULL REFERENCES public.mae_clientes(id) ON DELETE RESTRICT,
   id_proveedor          TEXT REFERENCES public.mae_proveedores(id) ON DELETE SET NULL,
   canal                 TEXT CHECK (canal IS NULL OR canal IN ('proveedor','microaliado','contratista')),

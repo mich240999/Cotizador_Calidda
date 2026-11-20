@@ -52,6 +52,10 @@ export default function VentaDetallePage() {
 
   const [showAprobar, setShowAprobar] = useState(false);
   const [pedidos, setPedidos] = useState<Record<string, string>>({});
+  const [showLiquidar, setShowLiquidar] = useState(false);
+  const [ordenPedidoVenta, setOrdenPedidoVenta] = useState("");
+  const [ordenPedidoAbono, setOrdenPedidoAbono] = useState("");
+  const [notaLiquidacion, setNotaLiquidacion] = useState("");
   const [showObservar, setShowObservar] = useState(false);
   const [motivo, setMotivo] = useState("");
   const [etapaObs, setEtapaObs] = useState("aprobación");
@@ -172,9 +176,25 @@ export default function VentaDetallePage() {
     }, "Observación registrada.");
 
   const cerrar = () => {
-    const nota = window.prompt("Nota de liquidación (opcional):", "") ?? "";
-    return correr(() => apiOperacion("liquidarVenta", { solicitud_id: id, nota }), "Venta liquidada. Fin del flujo.");
+    const raw = (venta ?? {}) as Record<string, unknown>;
+    setOrdenPedidoVenta(String(raw.orden_pedido_venta ?? ""));
+    setOrdenPedidoAbono(String(raw.orden_pedido_abono ?? ""));
+    setNotaLiquidacion("");
+    setShowLiquidar(true);
   };
+
+  const confirmarLiquidacion = () => correr(async () => {
+    const raw = (venta ?? {}) as Record<string, unknown>;
+    if (!ordenPedidoVenta.trim()) throw new Error("Ingresa la orden del PV de venta.");
+    if (Number(raw.anticipo ?? 0) > 0 && !ordenPedidoAbono.trim()) throw new Error("Esta venta tiene abono; ingresa también la orden del PV de abono.");
+    await apiOperacion("liquidarVenta", {
+      solicitud_id: id,
+      orden_pedido_venta: ordenPedidoVenta.trim(),
+      orden_pedido_abono: ordenPedidoAbono.trim(),
+      nota: notaLiquidacion.trim(),
+    });
+    setShowLiquidar(false);
+  }, "Venta liquidada. Fin del flujo.");
 
   const revertir = () => {
     const nota = window.prompt("Motivo de la reversión (obligatorio):", "");
@@ -322,6 +342,14 @@ export default function VentaDetallePage() {
 
             <section className="card mt-4">
               <div className="px-5 py-3 border-b font-semibold">Ítems y números de pedido · {items.length}</div>
+              <div className="grid gap-3 px-5 py-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                <div><div className="label">PV venta</div><div className="font-mono">{String((venta as Record<string, unknown>).numero_pedido ?? "—")}</div></div>
+                <div><div className="label">Orden PV venta</div><div className="font-mono">{String((venta as Record<string, unknown>).orden_pedido_venta ?? "—")}</div></div>
+                {Number((venta as Record<string, unknown>).anticipo ?? 0) > 0 && <>
+                  <div><div className="label">PV abono</div><div className="font-mono">{String((venta as Record<string, unknown>).pv_abono ?? "—")}</div></div>
+                  <div><div className="label">Orden PV abono</div><div className="font-mono">{String((venta as Record<string, unknown>).orden_pedido_abono ?? "—")}</div></div>
+                </>}
+              </div>
               {items.length === 0 ? (
                 <div className="p-5"><EmptyState titulo="Sin ítems" detalle="El backend no devolvió ítems para esta venta." /></div>
               ) : (
@@ -463,6 +491,28 @@ export default function VentaDetallePage() {
             </section>
           </>
         )}
+      {showLiquidar && <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4">
+        <section role="dialog" aria-modal="true" aria-labelledby="liquidacion-venta-titulo" className="my-8 w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-xl">
+          <header className="flex items-start justify-between border-b bg-slate-50 px-6 py-4">
+            <div><h2 id="liquidacion-venta-titulo" className="text-lg font-bold">Órdenes para liquidar · {id}</h2><p className="mt-1 text-xs text-slate-500">Completa las órdenes ERP que corresponden a los pedidos registrados.</p></div>
+            <button className="btn-white" onClick={() => setShowLiquidar(false)} disabled={busy}>Cerrar</button>
+          </header>
+          <div className="space-y-4 p-6">
+            <div className="grid gap-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm sm:grid-cols-2">
+              <div><b>PV venta:</b> {String((venta as Record<string, unknown> | null)?.numero_pedido ?? "—")}</div>
+              {Number((venta as Record<string, unknown> | null)?.anticipo ?? 0) > 0 && <div><b>PV abono:</b> {String((venta as Record<string, unknown> | null)?.pv_abono ?? "—")}</div>}
+            </div>
+            <div><label className="label">Orden del pedido de venta *</label><input className="input" value={ordenPedidoVenta} onChange={(e) => setOrdenPedidoVenta(e.target.value)} /></div>
+            {Number((venta as Record<string, unknown> | null)?.anticipo ?? 0) > 0 && <div><label className="label">Orden del pedido de abono *</label><input className="input" value={ordenPedidoAbono} onChange={(e) => setOrdenPedidoAbono(e.target.value)} /></div>}
+            <div><label className="label">Nota de liquidación (opcional)</label><textarea className="input min-h-[80px]" value={notaLiquidacion} onChange={(e) => setNotaLiquidacion(e.target.value)} /></div>
+            {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+          </div>
+          <footer className="flex justify-end gap-2 border-t bg-slate-50 px-6 py-4">
+            <button className="btn-white" onClick={() => setShowLiquidar(false)} disabled={busy}>Cancelar</button>
+            <button className="btn-green" onClick={confirmarLiquidacion} disabled={busy}>{busy ? "Guardando…" : "Confirmar liquidación"}</button>
+          </footer>
+        </section>
+      </div>}
       </Shell>
     </AuthGate>
   );

@@ -1986,17 +1986,6 @@ async function hRegistrarPV(args: z.infer<typeof EsquemaRegistrarPV>, ctx: Opera
       if (/duplicate|unique|llave duplicada|ya existe/i.test(m)) lanzar(409, `Ese pedido de venta ya está registrado: ${args.numero_pedido_venta}`);
       throw new Error(m);
     }
-    const numeroVenta = String(args.numero_pedido_venta).trim();
-    const { error: errorLineasVenta } = await ctx.service.from(T_ITEM)
-      .update({ numero_pedido_venta: numeroVenta })
-      .eq("solicitud_id", args.solicitud_id).eq("tipo_pedido", "VENTA");
-    if (errorLineasVenta) throw new Error(`El pedido de venta se registró, pero no se pudo copiar a sus líneas: ${errorLineasVenta.message}`);
-    if (pvAbono) {
-      const { error: errorLineasAbono } = await ctx.service.from(T_ITEM)
-        .update({ numero_pedido_abono: pvAbono })
-        .eq("solicitud_id", args.solicitud_id).eq("tipo_pedido", "ABONO");
-      if (errorLineasAbono) throw new Error(`El pedido de abono se registró, pero no se pudo copiar a sus líneas: ${errorLineasAbono.message}`);
-    }
     return { solicitud: data, parcial };
   } catch (e) {
     exigirTabla(e);
@@ -2324,6 +2313,8 @@ const EsquemaRegistrarLiquidacion = z.object({
 
 const EsquemaLiquidar = z.object({
   solicitud_id: z.string().trim().min(1).max(20),
+  orden_pedido_venta: z.string().trim().min(1, "Registra la orden del pedido de venta.").max(80),
+  orden_pedido_abono: z.string().trim().max(80).optional().default(""),
   nota: z.string().trim().max(2000).optional().default(""),
 });
 
@@ -2546,14 +2537,31 @@ async function hLiquidarVenta(args: z.infer<typeof EsquemaLiquidar>, ctx: Operac
     }
     await exigirEvidenciasAprobadas(ctx, args.solicitud_id);
     await exigirPedidosRegistrados(ctx, args.solicitud_id);
+    const { data: solicitud, error: eSolicitud } = await ctx.service.from(T_SOL)
+      .select("anticipo,numero_pedido,pv_abono,orden_pedido_venta,orden_pedido_abono").eq("id", args.solicitud_id).maybeSingle();
+    if (eSolicitud) throw new Error(/column|schema cache/i.test(eSolicitud.message)
+      ? "Falta ejecutar supabase/migracion_ordenes_liquidacion_01.sql para registrar las órdenes antes de liquidar."
+      : eSolicitud.message);
+    const cab = solicitud as Fila | null;
+    if (!String(cab?.numero_pedido ?? "").trim()) lanzar(422, "La venta no tiene PV de venta registrado.");
+    const tieneAbono = Number(cab?.anticipo ?? 0) > 0;
+    if (tieneAbono && !String(cab?.pv_abono ?? "").trim()) lanzar(422, "La venta tiene anticipo, pero falta el PV de abono.");
+    if (tieneAbono && !args.orden_pedido_abono.trim()) lanzar(422, "Registra la orden del pedido de abono.");
     const nota = args.nota.trim();
+    const uOrdenes = await ctx.service.from(T_SOL).update({
+      orden_pedido_venta: args.orden_pedido_venta.trim(),
+      orden_pedido_abono: tieneAbono ? args.orden_pedido_abono.trim() : null,
+    }).eq("id", args.solicitud_id);
+    if (uOrdenes.error) throw new Error(uOrdenes.error.message);
     const u1 = await ctx.service.from(T_INS).update({ estado: "liquidada", observacion: nota || null }).eq("solicitud_id", args.solicitud_id);
     if (u1.error) throw new Error(u1.error.message);
     const u2 = await ctx.service.from(T_SOL).update({
       estado: "liquidada",
       ...(nota ? { nota_liquidacion: nota } : {}),
     }).eq("id", args.solicitud_id);
-    if (u2.error) throw new Error(u2.error.message);
+    if (u2.error) throw new Error(/column|schema cache/i.test(u2.error.message)
+      ? "Falta ejecutar supabase/migracion_ordenes_liquidacion_01.sql para guardar las órdenes de venta y abono."
+      : u2.error.message);
     return { ok: true, estado: "liquidada", nota };
   } catch (e) {
     exigirTabla(e);

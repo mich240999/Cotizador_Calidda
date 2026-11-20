@@ -39,8 +39,8 @@ function VentanaInstalacion({ v, accion, onClose, onChanged }: {
   const campos = [
     ["Cliente", v.cliente_nombre], ["Cuenta contrato", v.cuenta_contrato],
     ["Proveedor", v.proveedor_nombre], ["Asesor", v.asesor_nombre],
-    ["Cotización", v.cotizacion_codigo], ["Pedido de venta", v.numero_pedido],
-    ...(Number(v.anticipo ?? 0) > 0 ? [["Pedido de abono", v.pv_abono] as const] : []),
+    ["Cotización", v.cotizacion_codigo], ["PV de venta", v.numero_pedido], ["Orden PV de venta", v.orden_pedido_venta],
+    ...(Number(v.anticipo ?? 0) > 0 ? [["PV de abono", v.pv_abono] as const, ["Orden PV de abono", v.orden_pedido_abono] as const] : []),
     ["Estado de venta", <BadgeEstadoVenta estado={String(v.estado ?? "")} />],
     ["Estado de instalación", estadoInstDe(v).replace(/_/g, " ")],
     ["Total", formatoMoneda(Number(v.monto_total ?? 0))], ["Ambiente", v.ambiente],
@@ -90,6 +90,11 @@ export default function InstalacionesPage() {
   const [fDesde, setFDesde] = useState("");
   const [fHasta, setFHasta] = useState("");
   const [ventana, setVentana] = useState<{ v: Fila; accion: AccionInstalacion } | null>(null);
+  const [liquidacion, setLiquidacion] = useState<Fila | null>(null);
+  const [ordenVenta, setOrdenVenta] = useState("");
+  const [ordenAbono, setOrdenAbono] = useState("");
+  const [notaLiquidacion, setNotaLiquidacion] = useState("");
+  const [errorLiquidacion, setErrorLiquidacion] = useState("");
   const [liquidando, setLiquidando] = useState<string | null>(null);
   const [revirtiendo, setRevirtiendo] = useState<string | null>(null);
 
@@ -117,7 +122,7 @@ export default function InstalacionesPage() {
     const s = q.trim().toLowerCase();
     return rows.filter((v) => {
       if (s) {
-        const hay = [String(v.id ?? ""), String(v.cotizacion_codigo ?? ""), String(v.cliente_nombre ?? ""), String(v.cliente_documento ?? ""), String(v.cuenta_contrato ?? ""), String(v.proveedor_nombre ?? ""), String(v.numero_pedido ?? ""), String(v.pv_abono ?? "")].join(" ").toLowerCase();
+        const hay = [String(v.id ?? ""), String(v.cotizacion_codigo ?? ""), String(v.cliente_nombre ?? ""), String(v.cliente_documento ?? ""), String(v.cuenta_contrato ?? ""), String(v.proveedor_nombre ?? ""), String(v.numero_pedido ?? ""), String(v.orden_pedido_venta ?? ""), String(v.pv_abono ?? ""), String(v.orden_pedido_abono ?? "")].join(" ").toLowerCase();
         if (!hay.includes(s)) return false;
       }
       if (fSol && String(v.estado ?? "").toLowerCase() !== fSol) return false;
@@ -133,17 +138,35 @@ export default function InstalacionesPage() {
     return ei === "pendiente_liquidar" || (esAdmin && ei === "liquidada");
   };
 
-  const liquidar = async (v: Fila) => {
-    const nota = window.prompt("Nota de liquidación (opcional):", "") ?? "";
+  const abrirLiquidacion = (v: Fila) => {
+    setLiquidacion(v);
+    setOrdenVenta(String(v.orden_pedido_venta ?? ""));
+    setOrdenAbono(String(v.orden_pedido_abono ?? ""));
+    setNotaLiquidacion("");
+    setErrorLiquidacion("");
+  };
+
+  const liquidar = async () => {
+    if (!liquidacion) return;
+    const v = liquidacion;
+    if (!ordenVenta.trim()) { setErrorLiquidacion("Ingresa la orden del PV de venta."); return; }
+    if (Number(v.anticipo ?? 0) > 0 && !ordenAbono.trim()) { setErrorLiquidacion("Esta venta tiene abono; ingresa también la orden del PV de abono."); return; }
     setError(null);
     setInfo(null);
+    setErrorLiquidacion("");
     setLiquidando(String(v.id));
     try {
-      await apiOperacion("liquidarVenta", { solicitud_id: String(v.id), nota });
+      await apiOperacion("liquidarVenta", {
+        solicitud_id: String(v.id),
+        orden_pedido_venta: ordenVenta.trim(),
+        orden_pedido_abono: ordenAbono.trim(),
+        nota: notaLiquidacion.trim(),
+      });
       setInfo(`Venta ${String(v.id)} liquidada. Fin del flujo.`);
+      setLiquidacion(null);
       await cargar();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo liquidar");
+      setErrorLiquidacion(e instanceof Error ? e.message : "No se pudo liquidar");
     } finally {
       setLiquidando(null);
     }
@@ -183,6 +206,10 @@ export default function InstalacionesPage() {
           CTA_CTO: String(v.cuenta_contrato ?? ""),
           PROVEEDOR: String(v.proveedor_nombre ?? ""),
           ASESOR: String(v.asesor_nombre ?? ""),
+          PV_VENTA: String(v.numero_pedido ?? ""),
+          ORDEN_PV_VENTA: String(v.orden_pedido_venta ?? ""),
+          PV_ABONO: Number(v.anticipo ?? 0) > 0 ? String(v.pv_abono ?? "") : "",
+          ORDEN_PV_ABONO: Number(v.anticipo ?? 0) > 0 ? String(v.orden_pedido_abono ?? "") : "",
           MONTO_TOTAL: Number(v.monto_total ?? 0),
           ANTICIPO: Number(v.anticipo ?? 0),
           MONTO_FINANCIADO: Number(v.monto_financiado ?? 0),
@@ -207,7 +234,7 @@ export default function InstalacionesPage() {
       <ModHead
         eyebrow="INSTALACIONES Y LIQUIDACIÓN"
         title="Instalaciones"
-        desc="Ventas con PV generado: el proveedor solicita liquidación y luego se liquida. Busca arriba, tabla debajo."
+        desc="Ventas con PV generado: al aprobar todos los sustentos pasan a pendiente de liquidar. Busca, revisa las órdenes y exporta según los filtros."
         actions={<>
           <button className="btn-white !bg-white/95 dark:!bg-slate-800 dark:!text-slate-100 dark:!border-slate-600" onClick={() => cargar()} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
           <button className="btn-white !bg-white/95 dark:!bg-slate-800 dark:!text-slate-100 dark:!border-slate-600" onClick={exportar} disabled={filtradas.length === 0}>Exportar XLSX</button>
@@ -259,7 +286,7 @@ export default function InstalacionesPage() {
         <div className="card mt-4">
           <div className="px-5 py-3 border-b font-semibold">Instalaciones · {filtradas.length}</div>
           <div className="overflow-x-auto"><table className="tabla">
-            <thead><tr><th>ESTADO</th><th>N° COTIZACIÓN</th><th>CLIENTE</th><th>CTA CTO</th><th>PROVEEDOR</th><th>ASESOR</th><th>MONTO TOTAL</th><th>ANTICIPO</th><th>MONTO FINANCIADO</th><th>NRO CUOTAS</th><th>AMBIENTE</th><th>MATERIAL</th><th>FECHA VENTA</th><th>ACCIONES</th></tr></thead>
+            <thead><tr><th>ESTADO</th><th>N° COTIZACIÓN</th><th>CLIENTE</th><th>CTA CTO</th><th>PROVEEDOR</th><th>ASESOR</th><th>PV VENTA</th><th>ORDEN PV VENTA</th><th>PV ABONO</th><th>ORDEN PV ABONO</th><th>MONTO TOTAL</th><th>ANTICIPO</th><th>MONTO FINANCIADO</th><th>NRO CUOTAS</th><th>AMBIENTE</th><th>MATERIAL</th><th>FECHA VENTA</th><th>ACCIONES</th></tr></thead>
             <tbody>
               {filtradas.map((v) => (
                 <tr key={String(v.id)}>
@@ -269,6 +296,10 @@ export default function InstalacionesPage() {
                   <td>{String(v.cuenta_contrato ?? "—")}</td>
                   <td>{String(v.proveedor_nombre ?? "—")}</td>
                   <td>{String(v.asesor_nombre ?? "—")}</td>
+                  <td className="whitespace-nowrap">{String(v.numero_pedido ?? "—")}</td>
+                  <td className="whitespace-nowrap">{String(v.orden_pedido_venta ?? "—")}</td>
+                  <td className="whitespace-nowrap">{Number(v.anticipo ?? 0) > 0 ? String(v.pv_abono ?? "—") : "—"}</td>
+                  <td className="whitespace-nowrap">{Number(v.anticipo ?? 0) > 0 ? String(v.orden_pedido_abono ?? "—") : "—"}</td>
                   <td className="whitespace-nowrap font-bold">{formatoMoneda(Number(v.monto_total ?? 0))}</td>
                   <td className="whitespace-nowrap">{formatoMoneda(Number(v.anticipo ?? 0))}</td>
                   <td className="whitespace-nowrap">{formatoMoneda(Number(v.monto_financiado ?? 0))}</td>
@@ -287,7 +318,7 @@ export default function InstalacionesPage() {
                         <button className="btn-green !py-1 !px-3 !text-xs" onClick={() => setVentana({ v, accion: "revision" })}>Revisar evidencias</button>}
                       <button className="btn-white !py-1 !px-3 !text-xs" onClick={() => setVentana({ v, accion: "detalle" })}>Ver detalle</button>
                       {puedeLiquidar(v) && (
-                        <button className="btn-green !py-1 !px-3 !text-xs" title="Liquidar (ya liquidado en SAP)" disabled={liquidando === String(v.id)} onClick={() => liquidar(v)}>
+                        <button className="btn-green !py-1 !px-3 !text-xs" title="Registrar órdenes y liquidar" disabled={liquidando === String(v.id)} onClick={() => abrirLiquidacion(v)}>
                           {liquidando === String(v.id) ? "…" : "✓ Liquidar"}
                         </button>
                       )}
@@ -306,6 +337,28 @@ export default function InstalacionesPage() {
       )}
 
       {ventana && <VentanaInstalacion {...ventana} onClose={() => setVentana(null)} onChanged={() => void cargar()} />}
+      {liquidacion && <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4">
+        <section role="dialog" aria-modal="true" aria-labelledby="liquidacion-titulo" className="my-8 w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-xl">
+          <header className="flex items-start justify-between border-b bg-slate-50 px-6 py-4">
+            <div><h2 id="liquidacion-titulo" className="text-lg font-bold">Órdenes para liquidar · {String(liquidacion.id)}</h2><p className="mt-1 text-xs text-slate-500">Registra las órdenes asociadas a los PV antes de confirmar la liquidación.</p></div>
+            <button className="btn-white !px-3" onClick={() => setLiquidacion(null)} disabled={!!liquidando}>Cerrar</button>
+          </header>
+          <div className="space-y-4 p-6">
+            <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm">
+              <div><b>PV de venta:</b> {String(liquidacion.numero_pedido ?? "—")}</div>
+              {Number(liquidacion.anticipo ?? 0) > 0 && <div className="mt-1"><b>PV de abono:</b> {String(liquidacion.pv_abono ?? "—")}</div>}
+            </div>
+            <div><label className="label">Orden del pedido de venta *</label><input className="input" value={ordenVenta} onChange={(e) => setOrdenVenta(e.target.value)} placeholder="Número de orden de venta" autoFocus /></div>
+            {Number(liquidacion.anticipo ?? 0) > 0 && <div><label className="label">Orden del pedido de abono *</label><input className="input" value={ordenAbono} onChange={(e) => setOrdenAbono(e.target.value)} placeholder="Número de orden de abono" /></div>}
+            <div><label className="label">Nota de liquidación (opcional)</label><textarea className="input min-h-[80px]" value={notaLiquidacion} onChange={(e) => setNotaLiquidacion(e.target.value)} /></div>
+            {errorLiquidacion && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorLiquidacion}</p>}
+          </div>
+          <footer className="flex justify-end gap-2 border-t bg-slate-50 px-6 py-4">
+            <button className="btn-white" onClick={() => setLiquidacion(null)} disabled={!!liquidando}>Cancelar</button>
+            <button className="btn-green" onClick={liquidar} disabled={!!liquidando}>{liquidando ? "Guardando…" : "Confirmar liquidación"}</button>
+          </footer>
+        </section>
+      </div>}
     </Shell></AuthGate>
   );
 }
