@@ -1671,6 +1671,7 @@ async function anotarConSolicitud(ctx: OperacionContext, cots: Fila[]): Promise<
   const visibles = ver ? cots.filter(ver) : cots;
   const ids = visibles.map((c) => String(c.id)).filter(Boolean);
   const mSol = new Map<string, string>();
+  const totalProductos = new Map<string, number>();
   if (ids.length) {
     try {
       const { data } = await ctx.service.from(T_SOL).select("id,cotizacion_id").in("cotizacion_id", ids);
@@ -1678,6 +1679,18 @@ async function anotarConSolicitud(ctx: OperacionContext, cots: Fila[]): Promise<
         if (s.cotizacion_id) mSol.set(String(s.cotizacion_id), String(s.id));
       }
     } catch { /* sin columna/tabla: ninguna marcada */ }
+    try {
+      const { data, error } = await ctx.service.from("cotizacion_items")
+        .select("cotizacion_id,total_linea,cantidad,precio_unit,descuento_pct")
+        .in("cotizacion_id", ids).limit(5000);
+      if (!error) for (const item of ((data ?? []) as Fila[])) {
+        const id = String(item.cotizacion_id ?? "");
+        if (!id) continue;
+        const bruto = Number(item.cantidad ?? 0) * Number(item.precio_unit ?? 0);
+        const linea = Number(item.total_linea ?? bruto * (1 - Number(item.descuento_pct ?? 0) / 100));
+        totalProductos.set(id, Math.round(((totalProductos.get(id) ?? 0) + linea) * 100) / 100);
+      }
+    } catch { /* se usa el subtotal guardado en la cotización como respaldo */ }
   }
   // Solo cotizaciones SIN solicitud: las que ya tienen no vuelven a salir
   // ni permiten crear otra.
@@ -1688,7 +1701,8 @@ async function anotarConSolicitud(ctx: OperacionContext, cots: Fila[]): Promise<
       codigo: c.codigo,
       created_at: c.created_at,
       estado: c.estado,
-      total: c.total,
+      // El total de esta lista es el importe de los productos, sin sumar las cuotas.
+      total: totalProductos.get(String(c.id)) ?? Number(c.subtotal ?? c.total ?? 0),
       subtotal: c.subtotal,
       asesor: c.asesor ?? null,
       asesor_telefono: c.asesor_telefono ?? null,
