@@ -343,7 +343,7 @@ export default function InstalacionesPage() {
                       {puedeRegistrar(v) && (
                         <AccSolicitar title="Solicitar liquidación" onClick={() => setReg(v)} />
                       )}
-                      {esProveedor && ["generada", "aprobada", "en_instalacion", "instalada", "observada", "subsanado_pendiente"].includes(String(v.estado)) &&
+                      {(esProveedor || esAdmin) && ["generada", "aprobada", "en_instalacion", "instalada", "observada", "subsanado_pendiente"].includes(String(v.estado)) &&
                         (["pendiente_instalar", "pendiente", "observada"].includes(estadoInstDe(v)) || evidenciasDe(v).some((e) => e.estado === "rechazado")) &&
                         <button className="btn-white !py-1 !px-3 !text-xs" onClick={() => setVentana({ v, accion: "entrega" })}>
                           {estadoInstDe(v) === "observada" || evidenciasDe(v).some((e) => e.estado === "rechazado") ? "Subsanar adjuntos" : "Subir adjuntos"}

@@ -411,6 +411,9 @@ export default function VentaDetallePage() {
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
+                  {veInstalacion && puedeInstalar && <button className="btn-white" onClick={abrirInstalacion}>{evidencias.length ? "Subsanar evidencias" : "Registrar instalación"}</button>}
+                  {veInstalacion && puedeSolicitarLiq && <button className="btn-green" onClick={solicitarLiquidacion} disabled={busy}>Solicitar liquidación</button>}
+                  {veInstalacion && puedeRevertir && <button className="btn-white" onClick={revertir} disabled={busy}>Revertir liquidación</button>}
                   {puedeAprobar
                     ? <button className="btn-green" onClick={abrirAprobar}>✓ Aprobar</button>
                     : <button className="btn-white" onClick={abrirAprobar}>N.º de pedido</button>}
