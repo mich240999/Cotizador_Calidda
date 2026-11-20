@@ -351,6 +351,22 @@ async function ejecutar() {
               boleta_url: "https://example.com/boleta.pdf",
             });
             aviso("admin registra instalación con siete evidencias", rInstalacion.status === 200 && rInstalacion.cuerpo?.datos?.evidencias?.length === 7, `HTTP ${rInstalacion.status} ${JSON.stringify(rInstalacion.cuerpo?.error ?? "")}`);
+            if (rInstalacion.status === 200) {
+              const decisiones = rInstalacion.cuerpo.datos.evidencias.map((e) => ({ tipo: e.tipo, aprobada: e.tipo !== "foto_antes", observacion: e.tipo === "foto_antes" ? "La imagen está borrosa" : "" }));
+              const incompleta = await op("revisarEvidencias", { solicitud_id: creado.solicitudId, decisiones: decisiones.map((d) => ({ ...d, observacion: "" })) });
+              aviso("exige comentario para evidencia no seleccionada", incompleta.status === 400, `HTTP ${incompleta.status}`);
+              const revision = await op("revisarEvidencias", { solicitud_id: creado.solicitudId, decisiones });
+              const evs = revision.cuerpo?.datos?.evidencias ?? [];
+              aviso("guarda revisión de todas las evidencias", revision.status === 200 && evs.filter((e) => e.estado === "aprobado").length === 6 && evs.filter((e) => e.estado === "rechazado" && e.observacion === "La imagen está borrosa").length === 1, `HTTP ${revision.status} ${JSON.stringify(revision.cuerpo?.error ?? "")}`);
+              const reenvio = await op("registrarInstalacion", {
+                solicitud_id: creado.solicitudId, foto_antes_url: "https://example.com/nueva.jpg",
+                foto_durante_url: "https://example.com/durante.jpg", foto_despues_url: "https://example.com/despues.jpg",
+                foto_dni_url: "https://example.com/dni.jpg", foto_cliente_dni_url: "https://example.com/cliente-dni.jpg",
+                acta_url: "https://example.com/acta.pdf", boleta_url: "https://example.com/boleta.pdf",
+              });
+              const reenviadas = reenvio.cuerpo?.datos?.evidencias ?? [];
+              aviso("subsanación conserva evidencias aprobadas", reenvio.status === 200 && reenviadas.filter((e) => e.estado === "aprobado").length === 6 && reenviadas.filter((e) => e.estado === "pendiente").length === 1, `HTTP ${reenvio.status} ${JSON.stringify(reenvio.cuerpo?.error ?? "")}`);
+            }
           } else {
             aviso("crearSolicitudVenta desde cotizacion", false, `HTTP ${rSol.status} ${JSON.stringify(rSol.cuerpo?.error ?? "")}`);
           }

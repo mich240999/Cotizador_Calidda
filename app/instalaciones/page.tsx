@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import RevisionEvidencias from "@/components/RevisionEvidencias";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
@@ -77,85 +78,13 @@ function RegistroLiquidacion({ v, onClose, onHecho }: { v: Fila; onClose: () => 
 }
 
 function VerInstalacion({ v, esAdmin, onClose, onChanged }: { v: Fila; esAdmin: boolean; onClose: () => void; onChanged: () => void }) {
-  const ins = (v.instalacion ?? {}) as Record<string, unknown>;
   const evidencias = Array.isArray(v.evidencias) ? (v.evidencias as Fila[]) : [];
-  const [lista, setLista] = useState<Fila[]>(evidencias);
-  const [obs, setObs] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  const revisar = async (tipo: string, accion: "aprobar" | "rechazar") => {
-    setMsg(null);
-    setBusy(tipo);
-    try {
-      const observacion = String(obs[tipo] ?? "").trim();
-      if (accion === "rechazar" && !observacion) throw new Error("Indica qué debe subsanar el proveedor.");
-      const r = await apiOperacion<{ evidencias?: Fila[] }>("revisarEvidencia", { solicitud_id: String(v.id), tipo, accion, observacion });
-      if (Array.isArray(r?.evidencias)) setLista(r.evidencias);
-      setObs((p) => ({ ...p, [tipo]: "" }));
-      onChanged();
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "No se pudo revisar la evidencia");
-    } finally {
-      setBusy(null);
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/50 p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl w-full max-w-4xl shadow-xl my-6 overflow-hidden">
-        <div className="flex items-start justify-between px-6 py-4 border-b bg-slate-50">
-          <div>
-            <h2 className="font-bold text-lg">Evidencias de instalación · {String(v.id)}</h2>
-            <p className="text-xs text-slate-500">
-              Estado: {estadoInstDe(v).replace(/_/g, " ").toUpperCase()} · Vía acta de entrega
-            </p>
-          </div>
-          <button className="btn-white !px-3" onClick={onClose}>✕</button>
-        </div>
-        <div className="p-6">
-          {lista.length === 0 ? (
-            <p className="text-sm text-slate-500">El proveedor aún no entrega el acta ni los sustentos.</p>
-          ) : (
-            <div className="grid sm:grid-cols-2 gap-3">
-              {lista.map((ev) => {
-                const tipo = String(ev.tipo ?? "");
-                const url = String(ev.url ?? "");
-                const esImg = /^data:image|\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
-                const estado = String(ev.estado ?? "pendiente");
-                return (
-                  <div key={tipo} className="rounded-xl border border-slate-200 overflow-hidden">
-                    <div className="flex items-center justify-between gap-2 px-3 pt-2">
-                      <p className="font-bold text-sm">{ETIQUETA_EVIDENCIA[tipo] ?? tipo}</p>
-                      <BadgeEvidencia estado={estado} />
-                    </div>
-                    {esImg && <img src={url} alt={tipo} className="mt-2 h-36 w-full object-cover" loading="lazy" />}
-                    <a href={url} target="_blank" rel="noreferrer" className="block px-3 py-2 text-xs font-bold text-[#0099D8] hover:underline">Abrir archivo ↗</a>
-                    {String(ev.observacion ?? "").trim() && (
-                      <p className="mx-3 mb-2 rounded-lg bg-red-50 border border-red-200 px-2 py-1 text-[11px] text-red-700">Observación: {String(ev.observacion)}</p>
-                    )}
-                    {esAdmin && (
-                      <div className="border-t border-slate-100 p-3 space-y-2">
-                        <input className="input !py-1 !text-xs" placeholder="Observación de esta evidencia" value={obs[tipo] ?? ""} onChange={(e) => setObs((p) => ({ ...p, [tipo]: e.target.value }))} />
-                        <div className="flex gap-2">
-                          <button className="btn-green !py-1 !px-2 !text-[11px]" disabled={busy === tipo} onClick={() => void revisar(tipo, "aprobar")}>✓ Aprobar</button>
-                          <button className="btn-white !py-1 !px-2 !text-[11px]" disabled={busy === tipo} onClick={() => void revisar(tipo, "rechazar")}>✕ Rechazar</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {msg && <p className="mt-3 text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
-          {String(ins.observacion ?? "").trim() && (
-            <p className="mt-3 text-sm rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">Subsanación pendiente: {String(ins.observacion)}</p>
-          )}
-        </div>
-        <div className="flex justify-end px-6 py-4 border-t bg-slate-50">
-          <button className="btn-white" onClick={onClose}>Cerrar</button>
-        </div>
+        <div className="px-6 py-4 border-b bg-slate-50"><h2 className="font-bold text-lg">Evidencias de instalación · {String(v.id)}</h2></div>
+        <div className="p-6"><RevisionEvidencias solicitudId={String(v.id)} evidencias={evidencias} esAdmin={esAdmin} onChanged={() => { onChanged(); onClose(); }} /></div>
+        <div className="flex justify-end px-6 py-4 border-t"><button className="btn-white" onClick={onClose}>Cerrar</button></div>
       </div>
     </div>
   );

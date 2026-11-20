@@ -222,16 +222,21 @@ async function sincronizarEvidencias(
     .map((tipo) => ({ tipo, url: String(urls[tipo] ?? "").trim() }))
     .filter((f) => f.url.length > 0);
   if (!filas.length) return [];
+  const anteriores = await cargarEvidencias(ctx, solicitudId);
   const { data, error } = await ctx.service.from(T_EVID).upsert(
-    filas.map((f) => ({
-      solicitud_id: solicitudId,
-      tipo: f.tipo,
-      url: f.url,
-      estado: "pendiente",
-      observacion: null,
-      revisado_por: null,
-      revisado_at: null,
-    })),
+    filas.map((f) => {
+      const anterior = anteriores.find((e) => e.tipo === f.tipo);
+      const conservar = anterior?.estado === "aprobado" && anterior.url === f.url;
+      return {
+        solicitud_id: solicitudId,
+        tipo: f.tipo,
+        url: f.url,
+        estado: conservar ? "aprobado" : "pendiente",
+        observacion: null,
+        revisado_por: conservar ? anterior.revisado_por : null,
+        revisado_at: conservar ? anterior.revisado_at : null,
+      };
+    }),
     { onConflict: "solicitud_id,tipo" }
   ).select();
   if (error) {
@@ -390,7 +395,7 @@ async function avisarObservacion(
     await enviarCorreo({
       to: destino,
       subject: `Subsanar ${etapa} — solicitud ${solicitudId}`,
-      text: `Stephany observó ${etapa} de tu solicitud ${solicitudId} y hay algo por subsanar.\n\nMotivo: ${motivo}\n\nCorrige y vuelve a subir los sustentos correctos desde el detalle de la venta; el proceso continúa desde donde quedó.`,
+      text: `Administración observó ${etapa} de tu solicitud ${solicitudId} y hay algo por subsanar.\n\nMotivo: ${motivo}\n\nCorrige y vuelve a subir los sustentos correctos desde el detalle de la venta; el proceso continúa desde donde quedó.`,
     });
     return "enviado";
   } catch {
@@ -525,6 +530,15 @@ const EsquemaRevisarEvidencia = z.object({
     ctx.addIssue({ code: "custom", path: ["observacion"], message: "Indica qué debe subsanar el proveedor." });
   }
 });
+
+const EsquemaRevisarEvidencias = z.object({
+  solicitud_id: z.string().trim().min(1).max(20),
+  decisiones: z.array(z.object({
+    tipo: z.enum(EVIDENCIAS_INSTALACION),
+    aprobada: z.boolean(),
+    observacion: z.string().trim().max(2000).default(""),
+  }).refine((d) => d.aprobada || d.observacion.length > 0, { message: "Indica qué debe subsanarse." })).length(EVIDENCIAS_INSTALACION.length),
+}).refine((v) => new Set(v.decisiones.map((d) => d.tipo)).size === EVIDENCIAS_INSTALACION.length, { message: "Cada evidencia debe revisarse una vez." });
 
 const EsquemaSoloSolicitud = z.object({
   solicitud_id: z.string().trim().min(1).max(20),
@@ -1291,7 +1305,7 @@ async function hRegistrarInstalacion(args: z.infer<typeof EsquemaInstalacion>, c
       foto_despues_url: args.foto_despues_url,
       boleta_url: args.boleta_url,
       acta_url: args.acta_url,
-      estado: previa ? "subsanado_pendiente" : "registrada",
+      estado: "registrada",
       observacion: args.observacion || null,
     };
     let instalacion: unknown;
@@ -1305,7 +1319,7 @@ async function hRegistrarInstalacion(args: z.infer<typeof EsquemaInstalacion>, c
       instalacion = data;
     }
     // El proveedor entrega acta + sustentos; administración revisa cada evidencia.
-    const estadoSol = previa ? "subsanado_pendiente" : "instalada";
+    const estadoSol = "instalada";
     const { data: cab, error: eCab } = await ctx.service
       .from(T_SOL)
       .update({ estado: estadoSol })
@@ -1342,7 +1356,7 @@ async function hRevisarEvidencia(args: z.infer<typeof EsquemaRevisarEvidencia>, 
       evidencias.some((e) => String(e.tipo) === t && String(e.estado) === "aprobado")
     );
     const estado = rechazadas.length ? "observada" : todasAprobadas ? "validada_proveedor" : "registrada";
-    const estadoSol = rechazadas.length ? "observada" : todasAprobadas ? "validada_proveedor" : "instalada";
+    const estadoSol = todasAprobadas ? "validada_proveedor" : "instalada";
     const observacion = rechazadas.length
       ? `Subsanar: ${rechazadas.map((e) => `${String(e.tipo)} (${String(e.observacion ?? "sin detalle")})`).join("; ")}`
       : null;
@@ -1360,6 +1374,40 @@ async function hRevisarEvidencia(args: z.infer<typeof EsquemaRevisarEvidencia>, 
   } catch (e) {
     exigirTabla(e);
   }
+}
+
+async function hRevisarEvidencias(args: z.infer<typeof EsquemaRevisarEvidencias>, ctx: OperacionContext) {
+  const solicitud = await ventaVisible(ctx, args.solicitud_id);
+  if (["liquidada", "cerrada"].includes(String(solicitud.estado ?? "").toLowerCase())) {
+    lanzar(422, "La venta ya está cerrada o liquidada: no se revisan evidencias.");
+  }
+  const actuales = await cargarEvidencias(ctx, args.solicitud_id);
+  if (!EVIDENCIAS_INSTALACION.every((tipo) => actuales.some((e) => e.tipo === tipo && e.url))) {
+    lanzar(422, "Deben estar entregadas las siete evidencias antes de revisarlas.");
+  }
+  const fecha = new Date().toISOString();
+  const filas = args.decisiones.map((d) => {
+    const evidencia = actuales.find((e) => e.tipo === d.tipo)!;
+    return {
+      solicitud_id: args.solicitud_id, tipo: d.tipo, url: evidencia.url,
+      estado: d.aprobada ? "aprobado" : "rechazado",
+      observacion: d.aprobada ? null : d.observacion,
+      revisado_por: ctx.sesion.userId, revisado_at: fecha,
+    };
+  });
+  const { data: evidencias, error } = await ctx.service.from(T_EVID)
+    .upsert(filas, { onConflict: "solicitud_id,tipo" }).select();
+  if (error) throw new Error(error.message);
+  const observadas = args.decisiones.filter((d) => !d.aprobada);
+  const estado = observadas.length ? "observada" : "validada_proveedor";
+  const observacion = observadas.length ? `Subsanar: ${observadas.map((d) => `${d.tipo} (${d.observacion})`).join("; ")}` : null;
+  const { error: eInstalacion } = await ctx.service.from(T_INS).update({ estado, observacion }).eq("solicitud_id", args.solicitud_id);
+  if (eInstalacion) throw new Error(eInstalacion.message);
+  const estadoSolicitud = observadas.length ? "instalada" : "validada_proveedor";
+  const { error: eSolicitud } = await ctx.service.from(T_SOL).update({ estado: estadoSolicitud }).eq("id", args.solicitud_id);
+  if (eSolicitud) throw new Error(eSolicitud.message);
+  if (observacion) await avisarObservacion(ctx, args.solicitud_id, "las evidencias de instalación", observacion);
+  return { evidencias, estado };
 }
 
 async function hObservarInstalacion(args: z.infer<typeof EsquemaObservarInstalacion>, ctx: OperacionContext) {
@@ -1382,7 +1430,7 @@ async function hObservarInstalacion(args: z.infer<typeof EsquemaObservarInstalac
     if (eUpd) throw new Error(eUpd.message);
     const { data: cab, error: eCab } = await ctx.service
       .from(T_SOL)
-      .update({ estado: "observada" })
+      .update({ estado: "instalada" })
       .eq("id", args.solicitud_id)
       .select()
       .single();
@@ -2353,6 +2401,7 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   observarSolicitud: { descripcion: "Ventas: observa solicitud", roles: SOLO_ADMIN, schema: EsquemaObservarSolicitud, handler: hObservarSolicitud },
   registrarInstalacion: { descripcion: "Ventas: proveedor entrega acta y sustentos (7 evidencias) para revisión", roles: OPERATIVO, schema: EsquemaInstalacion, handler: hRegistrarInstalacion },
   revisarEvidencia: { descripcion: "Instalaciones: admin aprueba o rechaza cada evidencia con observación", roles: SOLO_ADMIN, schema: EsquemaRevisarEvidencia, handler: hRevisarEvidencia },
+  revisarEvidencias: { descripcion: "Instalaciones: revisar todas las evidencias", roles: SOLO_ADMIN, schema: EsquemaRevisarEvidencias, handler: hRevisarEvidencias },
   observarInstalacion: { descripcion: "Ventas: observa instalación → observada", roles: OPERATIVO, schema: EsquemaObservarInstalacion, handler: hObservarInstalacion },
   exportarVentas: { descripcion: "Ventas: {columnas, filas} planos listos para XLSX", roles: TODOS, schema: EsquemaExportar, handler: hExportarVentas },
   getVenta: { descripcion: "Ventas: cabecera + items + abonos + instalación", roles: TODOS, schema: EsquemaGetVenta, handler: hGetVenta },

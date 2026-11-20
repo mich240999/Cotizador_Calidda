@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import AuthGate from "@/components/AuthGate";
+import RevisionEvidencias from "@/components/RevisionEvidencias";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
@@ -55,8 +56,6 @@ export default function VentaDetallePage() {
   const [motivo, setMotivo] = useState("");
   const [etapaObs, setEtapaObs] = useState("aprobación");
   const [subiendo, setSubiendo] = useState<string | null>(null);
-  const [obsEvidencia, setObsEvidencia] = useState<Record<string, string>>({});
-  const [revisando, setRevisando] = useState<string | null>(null);
 
   const subirA = async (f: File, carpeta: "comprobantes" | "sustentos", set: (u: string) => void, marca: string) => {
     setError(null);
@@ -185,14 +184,6 @@ export default function VentaDetallePage() {
   const solicitarLiquidacion = () =>
     correr(() => apiOperacion("registrarLiquidacion", { solicitud_id: id, tipo: "acta" }), "Liquidación solicitada. Administración revisará y liquidará.");
 
-  const revisarEvidencia = (tipo: string, accion: "aprobar" | "rechazar") =>
-    correr(async () => {
-      const observacion = String(obsEvidencia[tipo] ?? "").trim();
-      if (accion === "rechazar" && !observacion) throw new Error("Indica qué debe subsanar el proveedor.");
-      await apiOperacion("revisarEvidencia", { solicitud_id: id, tipo, accion, observacion });
-      setObsEvidencia((p) => ({ ...p, [tipo]: "" }));
-    }, accion === "aprobar" ? "Evidencia aprobada." : "Evidencia rechazada para subsanación.");
-
   const abrirInstalacion = () => {
     if (!showInst) {
       const v = venta as Record<string, unknown> | null;
@@ -292,7 +283,7 @@ export default function VentaDetallePage() {
 
             <section className="card p-5 mt-4">
               <h3 className="font-bold mb-1">Adjuntos de la solicitud</h3>
-              <p className="text-xs text-slate-400 mb-3">Stephany debe revisarlos antes de aprobar.</p>
+              <p className="text-xs text-slate-400 mb-3">Administración debe revisarlos antes de aprobar.</p>
               <div className="flex flex-wrap gap-2">
                 {([
                   ["Cotización del cliente", (venta as Record<string, unknown>).adjunto_cotizacion_url],
@@ -382,43 +373,7 @@ export default function VentaDetallePage() {
                   </div>
                 </div>
               ) : (
-                <div className="grid sm:grid-cols-2 gap-3 mt-3">
-                  {SUSTENTOS_INSTALACION.map((s) => {
-                    const ev = evidencias.find((e) => String(e.tipo) === s.tipo);
-                    const ins = ((venta as Record<string, unknown>).instalacion ?? {}) as Record<string, unknown>;
-                    const url = String(ev?.url ?? ins[s.key] ?? "");
-                    const estadoEv = String(ev?.estado ?? (url ? "pendiente" : "pendiente"));
-                    const esImg = /^data:image|\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
-                    return (
-                      <div key={s.key} className="rounded-xl border border-slate-200 overflow-hidden">
-                        <div className="flex items-center justify-between gap-2 px-3 pt-2">
-                          <p className="text-xs font-bold">{ETIQUETA_EVIDENCIA[s.tipo] ?? s.label}</p>
-                          {url ? <BadgeEvidencia estado={estadoEv} /> : <span className="text-[11px] text-slate-400">PENDIENTE</span>}
-                        </div>
-                        {url ? (
-                          <>
-                            {esImg && <img src={url} alt={s.label} className="mt-2 h-32 w-full object-cover" loading="lazy" />}
-                            <a className="block px-3 py-2 text-xs font-bold text-[#0099D8] hover:underline" href={url} target="_blank" rel="noreferrer">Ver archivo ↗</a>
-                          </>
-                        ) : (
-                          <p className="px-3 py-2 text-xs text-slate-400">Aún no entregado</p>
-                        )}
-                        {ev && String(ev.observacion ?? "").trim() && (
-                          <p className="mx-3 mb-2 rounded-lg bg-red-50 border border-red-200 px-2 py-1 text-[11px] text-red-700">Observación: {String(ev.observacion)}</p>
-                        )}
-                        {esAdmin && ev && (
-                          <div className="border-t border-slate-100 p-3 space-y-2">
-                            <input className="input !py-1 !text-xs" placeholder="Observación de esta evidencia" value={obsEvidencia[s.tipo] ?? ""} onChange={(e) => setObsEvidencia((p) => ({ ...p, [s.tipo]: e.target.value }))} />
-                            <div className="flex gap-2">
-                              <button className="btn-green !py-1 !px-2 !text-[11px]" disabled={busy || revisando === s.tipo} onClick={() => { setRevisando(s.tipo); void revisarEvidencia(s.tipo, "aprobar").finally(() => setRevisando(null)); }}>✓ Aprobar</button>
-                              <button className="btn-white !py-1 !px-2 !text-[11px]" disabled={busy || revisando === s.tipo} onClick={() => { setRevisando(s.tipo); void revisarEvidencia(s.tipo, "rechazar").finally(() => setRevisando(null)); }}>✕ Rechazar</button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                <RevisionEvidencias solicitudId={id} evidencias={evidencias} esAdmin={esAdmin} onChanged={() => void cargar()} />
               )}
               {esAdmin && (
                 <p className={`mt-3 text-xs font-semibold ${todasAprobadas ? "text-emerald-700" : "text-amber-700"}`}>
