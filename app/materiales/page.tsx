@@ -611,7 +611,16 @@ export default function MaterialesPage() {
         ...(esp ? { espacio: esp } : {}),
         limit: 200,
       });
-      setRows(Array.isArray(datos) ? (datos as Material[]) : []);
+      const materiales = Array.isArray(datos) ? [...datos as Material[]] : [];
+      materiales.sort((a, b) => {
+        const prioridad = (m: Material) =>
+          String(m.codigo_sap ?? m.codigo ?? "").toUpperCase() === "COT-REMODELACION"
+            ? 0
+            : String(m.espacio ?? "").toUpperCase() === "COTIZACION" ? 1 : 2;
+        return prioridad(a) - prioridad(b)
+          || String(a.nombre ?? "").localeCompare(String(b.nombre ?? ""), "es");
+      });
+      setRows(materiales);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar");
       setRows([]);
