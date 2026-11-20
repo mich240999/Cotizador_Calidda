@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { createSupabaseServiceRole } from "@/lib/supabaseServer";
+import { verificarPermisoMatriz } from "@/lib/permisosMatriz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,6 +71,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Falta el archivo (file)" }, { status: 400 });
   }
 
+  const service = createSupabaseServiceRole();
+  const operacionesArchivo = carpeta === "sustentos"
+    ? ["registrarInstalacion"]
+    : carpeta === "comprobantes"
+      ? ["registrarAbono", "crearSolicitudVenta"]
+      : ["crearSolicitudVenta", "crearCotizacionSGT"];
+  let accesoArchivo = false;
+  for (const operacion of operacionesArchivo) {
+    try {
+      await verificarPermisoMatriz(service, sesion, operacion, ["admin", "asesor"]);
+      accesoArchivo = true;
+      break;
+    } catch (e) {
+      if ((e as { status?: number }).status !== 403) {
+        return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
+      }
+    }
+  }
+  if (!accesoArchivo) return NextResponse.json({ ok: false, error: "Tu rol no tiene permiso para subir archivos en esta sección" }, { status: 403 });
+
   const nombreRaw = form.get("nombre");
   const nombre = (typeof nombreRaw === "string" && nombreRaw) || (file as File).name || "archivo";
   const tipo = (file as File).type || "";
@@ -84,7 +105,6 @@ export async function POST(req: Request) {
   const { ext, contentType } = permitido;
   const ruta = `${sesion.userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
 
-  const service = createSupabaseServiceRole();
   const { error } = await service.storage.from(bucket).upload(ruta, file, {
     contentType,
     upsert: false,

@@ -6,6 +6,7 @@ import { correoConfigurado, enviarCorreo, MSG_CORREO_NO_CONFIGURADO } from "./ma
 import { CLAVE_CORREO_COTIZACION, obtenerConfigCorreoCotizacion } from "./correoCotizacion";
 import { cuotaFrancesaConIgv } from "./financiamiento";
 import { tokensMaterial } from "./materialMatch";
+import { verificarPermisoMatriz } from "./permisosMatriz";
 
 /**
  * lib/operacionesVentas.ts — Operaciones del módulo Ventas (prefijo VTA-).
@@ -2442,10 +2443,7 @@ export async function ejecutarOperacionSeguraVentas(
     const e = new Error(`Operación desconocida: ${operacion}`) as Error & { status?: number };
     e.status = 404; throw e;
   }
-  if (!def.roles.includes(ctx.sesion.rol)) {
-    const e = new Error(`Rol '${ctx.sesion.rol}' sin permiso para '${operacion}'`) as Error & { status?: number };
-    e.status = 403; throw e;
-  }
+  await verificarPermisoMatriz(ctx.service, ctx.sesion, operacion, def.roles);
   const parsed = def.schema.safeParse(argumentos ?? {});
   if (!parsed.success) {
     const e = new Error(`Argumentos inválidos: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`) as Error & { status?: number };

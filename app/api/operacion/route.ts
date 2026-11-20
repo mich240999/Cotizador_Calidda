@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { createSupabaseServiceRole } from "@/lib/supabaseServer";
-import { ejecutarOperacionSegura } from "@/lib/operaciones";
+import { ejecutarOperacionSegura, OPERACIONES } from "@/lib/operaciones";
 import { ejecutarOperacionSeguraSGT, OPERACIONES_SGT } from "@/lib/operacionesSGT";
 import { ejecutarOperacionSeguraVentas, OPERACIONES_VENTAS } from "@/lib/operacionesVentas";
+import { cargarMatrizOperaciones, construirCatalogoMatriz, guardarMatrizOperaciones } from "@/lib/permisosMatriz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +51,21 @@ export async function POST(req: Request) {
 
   try {
     let datos: unknown;
-    try {
+    if (operacion === "getMatrizPermisos") {
+      if (sesion.rol !== "admin") throw Object.assign(new Error("Solo administración puede consultar la matriz"), { status: 403 });
+      const catalogo = construirCatalogoMatriz([
+        ...Object.entries(OPERACIONES), ...Object.entries(OPERACIONES_SGT), ...Object.entries(OPERACIONES_VENTAS),
+      ]);
+      datos = { fuente: "permisos por operación", ...(await cargarMatrizOperaciones(service, catalogo)) };
+    } else if (operacion === "guardarMatrizPermisos") {
+      if (sesion.rol !== "admin") throw Object.assign(new Error("Solo administración puede modificar la matriz"), { status: 403 });
+      const catalogo = construirCatalogoMatriz([
+        ...Object.entries(OPERACIONES), ...Object.entries(OPERACIONES_SGT), ...Object.entries(OPERACIONES_VENTAS),
+      ]);
+      const validacion = z.array(z.object({ rol_codigo: z.string().trim().min(1).max(30), recurso: z.string().trim().min(1).max(120), permitido: z.coerce.boolean() })).min(1).max(2000).safeParse((argumentos as { cambios?: unknown } | null)?.cambios);
+      if (!validacion.success) throw Object.assign(new Error(`Cambios inválidos: ${validacion.error.issues.map((i) => i.message).join("; ")}`), { status: 400 });
+      datos = await guardarMatrizOperaciones(service, catalogo, validacion.data);
+    } else try {
       ({ datos } = await ejecutarOperacionSegura(operacion, argumentos ?? {}, {
         service,
         sesion,

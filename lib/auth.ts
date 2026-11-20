@@ -9,6 +9,8 @@ export interface SesionInfo {
   userId: string;
   email: string;
   rol: RolUsuario;
+  /** Código del rol SGT usado por la matriz de permisos. */
+  rolCodigo?: string;
   /** Alcance SGT (GLOBAL/EMPRESA/EQUIPO/PROPIO). Sin ficha SGT: admin→GLOBAL, resto→PROPIO. */
   alcance: string;
   /** Id en seg_usuarios (U00xxx) si existe. */
@@ -186,6 +188,7 @@ export async function getSession(): Promise<SesionInfo | null> {
     userId: data.user.id,
     email,
     rol,
+    rolCodigo: rolSgt || (rol === "admin" ? "ADMIN" : rol === "oficina" ? "SUPERVISOR" : "ASESOR"),
     alcance,
     segId,
     idProveedor,

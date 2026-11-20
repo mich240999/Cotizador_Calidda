@@ -15,6 +15,7 @@ import {
   sesionVigente,
   type SesionApp
 } from "./sesiones";
+import { verificarPermisoMatriz } from "./permisosMatriz";
 
 /**
  * lib/operacionesSGT.ts — Operaciones Ambientes Cáliddos (prefijo SGT).
@@ -3190,10 +3191,7 @@ export async function ejecutarOperacionSeguraSGT(
     const e = new Error(`Operación desconocida: ${operacion}`) as Error & { status?: number };
     e.status = 404; throw e;
   }
-  if (!def.roles.includes(ctx.sesion.rol)) {
-    const e = new Error(`Rol '${ctx.sesion.rol}' sin permiso para '${operacion}'`) as Error & { status?: number };
-    e.status = 403; throw e;
-  }
+  await verificarPermisoMatriz(ctx.service, ctx.sesion, operacion, def.roles);
   const parsed = def.schema.safeParse(argumentos ?? {});
   if (!parsed.success) {
     const e = new Error(`Argumentos inválidos: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`) as Error & { status?: number };

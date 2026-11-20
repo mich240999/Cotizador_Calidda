@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { createSupabaseServiceRole } from "@/lib/supabaseServer";
 import { obtenerDatosPdf, buildCotizacionPdf } from "@/lib/cotizacionPdf";
 import { resolverAlcance, puedeVerCotizacion } from "@/lib/alcance";
+import { verificarPermisoMatriz } from "@/lib/permisosMatriz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   try {
     const service = createSupabaseServiceRole();
+    await verificarPermisoMatriz(service, sesion, "generarPDF", ["admin", "asesor", "oficina"]);
     const { data: cot } = await service.from("cotizaciones").select("id,created_by,asesor,proveedor").eq("id", id).maybeSingle();
     if (!cot) return NextResponse.json({ ok: false, error: "Cotización no encontrada" }, { status: 404 });
     const alcance = await resolverAlcance(service, sesion);
@@ -52,7 +54,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     });
   } catch (e) {
     const msg = (e as Error).message || "Error generando PDF";
-    const status = /no encontrada/i.test(msg) ? 404 : 500;
+    const status = /sin permiso|reservada a administración/i.test(msg) ? 403 : /no encontrada/i.test(msg) ? 404 : 500;
     return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }

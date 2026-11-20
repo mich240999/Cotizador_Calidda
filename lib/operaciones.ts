@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RolUsuario, SesionInfo } from "./auth";
 import { resolverAlcance, puedeVerCotizacion } from "./alcance";
 import { correoConfigurado, enviarCorreo, MSG_CORREO_NO_CONFIGURADO } from "./mailer";
+import { verificarPermisoMatriz } from "./permisosMatriz";
 
 function lanzar(status: number, message: string): never {
   const e = new Error(message) as Error & { status?: number };
@@ -471,11 +472,7 @@ export async function ejecutarOperacionSegura(
     e.status = 404;
     throw e;
   }
-  if (!def.roles.includes(ctx.sesion.rol)) {
-    const e = new Error(`Rol '${ctx.sesion.rol}' sin permiso para '${operacion}'`) as Error & { status?: number };
-    e.status = 403;
-    throw e;
-  }
+  await verificarPermisoMatriz(ctx.service, ctx.sesion, operacion, def.roles);
   const parsed = def.schema.safeParse(argumentos ?? {});
   if (!parsed.success) {
     const e = new Error(`Argumentos inválidos: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`) as Error & { status?: number };
