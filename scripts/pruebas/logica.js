@@ -68,6 +68,8 @@ function ejecutar() {
   check("extrae resto libre", ex.resto === "Cliente prefiere entrega por la tarde", JSON.stringify(ex.resto));
   const legacy = det.extraerDetalles("[DETALLES DEL MUEBLE]\nMarca de Melamina: Arauco\nColor estructura de mueble: Blanco\nColor de Puertas: Roble\nColor Tablero: Gris\nTiradores: Acero\nVidrios: No aplica\n[FIN DETALLES]");
   check("conserva lectura de detalles históricos", legacy.detalles.some((x) => x.etiqueta === "Color de Puertas" && x.valor === "Roble"));
+  const completos = det.extraerDetalles(det.componerObservaciones({ ...d, marca_melamina: "Arauco", color_estructura: "Blanco", color_puertas: "Roble", color_tablero: "Gris", detalle_tiradores: "Acero", vidrios: "Templado" }, ""));
+  check("conserva acabados y accesorios juntos", completos.detalles.length === 10 && completos.detalles.some((x) => x.etiqueta === "Detalle de tiradores" && x.valor === "Acero") && completos.detalles.some((x) => x.etiqueta === "Tiradores" && x.valor === "No"));
   check("sin observaciones no agrega lineas", det.componerObservaciones(d, "   ").endsWith("[FIN DETALLES]"));
   check("resto vacio", det.extraerDetalles(det.componerObservaciones(d, "   ")).resto === "");
   check("texto plano no rompe", det.extraerDetalles("hola").detalles.length === 0);

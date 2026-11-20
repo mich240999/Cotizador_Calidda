@@ -247,6 +247,12 @@ const EsquemaItemSGT = z.object({
   descuento_pct: z.coerce.number().min(0).max(100).optional().default(0)
 });
 const EsquemaDetalleMueble = z.object({
+  marca_melamina: z.string().trim().max(200).optional(),
+  color_estructura: z.string().trim().max(200).optional(),
+  color_puertas: z.string().trim().max(200).optional(),
+  color_tablero: z.string().trim().max(200).optional(),
+  detalle_tiradores: z.string().trim().max(200).optional(),
+  vidrios: z.string().trim().max(200).optional(),
   accesorios_premium: z.enum(["Sí", "No"]),
   luz_led: z.enum(["Sí", "No"]),
   puerta_vidrio: z.enum(["Sí", "No"]),

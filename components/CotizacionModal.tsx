@@ -45,6 +45,12 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   const [tel, setTel] = useState("");
   const [obs, setObs] = useState("");
   const [det, setDet] = useState({
+    marca_melamina: "",
+    color_estructura: "",
+    color_puertas: "",
+    color_tablero: "",
+    detalle_tiradores: "",
+    vidrios: "",
     accesorios_premium: "",
     luz_led: "",
     puerta_vidrio: "",
@@ -279,6 +285,12 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       }
     }
     const CAMPOS_DET: { clave: keyof typeof det; etiqueta: string }[] = [
+      { clave: "marca_melamina", etiqueta: "Marca de Melamina" },
+      { clave: "color_estructura", etiqueta: "Color estructura de mueble" },
+      { clave: "color_puertas", etiqueta: "Color de Puertas" },
+      { clave: "color_tablero", etiqueta: "Color Tablero" },
+      { clave: "detalle_tiradores", etiqueta: "Detalle de tiradores" },
+      { clave: "vidrios", etiqueta: "Vidrios" },
       { clave: "accesorios_premium", etiqueta: "Accesorios premium" },
       { clave: "luz_led", etiqueta: "Luz LED" },
       { clave: "puerta_vidrio", etiqueta: "Puerta de vidrio" },
@@ -309,6 +321,12 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       });
       let creada: unknown = null;
       const detalles = {
+        marca_melamina: det.marca_melamina.trim(),
+        color_estructura: det.color_estructura.trim(),
+        color_puertas: det.color_puertas.trim(),
+        color_tablero: det.color_tablero.trim(),
+        detalle_tiradores: det.detalle_tiradores.trim(),
+        vidrios: det.vidrios.trim(),
         accesorios_premium: det.accesorios_premium.trim(),
         luz_led: det.luz_led.trim(),
         puerta_vidrio: det.puerta_vidrio.trim(),
@@ -577,8 +595,22 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
 
         <section className="card !shadow-none p-5">
             <h3 className="font-bold">Accesorios y acabados <span className="text-red-600">*</span></h3>
-            <p className="text-xs text-slate-400 mb-3">Indica si incluye cada accesorio.</p>
+            <p className="text-xs text-slate-400 mb-3">Completa los acabados e indica si incluye cada accesorio.</p>
             <div className="grid md:grid-cols-2 gap-3">
+              {([
+                ["marca_melamina", "Marca de Melamina"],
+                ["color_estructura", "Color estructura de mueble"],
+                ["color_puertas", "Color de Puertas"],
+                ["color_tablero", "Color Tablero"],
+                ["detalle_tiradores", "Detalle de tiradores"],
+                ["vidrios", "Vidrios"],
+              ] as const).map(([clave, etiqueta]) => (
+                <div key={clave}>
+                  <label className="label">{etiqueta} <span className="text-red-600">*</span></label>
+                  <input className="input" placeholder={etiqueta} maxLength={200} value={det[clave]}
+                    onChange={(e) => setDet((p) => ({ ...p, [clave]: e.target.value }))} />
+                </div>
+              ))}
               {([
                 ["accesorios_premium", "Accesorios premium"],
                 ["luz_led", "Luz LED"],
