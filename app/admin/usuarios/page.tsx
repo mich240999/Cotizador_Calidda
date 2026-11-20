@@ -7,6 +7,7 @@ import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
 import { AccActivar, AccDesactivar, AccEditar, IconBtn } from "@/components/Accion";
+import PasswordInput from "@/components/PasswordInput";
 
 type Usuario = {
   id: string;
@@ -268,7 +269,7 @@ function UsuarioModal({
             </select>
           </div>
           {!editando && (
-            <div className="md:col-span-2"><label className="label">Contraseña (opcional, mín. 8; si se omite se genera)</label><input className="input" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
+            <div className="md:col-span-2"><label className="label">Contraseña (opcional, mín. 8; si se omite se genera)</label><PasswordInput className="input" placeholder="••••••••" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
           )}
         </div>
         {error && <p className="mt-3 text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{error}</p>}
@@ -309,8 +310,8 @@ function CambioPasswordModal({ u, onClose, onOk }: { u: Usuario; onClose: () => 
         <h2 className="text-lg font-extrabold">Cambiar contraseña</h2>
         <p className="text-xs text-slate-500 mt-1">{u.nombre ?? "—"} · {correoDe(u)}</p>
         <div className="grid gap-3 mt-4">
-          <div><label className="label">Nueva contraseña (mín. 8) *</label><input className="input" type="password" placeholder="••••••••" value={pwd1} onChange={(e) => setPwd1(e.target.value)} /></div>
-          <div><label className="label">Repetir contraseña *</label><input className="input" type="password" placeholder="••••••••" value={pwd2} onChange={(e) => setPwd2(e.target.value)} /></div>
+          <div><label className="label">Nueva contraseña (mín. 8) *</label><PasswordInput className="input" placeholder="••••••••" autoComplete="new-password" value={pwd1} onChange={(e) => setPwd1(e.target.value)} /></div>
+          <div><label className="label">Repetir contraseña *</label><PasswordInput className="input" placeholder="••••••••" autoComplete="new-password" value={pwd2} onChange={(e) => setPwd2(e.target.value)} /></div>
         </div>
         {msg && <p className="mt-3 text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
         <div className="flex gap-2 mt-5">

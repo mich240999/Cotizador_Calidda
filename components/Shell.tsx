@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import LogoCalidda from "@/components/LogoCalidda";
+import PasswordInput from "@/components/PasswordInput";
 
 const STROKE = {
   fill: "none",
@@ -462,15 +463,15 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 <>
                   <div>
                     <label className="label" htmlFor="clave-actual">Contraseña actual</label>
-                    <input id="clave-actual" className="input" type="password" autoComplete="current-password" required value={contrasenaActual} onChange={(e) => setContrasenaActual(e.target.value)} />
+                    <PasswordInput id="clave-actual" className="input" autoComplete="current-password" required value={contrasenaActual} onChange={(e) => setContrasenaActual(e.target.value)} />
                   </div>
                   <div>
                     <label className="label" htmlFor="clave-nueva">Nueva contraseña</label>
-                    <input id="clave-nueva" className="input" type="password" autoComplete="new-password" required minLength={10} value={nuevaContrasena} onChange={(e) => setNuevaContrasena(e.target.value)} />
+                    <PasswordInput id="clave-nueva" className="input" autoComplete="new-password" required minLength={10} value={nuevaContrasena} onChange={(e) => setNuevaContrasena(e.target.value)} />
                   </div>
                   <div>
                     <label className="label" htmlFor="clave-repetir">Repite la nueva contraseña</label>
-                    <input id="clave-repetir" className="input" type="password" autoComplete="new-password" required value={repetirContrasena} onChange={(e) => setRepetirContrasena(e.target.value)} />
+                    <PasswordInput id="clave-repetir" className="input" autoComplete="new-password" required value={repetirContrasena} onChange={(e) => setRepetirContrasena(e.target.value)} />
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Mínimo 10 caracteres, una mayúscula y un símbolo.</p>
                 </>
@@ -478,7 +479,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               {popupCuenta === "datos" && (
                 <div>
                   <label className="label" htmlFor="datos-clave-actual">Confirma con tu contraseña actual</label>
-                  <input id="datos-clave-actual" className="input" type="password" autoComplete="current-password" required value={contrasenaActual} onChange={(e) => setContrasenaActual(e.target.value)} />
+                  <PasswordInput id="datos-clave-actual" className="input" autoComplete="current-password" required value={contrasenaActual} onChange={(e) => setContrasenaActual(e.target.value)} />
                 </div>
               )}
               {errorCuenta && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{errorCuenta}</p>}
