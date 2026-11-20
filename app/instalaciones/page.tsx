@@ -95,6 +95,7 @@ function VentanaInstalacion({ v, accion, onClose, onChanged }: {
     ["Cliente", v.cliente_nombre], ["Cuenta contrato", v.cuenta_contrato],
     ["Proveedor", v.proveedor_nombre], ["Asesor", v.asesor_nombre],
     ["Cotización", v.cotizacion_codigo], ["Pedido de venta", v.numero_pedido],
+    ...(Number(v.anticipo ?? 0) > 0 ? [["Pedido de abono", v.pv_abono] as const] : []),
     ["Estado de venta", <BadgeEstadoVenta estado={String(v.estado ?? "")} />],
     ["Estado de instalación", estadoInstDe(v).replace(/_/g, " ")],
     ["Total", formatoMoneda(Number(v.monto_total ?? 0))], ["Ambiente", v.ambiente],
@@ -114,12 +115,13 @@ function VentanaInstalacion({ v, accion, onClose, onChanged }: {
             </dl>}
             {accion === "detalle" && Array.isArray(v.items) && v.items.length > 0 && <div className="mt-4 overflow-x-auto">
               <table className="tabla">
-                <thead><tr><th>Material</th><th>Cantidad</th><th>Subtotal</th><th>Pedido</th></tr></thead>
+                <thead><tr><th>Material</th><th>Cantidad</th><th>Subtotal</th><th>Pedido de venta</th><th>Pedido de abono</th></tr></thead>
                 <tbody>{(v.items as Fila[]).map((item) => <tr key={String(item.id)}>
                   <td>{String(item.material_nombre ?? item.id_material ?? "—")}</td>
                   <td>{String(item.cantidad ?? "—")}</td>
                   <td>{formatoMoneda(Number(item.subtotal ?? 0))}</td>
-                  <td>{String(item.numero_pedido_venta ?? item.numero_pedido_abono ?? "—")}</td>
+                  <td>{String(item.numero_pedido_venta ?? "—")}</td>
+                  <td>{String(item.numero_pedido_abono ?? "—")}</td>
                 </tr>)}</tbody>
               </table>
             </div>}
