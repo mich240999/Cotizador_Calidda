@@ -29,7 +29,7 @@ const TITULOS: Record<string, { titulo: string; desc: string }> = {
   },
   subsanaciones: {
     titulo: "Avisos de solicitudes por subsanar",
-    desc: "Avisa a cada proveedor por sus solicitudes observadas o evidencias rechazadas. El correo se toma de Administración → Proveedores.",
+    desc: "Avisa al proveedor asociado a cada venta. El mensaje se omite si el proveedor no tiene correo configurado o sus avisos están desactivados.",
   },
 };
 
@@ -49,7 +49,7 @@ function CorteCard({ c, onGuardado }: { c: Corte; onGuardado: () => void }) {
 
   const guardarConfig = async () => {
     await apiOperacion("cfgCorteGuardar", {
-      clave: c.clave, horas, para, copia, asunto, mensaje, activo, modo_envio: modoEnvio,
+      clave: c.clave, horas, para: esSubsanaciones ? "" : para, copia: esSubsanaciones ? "" : copia, asunto, mensaje, activo, modo_envio: modoEnvio,
     });
   };
 
@@ -116,15 +116,16 @@ function CorteCard({ c, onGuardado }: { c: Corte; onGuardado: () => void }) {
             Corte activo
           </label>
         </div>
-        <div>
-          <label className="label">{esSubsanaciones ? "Correos adicionales (opcional)" : "Correo destino *"}</label>
-          <input className="input" placeholder={esSubsanaciones ? "supervision@empresa.com" : "responsable@empresa.com"} value={para} onChange={(e) => setPara(e.target.value)} />
-          {esSubsanaciones && <p className="text-[11px] text-slate-400 mt-1">También se envía al correo registrado en cada proveedor.</p>}
-        </div>
-        <div>
-          <label className="label">Correos en copia</label>
-          <input className="input" placeholder="copia1@..., copia2@..." value={copia} onChange={(e) => setCopia(e.target.value)} />
-        </div>
+        {!esSubsanaciones && <>
+          <div>
+            <label className="label">Correo destino *</label>
+            <input className="input" placeholder="responsable@empresa.com" value={para} onChange={(e) => setPara(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Correos en copia</label>
+            <input className="input" placeholder="copia1@..., copia2@..." value={copia} onChange={(e) => setCopia(e.target.value)} />
+          </div>
+        </>}
       </div>
       <div className="mt-3">
         <label className="label">Asunto (usa {"{cantidad}"}, {"{proveedor}"}, {"{hora}"}, {"{fecha}"})</label>
@@ -142,6 +143,62 @@ function CorteCard({ c, onGuardado }: { c: Corte; onGuardado: () => void }) {
       </div>
     </div>
   );
+}
+
+type ProveedorAviso = { id: string; nombre: string; correo: string; activo: boolean; estado: string };
+
+function ProveedoresSubsanacionesCard() {
+  const [proveedores, setProveedores] = useState<ProveedorAviso[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState<string | null>(null);
+  const [correos, setCorreos] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+
+  const cargar = async () => {
+    setCargando(true); setMsg(null);
+    try {
+      const r = await apiOperacion<ProveedorAviso[]>("cfgSubsanacionesProveedoresListar", {});
+      const lista = Array.isArray(r) ? r : [];
+      setProveedores(lista);
+      setCorreos(Object.fromEntries(lista.map((p) => [p.id, p.correo ?? ""])));
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "No se pudieron cargar los proveedores");
+    } finally { setCargando(false); }
+  };
+
+  useEffect(() => { cargar(); }, []);
+
+  const guardar = async (p: ProveedorAviso, activo = p.activo) => {
+    setGuardando(p.id); setMsg(null); setOk(null);
+    try {
+      const actualizado = await apiOperacion<ProveedorAviso>("cfgSubsanacionProveedorGuardar", {
+        id_proveedor: p.id, correo: correos[p.id] ?? "", activo,
+      });
+      setProveedores((prev) => prev.map((item) => item.id === p.id ? { ...item, ...actualizado } : item));
+      setCorreos((prev) => ({ ...prev, [p.id]: actualizado.correo ?? "" }));
+      setOk(`Configuración guardada para ${p.nombre}.`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "No se pudo guardar el proveedor");
+    } finally { setGuardando(null); }
+  };
+
+  return <section className="card p-5">
+    <div className="flex items-center gap-3 flex-wrap">
+      <h2 className="font-bold">Correos de proveedores para subsanaciones</h2>
+      <button className="btn-white !text-[#0099D8] ml-auto" onClick={cargar} disabled={cargando}>Actualizar lista</button>
+    </div>
+    <p className="text-xs text-slate-500 mt-1">Cada aviso se envía únicamente al correo configurado aquí para el proveedor de esa venta. Sin correo o desactivado, no se envía.</p>
+    {msg && <p className="mt-3 text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
+    {ok && <p className="mt-3 text-sm rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-2">{ok}</p>}
+    {cargando ? <p className="mt-4 text-sm text-slate-500">Cargando proveedores…</p> : proveedores.length === 0 ? <p className="mt-4 text-sm text-slate-500">No hay proveedores registrados.</p> :
+      <div className="mt-4 space-y-3">{proveedores.map((p) => <div key={p.id} className="grid md:grid-cols-[minmax(180px,1fr)_minmax(240px,1.5fr)_auto_auto] gap-3 items-end border border-slate-200 rounded-xl p-3">
+        <div><div className="text-sm font-semibold">{p.nombre}</div><div className="text-xs text-slate-400">{p.id}{p.estado ? ` · ${p.estado}` : ""}</div></div>
+        <div><label className="label">Correo para avisos</label><input className="input" type="email" placeholder="proveedor@empresa.com" value={correos[p.id] ?? ""} onChange={(e) => setCorreos((prev) => ({ ...prev, [p.id]: e.target.value }))} /><p className="text-[11px] text-slate-400 mt-1">Vacío: no se enviarán avisos.</p></div>
+        <button className="btn-white" disabled={guardando !== null} onClick={() => guardar(p)}>{guardando === p.id ? "Guardando…" : "Guardar correo"}</button>
+        <button className={p.activo ? "btn-white !text-red-600" : "btn-green"} disabled={guardando !== null} onClick={() => guardar(p, !p.activo)}>{p.activo ? "Desactivar avisos" : "Activar avisos"}</button>
+      </div>)}</div>}
+  </section>;
 }
 
 function CorreoCotizacionCard() {
@@ -288,6 +345,7 @@ export default function CortesPage() {
         {!loading && !necesitaMigracion && cortes.map((c) => (
           <CorteCard key={c.clave} c={c} onGuardado={() => cargar(true)} />
         ))}
+        {!loading && !necesitaMigracion && cortes.some((c) => c.clave === "subsanaciones") && <ProveedoresSubsanacionesCard />}
         {!loading && <CorreoCotizacionCard />}
       </div>
     </Shell></AuthGate>

@@ -2066,27 +2066,24 @@ async function procesarAvisosSubsanacion(
 
   const proveedoresIds = [...new Set(filas.map((f) => String(f.id_proveedor ?? "")).filter(Boolean))];
   const { data: proveedores, error: eProv } = await service.from("mae_proveedores")
-    .select("id,razon_social,nombre_comercial,correo").in("id", proveedoresIds.length ? proveedoresIds : ["__ninguno__"]);
+    .select("id,razon_social,nombre_comercial,correo_subsanaciones,avisos_subsanacion_activos").in("id", proveedoresIds.length ? proveedoresIds : ["__ninguno__"]);
   if (eProv) throw new Error(`No se pudieron leer los correos de proveedores: ${eProv.message}`);
   const porProveedor = new Map(((proveedores ?? []) as Fila[]).map((p) => [String(p.id), p]));
-  const adicionales = partirCorreos(String(c.para ?? ""));
-  const cc = partirCorreos(String(c.copia ?? ""));
   const errores: string[] = [];
   let enviados = 0;
   for (const [idProveedor, casos] of agruparPor(filas, (f) => String(f.id_proveedor ?? ""))) {
     if (!idProveedor) { errores.push("Solicitud sin proveedor asignado"); continue; }
     const proveedor = porProveedor.get(idProveedor);
-    const correo = String(proveedor?.correo ?? "").trim();
+    if (!proveedor?.avisos_subsanacion_activos) { errores.push(`${idProveedor}: avisos desactivados`); continue; }
+    const correo = String(proveedor?.correo_subsanaciones ?? "").trim();
     if (!/@[a-z]/i.test(correo)) { errores.push(`${idProveedor}: falta correo en Administración > Proveedores`); continue; }
-    const destinatarios = [...new Set([correo, ...adicionales].filter((x) => /@/i.test(x)))];
     const nombre = String(proveedor?.nombre_comercial ?? proveedor?.razon_social ?? idProveedor);
     const detalle = casos.map((f) => `• ${f.solicitud_id} — ${f.etapa}: ${f.motivo || "Revisa los datos/evidencias observados."}`).join("\n");
     const vars = { proveedor: nombre, cantidad: casos.length, fecha: ahora.fecha, hora: ahora.hora, detalle };
     try {
       if (!correoConfigurado()) throw new Error(MSG_CORREO_NO_CONFIGURADO);
       await enviarCorreo({
-        to: destinatarios,
-        cc,
+        to: correo,
         subject: aplicarPlantilla(String(c.asunto ?? "Pendientes por subsanar — {proveedor}"), vars),
         text: aplicarPlantilla(String(c.mensaje ?? "Hola {proveedor}, tienes {cantidad} solicitud(es) por subsanar:\n{detalle}"), vars),
       });
@@ -2195,6 +2192,40 @@ async function hCorteEnviar(args: z.infer<typeof EsquemaEnviarCorte>, ctx: Opera
   } catch (e) {
     exigirTabla(e);
   }
+}
+
+const EsquemaProveedorAvisoSubsanacion = z.object({
+  id_proveedor: z.string().trim().min(1).max(30),
+  correo: z.string().trim().max(160).email().or(z.literal("")),
+  activo: z.coerce.boolean(),
+});
+
+async function hListarProveedoresAvisosSubsanacion(_args: unknown, ctx: OperacionContext) {
+  const { data, error } = await ctx.service.from("mae_proveedores")
+    .select("id,razon_social,nombre_comercial,correo_subsanaciones,avisos_subsanacion_activos,estado")
+    .order("nombre_comercial", { ascending: true }).limit(2000);
+  if (error) throw new Error(/column|schema cache/i.test(error.message)
+    ? "Falta la migración de avisos por proveedor: ejecuta supabase/migracion_subsanaciones_correo_01.sql"
+    : error.message);
+  return ((data ?? []) as Fila[]).map((p) => ({
+    id: String(p.id),
+    nombre: String(p.nombre_comercial ?? p.razon_social ?? p.id),
+    correo: String(p.correo_subsanaciones ?? ""),
+    activo: p.avisos_subsanacion_activos !== false,
+    estado: String(p.estado ?? ""),
+  }));
+}
+
+async function hGuardarProveedorAvisoSubsanacion(args: z.infer<typeof EsquemaProveedorAvisoSubsanacion>, ctx: OperacionContext) {
+  const { data, error } = await ctx.service.from("mae_proveedores")
+    .update({ correo_subsanaciones: args.correo || null, avisos_subsanacion_activos: args.activo })
+    .eq("id", args.id_proveedor).select("id,nombre_comercial,razon_social,correo_subsanaciones,avisos_subsanacion_activos").maybeSingle();
+  if (error) throw new Error(/column|schema cache/i.test(error.message)
+    ? "Falta la migración de avisos por proveedor: ejecuta supabase/migracion_subsanaciones_correo_01.sql"
+    : error.message);
+  if (!data) lanzar(404, `Proveedor no encontrado: ${args.id_proveedor}`);
+  const p = data as Fila;
+  return { id: String(p.id), nombre: String(p.nombre_comercial ?? p.razon_social ?? p.id), correo: String(p.correo_subsanaciones ?? ""), activo: p.avisos_subsanacion_activos !== false };
 }
 
 // ------------------------------------------------ Plantilla del correo de cotización
@@ -2515,6 +2546,8 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   cfgCortesListar: { descripcion: "Cortes: lee configuración de cortes programados", roles: SOLO_ADMIN, schema: z.object({}).passthrough(), handler: hCortesListar },
   cfgCorteGuardar: { descripcion: "Cortes: guarda horas/correos/asunto/mensaje de un corte", roles: SOLO_ADMIN, schema: EsquemaGuardarCorte, handler: hCorteGuardar },
   cfgCorteEnviar: { descripcion: "Cortes: envía ahora un corte (prueba)", roles: SOLO_ADMIN, schema: EsquemaEnviarCorte, handler: hCorteEnviar },
+  cfgSubsanacionesProveedoresListar: { descripcion: "Cortes: lista correos de proveedores para subsanaciones", roles: SOLO_ADMIN, schema: z.object({}).passthrough(), handler: hListarProveedoresAvisosSubsanacion },
+  cfgSubsanacionProveedorGuardar: { descripcion: "Cortes: guarda el correo y estado de aviso de un proveedor", roles: SOLO_ADMIN, schema: EsquemaProveedorAvisoSubsanacion, handler: hGuardarProveedorAvisoSubsanacion },
   cfgCorreoCotizacion: { descripcion: "Correo cotización: lee asunto/mensaje editables", roles: SOLO_ADMIN, schema: z.object({}).passthrough(), handler: hCorreoCotizacionObtener },
   cfgCorreoCotizacionGuardar: { descripcion: "Correo cotización: guarda asunto/mensaje", roles: SOLO_ADMIN, schema: EsquemaGuardarCorreoCotizacion, handler: hCorreoCotizacionGuardar },
   actualizarNumerosPedido: { descripcion: "Ventas: edita n.º de pedido por ítem sin cambiar estado", roles: SOLO_ADMIN, schema: EsquemaAprobar, handler: hActualizarNumerosPedido },

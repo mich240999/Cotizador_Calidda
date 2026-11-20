@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS public.cfg_subsanaciones_cola (
   resuelto_at TIMESTAMPTZ
 );
 
+-- El correo y el interruptor de avisos son específicos de este módulo;
+-- no modifican el correo general de contacto del proveedor.
+ALTER TABLE public.mae_proveedores
+  ADD COLUMN IF NOT EXISTS correo_subsanaciones TEXT,
+  ADD COLUMN IF NOT EXISTS avisos_subsanacion_activos BOOLEAN NOT NULL DEFAULT true;
+
 CREATE INDEX IF NOT EXISTS ix_cfg_subsanaciones_pendientes
   ON public.cfg_subsanaciones_cola (creado_at)
   WHERE enviado_at IS NULL AND resuelto_at IS NULL;
