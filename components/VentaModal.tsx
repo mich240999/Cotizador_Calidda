@@ -34,7 +34,7 @@ type Item = {
   material_id: string; nombre: string; cantidad: number; precio: number;
   tarifaOK: boolean;
   dscto_monto: number; modo: "financiado" | "contado";
-  medio: "financiado" | "efectivo" | "tarjeta" | "abono";
+  medio: "financiado" | "efectivo" | "tarjeta";
   tea: number; cuotas: number;
   material_codigo?: string;
   material_nombre?: string;
@@ -92,7 +92,7 @@ function lineasDesdeCotizacion(prefill: PrefillVenta): Item[] {
         ...comun,
         precio: parteAbono,
         modo: "contado",
-        medio: "abono",
+        medio: "efectivo",
         tipo_pedido: "ABONO",
         cuotas: 1,
       });
@@ -103,7 +103,6 @@ function lineasDesdeCotizacion(prefill: PrefillVenta): Item[] {
 
 const MEDIO_LABEL: Record<Item["medio"], string> = {
   financiado: "Pedido financiado",
-  abono: "Pedido de abono",
   efectivo: "Efectivo",
   tarjeta: "Tarjeta",
 };

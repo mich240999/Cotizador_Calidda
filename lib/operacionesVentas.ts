@@ -425,7 +425,7 @@ const EsquemaItemVenta = z.object({
   precio_unit: z.coerce.number().min(0).max(10_000_000),
   descuento_monto: z.coerce.number().min(0).max(10_000_000).optional().default(0),
   modo: z.enum(["financiado", "contado"]),
-  medio_pago: z.string().trim().min(1).max(60),
+  medio_pago: z.enum(["financiado", "efectivo", "tarjeta", "abono"]),
   nro_cuotas: z.coerce.number().int().min(1).max(360).optional().nullable(),
   cuota_mensual: z.coerce.number().min(0).max(10_000_000).optional().default(0),
   alto: z.coerce.number().min(0).max(1000).optional().default(0),
@@ -927,7 +927,7 @@ async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearS
           precio_unit: parteAbono,
           subtotal: parteAbono,
           modo: "contado",
-          medio_pago: "abono",
+          medio_pago: "efectivo",
           nro_cuotas: 1,
           cuota_mensual: 0,
         });
@@ -1099,7 +1099,9 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
           precio_unit: it.precio_unit,
           descuento_monto: it.descuento_monto,
            modo: it.modo,
-           medio_pago: it.medio_pago,
+           // Compatibilidad con clientes anteriores: abono se representaba
+           // como medio de pago, pero el esquema distingue ABONO por tipo_pedido.
+           medio_pago: it.medio_pago === "abono" ? "efectivo" : it.medio_pago,
            tipo_pedido: it.tipo_pedido,
            nro_cuotas: it.nro_cuotas,
            cuota_mensual: it.cuota_mensual,
