@@ -27,7 +27,16 @@ function RegistroLiquidacion({ v, onClose, onHecho }: { v: Fila; onClose: () => 
   const [msg, setMsg] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
   const pedidos = Array.isArray(v.items) ? (v.items as Fila[]) : [];
-  const sinPedido = pedidos.filter((it) => !String(it.numero_pedido_venta ?? "").trim() && !String(it.numero_pedido_abono ?? "").trim());
+  const tieneItemsDetallados = pedidos.length > 0 && pedidos.some((it) => it.tipo_pedido);
+  const ventas = pedidos.filter((it) => String(it.tipo_pedido ?? "VENTA").toUpperCase() === "VENTA");
+  const abonos = pedidos.filter((it) => String(it.tipo_pedido ?? "VENTA").toUpperCase() === "ABONO");
+  const faltanVenta = tieneItemsDetallados
+    ? ventas.length > 0 && !ventas.some((it) => String(it.numero_pedido_venta ?? "").trim())
+    : Number(v.anticipo ?? 0) <= 0 && pedidos.every((it) => !String(it.numero_pedido_venta ?? "").trim());
+  const faltanAbono = Number(v.anticipo ?? 0) > 0 && (tieneItemsDetallados
+    ? abonos.length > 0 && !abonos.some((it) => String(it.numero_pedido_abono ?? "").trim())
+    : pedidos.every((it) => !String(it.numero_pedido_abono ?? "").trim()));
+  const faltanPedido = faltanVenta || faltanAbono;
 
   const guardar = async () => {
     setMsg(null);
@@ -61,10 +70,10 @@ function RegistroLiquidacion({ v, onClose, onHecho }: { v: Fila; onClose: () => 
             <p className="font-bold">Acta de entrega y sustentos aprobados</p>
             <p className="text-xs mt-1">Al solicitar, la venta pasa a <b>pendiente de liquidar</b>. Administración verificará los pedidos registrados y liquidará.</p>
           </div>
-          <div className={`rounded-xl border p-4 text-sm ${sinPedido.length ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
-            {sinPedido.length
-              ? `Faltan números de pedido en ${sinPedido.length} ítem(s). Regístralos en el detalle de la venta antes de solicitar.`
-              : "Todos los ítems tienen número de pedido de venta o abono."}
+          <div className={`rounded-xl border p-4 text-sm ${faltanPedido ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
+            {faltanPedido
+              ? `Falta registrar ${faltanVenta ? "el pedido de venta" : ""}${faltanVenta && faltanAbono ? " y " : ""}${faltanAbono ? "el pedido de abono" : ""} en el detalle de la venta.`
+              : "Los pedidos de venta y de abono están registrados en sus respectivas líneas."}
           </div>
           {msg && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
         </div>

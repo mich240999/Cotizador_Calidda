@@ -249,15 +249,25 @@ async function sincronizarEvidencias(
   return (data ?? []) as Fila[];
 }
 
-/** Todos los pedidos (venta o abono) deben estar registrados antes de liquidar. */
+/** Valida un pedido de venta y, si hay anticipo, un pedido de abono, asignados a sus filas de tipo correspondientes. */
 async function exigirPedidosRegistrados(ctx: OperacionContext, solicitudId: string): Promise<void> {
   const { data, error } = await ctx.service.from(T_ITEM)
-    .select("id,numero_pedido_venta,numero_pedido_abono").eq("solicitud_id", solicitudId);
+    .select("id,numero_pedido_venta,numero_pedido_abono,tipo_pedido").eq("solicitud_id", solicitudId);
   if (error) throw new Error(error.message);
   const items = (data ?? []) as Fila[];
   if (!items.length) lanzar(422, "La venta no tiene ítems/pedidos registrados.");
-  const faltan = items.filter((it) => !String(it.numero_pedido_venta ?? "").trim() && !String(it.numero_pedido_abono ?? "").trim());
-  if (faltan.length) lanzar(422, `Faltan números de pedido en ${faltan.length} ítem(s). Regístralos antes de liquidar.`);
+  const itemsVenta = items.filter((it) => String(it.tipo_pedido ?? "VENTA").toUpperCase() === "VENTA");
+  const itemsAbono = items.filter((it) => String(it.tipo_pedido ?? "VENTA").toUpperCase() === "ABONO");
+  const tienePedidoVenta = itemsVenta.some((it) => String(it.numero_pedido_venta ?? "").trim());
+  const tienePedidoAbono = itemsAbono.some((it) => String(it.numero_pedido_abono ?? "").trim());
+  const { data: solicitud, error: errorSolicitud } = await ctx.service.from(T_SOL).select("anticipo,pv_abono,numero_pedido").eq("id", solicitudId).maybeSingle();
+  if (errorSolicitud) throw new Error(errorSolicitud.message);
+  const pedidoVentaCabecera = String((solicitud as Fila | null)?.numero_pedido ?? "").trim();
+  if (!tienePedidoVenta && !pedidoVentaCabecera) lanzar(422, "Falta registrar el pedido de venta en los ítems de tipo VENTA.");
+  const anticipo = Number((solicitud as Fila | null)?.anticipo ?? 0);
+  if (anticipo > 0 && !tienePedidoAbono && !String((solicitud as Fila | null)?.pv_abono ?? "").trim()) {
+    lanzar(422, "Falta registrar el pedido de abono en los ítems de tipo ABONO.");
+  }
 }
 
 /** Todas las evidencias deben estar aprobadas por administración. */

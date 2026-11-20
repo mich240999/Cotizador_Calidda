@@ -129,17 +129,19 @@ export default function VentaDetallePage() {
       const items = venta ? ventaItems(venta) : [];
       const payload = (() => {
         if (items.length > 0) {
-          const faltan = items.filter((it, i) => {
-            const k = String((it as Record<string, unknown>).id ?? i);
-            return !(pedidos[k + "_v"] ?? "").trim() && !(pedidos[k + "_a"] ?? "").trim();
-          });
-          if (faltan.length > 0) throw new Error("Cada ítem exige al menos un número (pedido de venta o de abono).");
+          const itemsVenta = items.filter((it) => String((it as Record<string, unknown>).tipo_pedido ?? "VENTA").toUpperCase() === "VENTA");
+          const itemsAbono = items.filter((it) => String((it as Record<string, unknown>).tipo_pedido ?? "VENTA").toUpperCase() === "ABONO");
+          const pedidoVenta = (pedidos.__v ?? "").trim();
+          const pedidoAbono = (pedidos.__a ?? "").trim();
+          if (itemsVenta.length > 0 && !pedidoVenta) throw new Error("Registra el número del pedido de venta.");
+          if (itemsAbono.length > 0 && !pedidoAbono) throw new Error("Registra el número del pedido de abono.");
           return items.map((it, i) => {
             const k = String((it as Record<string, unknown>).id ?? i);
+            const tipo = String((it as Record<string, unknown>).tipo_pedido ?? "VENTA").toUpperCase();
             return {
               item_id: k,
-              numero_pedido_venta: (pedidos[k + "_v"] ?? "").trim(),
-              numero_pedido_abono: (pedidos[k + "_a"] ?? "").trim(),
+              numero_pedido_venta: tipo === "VENTA" ? pedidoVenta : "",
+              numero_pedido_abono: tipo === "ABONO" ? pedidoAbono : "",
             };
           });
         }
@@ -218,14 +220,15 @@ export default function VentaDetallePage() {
   const puedeRevertir = est === "pendiente_liquidar" || (esAdmin && est === "liquidada");
 
   const abrirAprobar = () => {
-    // Prellena los números actuales para poder modificarlos.
     const p: Record<string, string> = {};
     for (const it of items) {
       const r = it as Record<string, unknown>;
-      const k = String(r.id ?? "");
-      if (r.numero_pedido_venta) p[k + "_v"] = String(r.numero_pedido_venta);
-      if (r.numero_pedido_abono) p[k + "_a"] = String(r.numero_pedido_abono);
+      if (r.numero_pedido_venta && !p.__v) p.__v = String(r.numero_pedido_venta);
+      if (r.numero_pedido_abono && !p.__a) p.__a = String(r.numero_pedido_abono);
     }
+    const raw = (venta ?? {}) as Record<string, unknown>;
+    if (!p.__v && raw.numero_pedido) p.__v = String(raw.numero_pedido);
+    if (!p.__a && raw.pv_abono) p.__a = String(raw.pv_abono);
     setPedidos(p);
     setShowAprobar(true);
   };
@@ -425,33 +428,17 @@ export default function VentaDetallePage() {
 
               {showAprobar && esAdmin && (
                 <div className="mt-4 rounded-xl border border-slate-200 p-4 space-y-3">
-                  <p className="text-sm font-bold">{puedeAprobar ? "Aprobar con números de pedido por ítem (obligatorios)" : "Números de pedido por ítem (modificables)"}</p>
-                  {items.length === 0 ? (
-                    <div className="grid md:grid-cols-2 gap-3">
+                  <p className="text-sm font-bold">{puedeAprobar ? "Aprobar con los números registrados en la solicitud" : "Números de pedido registrados (modificables)"}</p>
+                  <div className="grid md:grid-cols-2 gap-3">
                       <div>
                         <label className="label">Número de pedido venta *</label>
                         <input className="input" value={pedidos.__v ?? ""} onChange={(e) => setPedidos((p) => ({ ...p, __v: e.target.value }))} placeholder="Ej. PED-000123" />
                       </div>
-                      <div>
-                        <label className="label">Número de pedido abono</label>
+                      {Number((venta as Record<string, unknown> | null)?.anticipo ?? 0) > 0 && <div>
+                        <label className="label">Número de pedido abono *</label>
                         <input className="input" value={pedidos.__a ?? ""} onChange={(e) => setPedidos((p) => ({ ...p, __a: e.target.value }))} placeholder="Ej. ABO-000123" />
-                      </div>
-                    </div>
-                  ) : items.map((it, i) => {
-                    const k = String((it as Record<string, unknown>).id ?? i);
-                    return (
-                      <div key={k + i} className="grid md:grid-cols-2 gap-3">
-                        <div>
-                          <label className="label">N.º pedido venta · {String((it as Record<string, unknown>).nombre ?? (it as Record<string, unknown>).material ?? k)} *</label>
-                          <input className="input" value={pedidos[k + "_v"] ?? ""} onChange={(e) => setPedidos((p) => ({ ...p, [k + "_v"]: e.target.value }))} placeholder="Ej. PED-000123" />
-                        </div>
-                        <div>
-                          <label className="label">N.º pedido abono · {String((it as Record<string, unknown>).nombre ?? (it as Record<string, unknown>).material ?? k)}</label>
-                          <input className="input" value={pedidos[k + "_a"] ?? ""} onChange={(e) => setPedidos((p) => ({ ...p, [k + "_a"]: e.target.value }))} placeholder="Ej. ABO-000123" />
-                        </div>
-                      </div>
-                    );
-                  })}
+                      </div>}
+                  </div>
                   <div className="flex justify-end gap-2">
                     <button className="btn-white" onClick={() => setShowAprobar(false)}>Cancelar</button>
                     <button className="btn-green" onClick={aprobar} disabled={busy}>{busy ? "Guardando…" : puedeAprobar ? "✓ Confirmar aprobación" : "Guardar números"}</button>
