@@ -183,9 +183,6 @@ export default function VentaDetallePage() {
     void correr(() => apiOperacion("revertirLiquidacion", { solicitud_id: id, nota: nota.trim() }), "Liquidación revertida al paso anterior.");
   };
 
-  const solicitarLiquidacion = () =>
-    correr(() => apiOperacion("registrarLiquidacion", { solicitud_id: id, tipo: "acta" }), "Liquidación solicitada. Administración revisará y liquidará.");
-
   const abrirInstalacion = () => {
     if (!showInst) {
       const v = venta as Record<string, unknown> | null;
@@ -215,7 +212,6 @@ export default function VentaDetallePage() {
   const puedeObservarSol = ["borrador", "observado", "aprobada"].includes(est);
   const puedeInstalar = ["aprobada", "generada", "en_instalacion", "observada", "subsanado_pendiente", "instalada"].includes(est)
     && (evidencias.length === 0 || hayRechazadas || estIns === "observada" || estIns === "subsanado_pendiente");
-  const puedeSolicitarLiq = est === "validada_proveedor" && todasAprobadas;
   const puedeLiquidar = est === "pendiente_liquidar";
   const puedeRevertir = est === "pendiente_liquidar" || (esAdmin && est === "liquidada");
 
@@ -381,7 +377,7 @@ export default function VentaDetallePage() {
               {esAdmin && (
                 <p className={`mt-3 text-xs font-semibold ${todasAprobadas ? "text-emerald-700" : "text-amber-700"}`}>
                   {todasAprobadas
-                    ? "Todas las evidencias aprobadas. El proveedor ya puede solicitar la liquidación."
+                    ? est === "pendiente_liquidar" ? "Todas las evidencias aprobadas. La venta pasó automáticamente a pendiente de liquidación." : "Todas las evidencias aprobadas. La liquidación se generará automáticamente al terminar la revisión."
                     : `Faltan ${SUSTENTOS_INSTALACION.filter((s) => !evidencias.some((e) => String(e.tipo) === s.tipo && String(e.estado) === "aprobado")).length} evidencia(s) por aprobar.`}
                 </p>
               )}
@@ -409,13 +405,11 @@ export default function VentaDetallePage() {
               {!esAdmin ? (
                 <div className="flex flex-wrap gap-2">
                   {veInstalacion && puedeInstalar && <button className="btn-white" onClick={abrirInstalacion}>{evidencias.length ? "Subsanar evidencias" : "Registrar instalación"}</button>}
-                  {veInstalacion && puedeSolicitarLiq && <button className="btn-green" onClick={solicitarLiquidacion} disabled={busy}>Solicitar liquidación</button>}
                   {veInstalacion && puedeRevertir && <button className="btn-white" onClick={revertir} disabled={busy}>Revertir liquidación</button>}
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {veInstalacion && puedeInstalar && <button className="btn-white" onClick={abrirInstalacion}>{evidencias.length ? "Subsanar evidencias" : "Registrar instalación"}</button>}
-                  {veInstalacion && puedeSolicitarLiq && <button className="btn-green" onClick={solicitarLiquidacion} disabled={busy}>Solicitar liquidación</button>}
                   {veInstalacion && puedeRevertir && <button className="btn-white" onClick={revertir} disabled={busy}>Revertir liquidación</button>}
                   {puedeAprobar
                     ? <button className="btn-green" onClick={abrirAprobar}>✓ Aprobar</button>

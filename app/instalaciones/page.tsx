@@ -7,7 +7,6 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
-import { AccSolicitar } from "@/components/Accion";
 import { BadgeEstadoVenta, SUSTENTOS_INSTALACION, useRolVista } from "@/components/VentasComun";
 
 type Fila = Record<string, unknown>;
@@ -22,69 +21,6 @@ const enRango = (iso: unknown, desde: string, hasta: string) => {
 };
 
 const estadoInstDe = (v: Fila) => String(v.instalacion_estado ?? "pendiente_instalar");
-
-function RegistroLiquidacion({ v, onClose, onHecho }: { v: Fila; onClose: () => void; onHecho: () => void }) {
-  const [msg, setMsg] = useState<string | null>(null);
-  const [guardando, setGuardando] = useState(false);
-  const pedidos = Array.isArray(v.items) ? (v.items as Fila[]) : [];
-  const tieneItemsDetallados = pedidos.length > 0 && pedidos.some((it) => it.tipo_pedido);
-  const ventas = pedidos.filter((it) => String(it.tipo_pedido ?? "VENTA").toUpperCase() === "VENTA");
-  const abonos = pedidos.filter((it) => String(it.tipo_pedido ?? "VENTA").toUpperCase() === "ABONO");
-  const faltanVenta = tieneItemsDetallados
-    ? ventas.length > 0 && !ventas.some((it) => String(it.numero_pedido_venta ?? "").trim())
-    : Number(v.anticipo ?? 0) <= 0 && pedidos.every((it) => !String(it.numero_pedido_venta ?? "").trim());
-  const faltanAbono = Number(v.anticipo ?? 0) > 0 && (tieneItemsDetallados
-    ? abonos.length > 0 && !abonos.some((it) => String(it.numero_pedido_abono ?? "").trim())
-    : pedidos.every((it) => !String(it.numero_pedido_abono ?? "").trim()));
-  const faltanPedido = faltanVenta || faltanAbono;
-
-  const guardar = async () => {
-    setMsg(null);
-    setGuardando(true);
-    try {
-      await apiOperacion("registrarLiquidacion", {
-        solicitud_id: String(v.id),
-        tipo: "acta",
-      });
-      onHecho();
-      onClose();
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "No se pudo guardar");
-    } finally {
-      setGuardando(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl my-6 overflow-hidden">
-        <div className="flex items-start justify-between px-6 py-4 border-b bg-slate-50">
-          <div>
-            <h2 className="font-bold text-lg">Solicitar liquidación por acta · {String(v.id)}</h2>
-            <p className="text-xs text-slate-500">Solo existe la vía de acta de entrega. Las evidencias ya fueron aprobadas una por una.</p>
-          </div>
-          <button className="btn-white !px-3" onClick={onClose}>✕</button>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-            <p className="font-bold">Acta de entrega y sustentos aprobados</p>
-            <p className="text-xs mt-1">Al solicitar, la venta pasa a <b>pendiente de liquidar</b>. Administración verificará los pedidos registrados y liquidará.</p>
-          </div>
-          <div className={`rounded-xl border p-4 text-sm ${faltanPedido ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
-            {faltanPedido
-              ? `Falta registrar ${faltanVenta ? "el pedido de venta" : ""}${faltanVenta && faltanAbono ? " y " : ""}${faltanAbono ? "el pedido de abono" : ""} en el detalle de la venta.`
-              : "Los pedidos de venta y de abono están registrados en sus respectivas líneas."}
-          </div>
-          {msg && <p className="text-sm rounded-lg bg-red-50 border border-red-200 text-red-700 px-3 py-2">{msg}</p>}
-        </div>
-        <div className="flex justify-end gap-2 px-6 py-4 border-t bg-slate-50">
-          <button className="btn-white" onClick={onClose}>Cancelar</button>
-          <button className="btn-green" onClick={guardar} disabled={guardando}>{guardando ? "Guardando…" : "Solicitar liquidación"}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 type AccionInstalacion = "detalle" | "entrega" | "revision";
 
@@ -153,7 +89,6 @@ export default function InstalacionesPage() {
   const [fInst, setFInst] = useState("");
   const [fDesde, setFDesde] = useState("");
   const [fHasta, setFHasta] = useState("");
-  const [reg, setReg] = useState<Fila | null>(null);
   const [ventana, setVentana] = useState<{ v: Fila; accion: AccionInstalacion } | null>(null);
   const [liquidando, setLiquidando] = useState<string | null>(null);
   const [revirtiendo, setRevirtiendo] = useState<string | null>(null);
@@ -192,14 +127,6 @@ export default function InstalacionesPage() {
     });
   }, [rows, q, fSol, fInst, fDesde, fHasta]);
 
-  const puedeRegistrar = (v: Fila) => {
-    const est = String(v.estado ?? "").toLowerCase();
-    const ei = estadoInstDe(v);
-    const evs = Array.isArray(v.evidencias) ? (v.evidencias as Fila[]) : [];
-    const todas = ["foto_antes", "foto_durante", "foto_despues", "foto_dni", "foto_cliente_dni", "acta", "boleta"]
-      .every((t) => evs.some((e) => String(e.tipo) === t && String(e.estado) === "aprobado"));
-    return est === "validada_proveedor" && todas && !["pendiente_liquidar", "liquidada"].includes(ei);
-  };
   const puedeLiquidar = (v: Fila) => esAdmin && estadoInstDe(v) === "pendiente_liquidar" && String(v.estado ?? "").toLowerCase() !== "liquidada";
   const puedeRevertir = (v: Fila) => {
     const ei = estadoInstDe(v);
@@ -351,9 +278,6 @@ export default function InstalacionesPage() {
                   <td className="whitespace-nowrap text-xs">{v.created_at ? formatoFecha(String(v.created_at)) : "—"}</td>
                   <td className="whitespace-nowrap">
                     <div className="flex gap-1.5">
-                      {puedeRegistrar(v) && (
-                        <AccSolicitar title="Solicitar liquidación" onClick={() => setReg(v)} />
-                      )}
                       {(esProveedor || esAdmin) && ["generada", "aprobada", "en_instalacion", "instalada", "observada", "subsanado_pendiente"].includes(String(v.estado)) &&
                         (["pendiente_instalar", "pendiente", "observada"].includes(estadoInstDe(v)) || evidenciasDe(v).some((e) => e.estado === "rechazado")) &&
                         <button className="btn-white !py-1 !px-3 !text-xs" onClick={() => setVentana({ v, accion: "entrega" })}>
@@ -381,7 +305,6 @@ export default function InstalacionesPage() {
         </div>
       )}
 
-      {reg && <RegistroLiquidacion v={reg} onClose={() => setReg(null)} onHecho={() => cargar()} />}
       {ventana && <VentanaInstalacion {...ventana} onClose={() => setVentana(null)} onChanged={() => void cargar()} />}
     </Shell></AuthGate>
   );

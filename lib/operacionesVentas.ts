@@ -1401,7 +1401,12 @@ async function hRevisarEvidencia(args: z.infer<typeof EsquemaRevisarEvidencia>, 
     if (rechazadas.length) {
       aviso = await avisarObservacion(ctx, args.solicitud_id, "las evidencias de instalación", observacion ?? "");
     }
-    return { solicitud: cab, instalacion: instOk, evidencias, evidencia: actualizada, estado: estadoSol, aviso_email: aviso };
+    let liquidacionAutomatica: unknown = null;
+    if (todasAprobadas) {
+      const actaUrl = String(evidencias.find((e) => String(e.tipo) === "acta")?.url ?? "");
+      liquidacionAutomatica = await hRegistrarLiquidacion({ solicitud_id: args.solicitud_id, tipo: "acta", acta_url: actaUrl }, ctx);
+    }
+    return { solicitud: cab, instalacion: instOk, evidencias, evidencia: actualizada, estado: todasAprobadas ? "pendiente_liquidar" : estadoSol, liquidacion_automatica: liquidacionAutomatica, aviso_email: aviso };
   } catch (e) {
     exigirTabla(e);
   }
@@ -1438,7 +1443,10 @@ async function hRevisarEvidencias(args: z.infer<typeof EsquemaRevisarEvidencias>
   const { error: eSolicitud } = await ctx.service.from(T_SOL).update({ estado: estadoSolicitud }).eq("id", args.solicitud_id);
   if (eSolicitud) throw new Error(eSolicitud.message);
   if (observacion) await avisarObservacion(ctx, args.solicitud_id, "las evidencias de instalación", observacion);
-  return { evidencias, estado };
+  const liquidacionAutomatica = observadas.length
+    ? null
+    : await hRegistrarLiquidacion({ solicitud_id: args.solicitud_id, tipo: "acta", acta_url: String(actuales.find((e) => e.tipo === "acta")?.url ?? "") }, ctx);
+  return { evidencias, estado: observadas.length ? estado : "pendiente_liquidar", liquidacion_automatica: liquidacionAutomatica };
 }
 
 async function hObservarInstalacion(args: z.infer<typeof EsquemaObservarInstalacion>, ctx: OperacionContext) {
@@ -2594,7 +2602,7 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   listarInstalacionesPendientes: { descripcion: "Ventas: historial de instalaciones del proveedor", roles: TODOS, schema: EsquemaQInstalaciones, handler: hListarInstalacionesPendientes },
   actualizarTeaVenta: { descripcion: "Ventas: actualiza TEA de la solicitud", roles: SOLO_ADMIN, schema: EsquemaTea, handler: hActualizarTea },
   listarInstalaciones: { descripcion: "Instalaciones: solicitudes post-PV con su instalación (scope proveedor)", roles: TODOS, schema: EsquemaListarInstalaciones, handler: hListarInstalaciones },
-  registrarLiquidacion: { descripcion: "Instalaciones: proveedor solicita liquidación por acta (evidencias aprobadas y pedidos) → pendiente_liquidar", roles: OPERATIVO, schema: EsquemaRegistrarLiquidacion, handler: hRegistrarLiquidacion },
+  registrarLiquidacion: { descripcion: "Instalaciones: registra liquidación por acta tras aprobar evidencias y validar pedidos → pendiente_liquidar", roles: OPERATIVO, schema: EsquemaRegistrarLiquidacion, handler: hRegistrarLiquidacion },
   liquidarVenta: { descripcion: "Instalaciones: admin liquida con nota tras aprobar evidencias y pedidos → liquidada", roles: SOLO_ADMIN, schema: EsquemaLiquidar, handler: hLiquidarVenta },
   revertirLiquidacion: { descripcion: "Ventas: revierte con nota pendiente_liquidar → validada_proveedor o liquidada → paso previo (admin)", roles: OPERATIVO, schema: EsquemaRevertirLiquidacion, handler: hRevertirLiquidacion },
   buscarCotizacionesParaVenta: { descripcion: "Ventas: busca cotizaciones por DNI/nombre/cta-cto/código para generar solicitud", roles: TODOS, schema: EsquemaBuscarCotizaciones, handler: hBuscarCotizacionesParaVenta },
