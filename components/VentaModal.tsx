@@ -8,7 +8,7 @@ import { ordenarMateriales } from "@/lib/materialMatch";
 import { TEA_FIJA, cuotaMensual, subirArchivoStorage, useRolVista } from "./VentasComun";
 
 type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; documento?: string; email?: string; correo?: string; telefono?: string };
-type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string; id_integrador?: string | null; integrador_nombre?: string | null };
+type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string };
 type Material = { id: string; codigo?: string; codigo_sap?: string; codigo_tmp?: string; nombre: string; descripcion?: string; espacio_remodelar?: string; id_proveedor?: string | number | null; proveedor_nombre?: string | null; precio_unit?: number; precio_vigente?: number };
 
 /** Cotización origen para prellenar la solicitud (Etapa 3). */
@@ -16,7 +16,6 @@ export interface PrefillVenta {
   cotizacion_id: string;
   codigo: string;
   id_proveedor?: string | null;
-  id_integrador?: string | null;
   id_asesor?: string | null;
   cliente: { id: string; nombres: string; doc: string; email: string; telefono: string; cuenta_contrato: string | null; ambiente: string };
   items: { cotizacion_item_id: string; descripcion: string; material_codigo: string; material_id: string; material_nombre: string; cantidad: number; precio_unit: number; descuento_pct: number; importe?: number; ambiente?: string; alto?: number; ancho?: number; fondo?: number }[];
@@ -146,7 +145,7 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [materiales, setMateriales] = useState<Material[]>([]);
-  const [asesores, setAsesores] = useState<{ id: string; nombre?: string; telefono?: string; correo?: string; id_proveedor?: string | null; id_integrador?: string | null }[]>([]);
+  const [asesores, setAsesores] = useState<{ id: string; nombre?: string; telefono?: string; correo?: string; id_proveedor?: string | null; id_proveedores?: string[] }[]>([]);
   const [cargando, setCargando] = useState(true);
   const [avisos, setAvisos] = useState<string[]>([]);
 
@@ -163,7 +162,6 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
   const [codigoAudio, setCodigoAudio] = useState("");
   const [voucherSolicitud, setVoucherSolicitud] = useState("");
   const [contratoFisico, setContratoFisico] = useState("");
-  const [idIntegradorSel, setIdIntegradorSel] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [cotUrl, setCotUrl] = useState("");
   const [dniUrl, setDniUrl] = useState("");
@@ -204,7 +202,7 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
       if (rm.status === "fulfilled" && Array.isArray(rm.value)) setMateriales(rm.value as Material[]);
       else w.push("No se pudieron cargar los materiales del backend.");
       if (ra.status === "fulfilled" && Array.isArray(ra.value)) {
-        const lista = (ra.value as { id: string; nombre?: string; telefono?: string; correo?: string; id_proveedor?: string | null; id_integrador?: string | null; rol?: string; rol_codigo?: string }[])
+        const lista = (ra.value as { id: string; nombre?: string; telefono?: string; correo?: string; id_proveedor?: string | null; id_proveedores?: string[]; rol?: string; rol_codigo?: string }[])
           .filter((u) => ["ASESOR", "SUPERVISOR"].includes(String(u.rol ?? u.rol_codigo ?? "").toUpperCase()));
         setAsesores(lista);
         // Asesor por defecto: el usuario logueado (teléfono de su ficha + su empresa).
@@ -215,8 +213,8 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
             if (yo) {
               setAsesorId(String(yo.id));
               if (yo.telefono) setAsesorTel(String(yo.telefono));
-              if (yo.id_proveedor) setProveedorSel(String(yo.id_proveedor));
-              setIdIntegradorSel(String(yo.id_integrador ?? ""));
+              const asignados = yo.id_proveedores?.length ? yo.id_proveedores : yo.id_proveedor ? [yo.id_proveedor] : [];
+              if (asignados.length === 1) setProveedorSel(String(asignados[0]));
             }
         } catch { /* sin sesión legible: selección manual */ }
       }
@@ -234,15 +232,13 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
     // La cotización fija asesor y proveedor; la tabla ya devuelve el material
     // asignado por ambiente, proveedor e identidad del asesor.
     const nomAse = normTxt(prefill.asesor);
-    setIdIntegradorSel(String(prefill.id_integrador ?? ""));
     const ase = asesores.find((x) => prefill.id_asesor && String(x.id) === prefill.id_asesor)
       ?? asesores.find((x) => normTxt(x.nombre ?? "") === nomAse)
       ?? asesores.find((x) => nomAse && normTxt(x.nombre ?? "").includes(nomAse));
     if (ase) {
       setAsesorId(String(ase.id));
       setAsesorTel(prefill.asesor_telefono || String(ase.telefono ?? ""));
-      if (!prefill.id_integrador) setIdIntegradorSel(String(ase.id_integrador ?? ""));
-      if (prefill.id_proveedor || ase.id_proveedor) setProveedorSel(String(prefill.id_proveedor ?? ase.id_proveedor));
+      if (prefill.id_proveedor) setProveedorSel(String(prefill.id_proveedor));
     } else {
       if (prefill.asesor_telefono) setAsesorTel(prefill.asesor_telefono);
     }
@@ -277,10 +273,14 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
     const p = proveedores.find((x) => String(x.id) === proveedorSel);
     return p ? nombreProv(p) : (prefill?.proveedor ?? "");
   }, [proveedores, proveedorSel, prefill]);
-  const integradorSelNombre = useMemo(() => {
-    const p = proveedores.find((x) => String(x.id) === proveedorSel);
-    return String(p?.integrador_nombre ?? "");
-  }, [proveedores, proveedorSel]);
+  const proveedoresVisibles = useMemo(() => {
+    const asesor = asesores.find((x) => x.id === asesorId);
+    if (!asesor) return [];
+    const ids = asesor.id_proveedores?.length
+      ? asesor.id_proveedores.map(String)
+      : asesor.id_proveedor ? [String(asesor.id_proveedor)] : [];
+    return proveedores.filter((p) => ids.includes(String(p.id)));
+  }, [asesores, asesorId, proveedores]);
 
   // Materiales sugeridos: primero los del proveedor elegido y los que
   // coinciden con el ambiente/descripción de la cotización de origen.
@@ -370,7 +370,6 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
       const creada = await apiOperacion("crearSolicitudVenta", {
         id_cliente: clienteId,
         ...(canal === "contratista" ? {} : { id_proveedor: proveedorSel }),
-        ...(idIntegradorSel ? { id_integrador: idIntegradorSel } : {}),
         canal,
         es_microaliado: canal === "microaliado",
         visita_estado: estadoVisita,
@@ -524,15 +523,11 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
                 <div>
                   <label className="label">{canal === "microaliado" ? "Microaliado *" : "Proveedor *"}</label>
                    <select className="input" value={proveedorSel} onChange={(e) => {
-                     const id = e.target.value;
-                     setProveedorSel(id);
-                     const prov = proveedores.find((p) => String(p.id) === id);
-                     setIdIntegradorSel(String(prov?.id_integrador ?? ""));
-                   }} disabled={esPrefill}>
-                    <option value="">— Seleccionar —</option>
-                    {proveedores.map((p) => <option key={String(p.id)} value={String(p.id)}>{nombreProv(p)}</option>)}
-                  </select>
-                  {integradorSelNombre && <p className="text-[11px] text-slate-400 mt-1">Integradora: {integradorSelNombre}</p>}
+                     setProveedorSel(e.target.value);
+                   }} disabled={esPrefill || !asesorId || proveedoresVisibles.length === 1}>
+                     <option value="">— Seleccionar —</option>
+                     {proveedoresVisibles.map((p) => <option key={String(p.id)} value={String(p.id)}>{nombreProv(p)}</option>)}
+                   </select>
                 </div>
               )}
             </div>
@@ -543,9 +538,14 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
                   className="input"
                   value={asesorId}
                   onChange={(e) => {
-                    setAsesorId(e.target.value);
-                    const a = asesores.find((x) => String(x.id) === e.target.value);
+                    const id = e.target.value;
+                    setAsesorId(id);
+                    const a = asesores.find((x) => String(x.id) === id);
                     if (a?.telefono) setAsesorTel(String(a.telefono));
+                    const ids = a?.id_proveedores?.length
+                      ? a.id_proveedores.map(String)
+                      : a?.id_proveedor ? [String(a.id_proveedor)] : [];
+                    setProveedorSel(ids.length === 1 ? ids[0] : "");
                   }}
                 >
                   <option value="">— Seleccionar —</option>

@@ -21,12 +21,17 @@ type Usuario = {
   rol?: string | null;
   rol_codigo?: string | null;
   id_proveedor?: string | null;
+  id_proveedores?: string[] | null;
+  proveedores_asignados?: { id: string; nombre: string }[] | null;
   proveedor?: string | { nombre_comercial?: string; razon_social?: string } | null;
   estado?: string | null;
   activo?: boolean | null;
 };
 
 type Proveedor = { id: string; razon_social?: string | null; nombre?: string | null; nombre_comercial?: string | null; interlocutor?: string | null; ruc?: string | null };
+
+const slugDemo = (nombre: string) => nombre.toLowerCase().normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "").slice(0, 32);
 
 const nombreProv = (p: Proveedor) =>
   String(p.razon_social ?? p.nombre ?? p.nombre_comercial ?? p.interlocutor ?? p.id);
@@ -37,6 +42,7 @@ const rolDe = (u: Usuario) => String(u.rol ?? u.rol_codigo ?? "—").toUpperCase
 const correoDe = (u: Usuario) => String(u.correo ?? u.email ?? "—");
 const docDe = (u: Usuario) => String(u.documento ?? (`${u.tipo_doc ?? ""} ${u.nro_doc ?? ""}`.trim() || "—"));
 const provDe = (u: Usuario) => {
+  if (u.proveedores_asignados?.length) return u.proveedores_asignados.map((p) => p.nombre).join(", ");
   if (!u.proveedor) return u.id_proveedor ? String(u.id_proveedor) : "—";
   if (typeof u.proveedor === "string") return u.proveedor;
   return u.proveedor.nombre_comercial || u.proveedor.razon_social || "—";
@@ -51,7 +57,7 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
   const [resultado, setResultado] = useState<string | null>(null);
   const [trabajando, setTrabajando] = useState(false);
 
-  const CAB = ["PROVEEDOR", "BP PROVEEDOR", "ASESORES", "TELÉFONO ASESOR"];
+  const CAB = ["PROVEEDOR", "BP_PROVEEDOR", "ASESORES", "TELEFONO_ASESOR"];
   const EJEMPLO = ["EJEMPLO S.A.C.", "1000001", "NOMBRE APELLIDO", "999999999"];
 
   const descargarCSV = () => {
@@ -108,9 +114,22 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
     if (!texto.trim()) { setMsg("Selecciona o arrastra un archivo CSV/XLSX primero."); return; }
     setTrabajando(true);
     try {
-      const r = await apiOperacion<{ total?: number; insertadas?: number; errores?: string[]; nota?: string }>("cargaMasivaAsesores", { csv: texto });
+      const r = await apiOperacion<{
+        total?: number;
+        insertadas?: number;
+        actualizadas?: number;
+        errores?: string[];
+        nota?: string;
+        credenciales?: { nombre: string; correo: string; password: string; proveedores: string[] }[];
+      }>("cargaMasivaAsesores", { csv: texto });
       const errs = r?.errores ?? [];
-      setResultado(`Total ${r?.total ?? 0} · insertadas ${r?.insertadas ?? 0}.${errs.length > 0 ? `\nErrores:\n${errs.slice(0, 10).join("\n")}${errs.length > 10 ? `\n…y ${errs.length - 10} más` : ""}` : ""}${r?.nota ? `\n${r.nota}` : ""}`);
+      const credenciales = r?.credenciales ?? [];
+      setResultado(
+        `Asesores ${r?.total ?? 0} · nuevos ${r?.insertadas ?? 0} · actualizados ${r?.actualizadas ?? 0}.`
+        + (credenciales.length ? `\n\nCREDENCIALES NUEVAS (guárdalas ahora):\n${credenciales.map((c) => `${c.nombre} | ${c.correo} | ${c.password} | Proveedores: ${c.proveedores.join(", ")}`).join("\n")}` : "")
+        + (errs.length ? `\n\nErrores:\n${errs.slice(0, 10).join("\n")}${errs.length > 10 ? `\n…y ${errs.length - 10} más` : ""}` : "")
+        + (r?.nota ? `\n\n${r.nota}` : "")
+      );
       onProcesado();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "No se pudo procesar");
@@ -130,7 +149,7 @@ function CargaMasivaModal({ onClose, onProcesado }: { onClose: () => void; onPro
           <button className="btn-white !px-3" onClick={onClose}>✕</button>
         </div>
         <div className="p-6 space-y-4">
-          <p className="text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">Correos/DNI provisorios: actualizar en Usuarios.</p>
+           <p className="text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">Crea cuentas de acceso demo activas y asigna a cada asesor todos los proveedores del archivo. Las contraseñas temporales se muestran una sola vez.</p>
           <div className="rounded-xl border border-slate-200 p-4">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
@@ -173,7 +192,7 @@ function UsuarioModal({
   initial: Usuario | null;
   proveedores: Proveedor[];
   onClose: () => void;
-  onGuardado: () => void;
+  onGuardado: (mensaje?: string) => void;
 }) {
   const editando = !!initial;
   const [tipoDoc, setTipoDoc] = useState(initial?.tipo_doc ?? "DNI");
@@ -182,13 +201,17 @@ function UsuarioModal({
   const [correo, setCorreo] = useState(correoDe(initial ?? {} as Usuario) === "—" ? "" : correoDe(initial ?? {} as Usuario));
   const [telefono, setTelefono] = useState(initial?.telefono ?? "");
   const [rol, setRol] = useState(rolDe(initial ?? {} as Usuario) === "—" ? "ASESOR" : rolDe(initial ?? {} as Usuario));
-  const [prov, setProv] = useState(initial?.id_proveedor ?? "");
+  const [prov, setProv] = useState<string[]>(initial?.id_proveedores ?? (initial?.id_proveedor ? [initial.id_proveedor] : []));
   const [password, setPassword] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const guardar = async () => {
     setError(null);
+    if (rol.toUpperCase() !== "ADMIN" && prov.length === 0) {
+      setError("Selecciona al menos un proveedor para este usuario.");
+      return;
+    }
     if (!editando) {
       if (!nroDoc.trim() || nombre.trim().length < 2 || !correo.trim()) {
         setError("Documento, nombre y correo son obligatorios.");
@@ -209,19 +232,26 @@ function UsuarioModal({
           nro_doc: nroDoc.trim(),
           telefono: telefono.trim(),
           rol_codigo: rol,
-          id_proveedor: prov || null,
+          id_proveedores: prov,
+          id_proveedor: prov[0] ?? null,
         });
       } else {
-        await apiOperacion("crearUsuarioSGT", {
+        const creado = await apiOperacion<{ password_temporal?: string }>("crearUsuarioSGT", {
           tipo_doc: tipoDoc,
           nro_doc: nroDoc.trim(),
           nombre: nombre.trim(),
           correo: correo.trim(),
           telefono: telefono.trim(),
           rol_codigo: rol,
-          ...(prov ? { id_proveedor: prov } : {}),
+          id_proveedores: prov,
+          id_proveedor: prov[0] ?? null,
           ...(password ? { password } : {}),
         });
+        onGuardado(creado.password_temporal
+          ? `Usuario creado. Contraseña temporal (cópiala ahora): ${creado.password_temporal}`
+          : undefined);
+        onClose();
+        return;
       }
       onGuardado();
       onClose();
@@ -249,7 +279,19 @@ function UsuarioModal({
             <input className="input" value={nroDoc} onChange={(e) => setNroDoc(e.target.value)} />
           </div>
           <div className="md:col-span-2"><label className="label">Nombre completo *</label><input className="input" placeholder="Nombres y apellidos" value={nombre} onChange={(e) => setNombre(e.target.value)} /></div>
-          <div><label className="label">Correo {editando ? "(inmutable)" : "*"}</label><input className="input" value={correo} disabled={editando} onChange={(e) => setCorreo(e.target.value)} /></div>
+          <div>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <label className="label !mb-0">Correo {editando ? "(inmutable)" : "*"}</label>
+              {!editando && <button type="button" className="text-[11px] font-bold text-[#0077B6] hover:underline dark:text-sky-300" onClick={() => {
+                const slug = slugDemo(nombre);
+                if (!slug) { setError("Escribe primero el nombre del usuario."); return; }
+                setTipoDoc("OTRO");
+                setNroDoc(`DEMO-${slug.replace(/\./g, "").toUpperCase()}`.slice(0, 20));
+                setCorreo(`${slug}@demo.calidda.com.pe`);
+              }}>Generar correo demo</button>}
+            </div>
+            <input className="input" placeholder="usuario@demo.calidda.com.pe" value={correo} disabled={editando} onChange={(e) => setCorreo(e.target.value)} />
+          </div>
           <div><label className="label">Teléfono</label><input className="input" placeholder="+51999999999" value={telefono} onChange={(e) => setTelefono(e.target.value)} /></div>
           <div>
             <label className="label">Rol *</label>
@@ -257,16 +299,26 @@ function UsuarioModal({
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
-          <div>
-            <label className="label">Empresa / Proveedor</label>
-            <select className="input" value={prov} onChange={(e) => setProv(e.target.value)}>
-              <option value="">— Ninguna —</option>
-              {proveedores.map((p) => (
-                <option key={String(p.id)} value={String(p.id)}>
-                  {nombreProv(p)}{p.ruc ? ` · RUC ${p.ruc}` : ""}
-                </option>
-              ))}
-            </select>
+          <div className="md:col-span-2">
+            <label className="label">Proveedores asignados {rol.toUpperCase() !== "ADMIN" && "*"}</label>
+            <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 p-2 dark:border-slate-700">
+              {proveedores.length ? proveedores.map((p) => {
+                const id = String(p.id);
+                const seleccionado = prov.includes(id);
+                return (
+                  <label key={id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-sky-50 dark:hover:bg-slate-800">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded accent-[#0077B6]"
+                      checked={seleccionado}
+                      onChange={(e) => setProv((actual) => e.target.checked ? [...new Set([...actual, id])] : actual.filter((v) => v !== id))}
+                    />
+                    <span>{nombreProv(p)}{p.ruc ? ` · RUC ${p.ruc}` : ""}</span>
+                  </label>
+                );
+              }) : <p className="p-2 text-xs text-slate-400">No hay proveedores activos para asignar.</p>}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400">El usuario verá estos proveedores al crear cotizaciones.</p>
           </div>
           {!editando && (
             <div className="md:col-span-2"><label className="label">Contraseña (opcional, mín. 8; si se omite se genera)</label><PasswordInput className="input" placeholder="••••••••" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
@@ -410,7 +462,7 @@ export default function UsuariosPage() {
         <div className="card mt-4">
           <div className="px-5 py-3 border-b font-semibold">Usuarios registrados · {filtrados.length}</div>
           <div className="overflow-x-auto"><table className="tabla">
-            <thead><tr><th>ID</th><th>USUARIO</th><th>DOCUMENTO</th><th>CORREO</th><th>TELÉFONO</th><th>ROL</th><th>EMPRESA</th><th>ESTADO</th><th>ACCIONES</th></tr></thead>
+           <thead><tr><th>ID</th><th>USUARIO</th><th>DOCUMENTO</th><th>CORREO</th><th>TELÉFONO</th><th>ROL</th><th>PROVEEDORES</th><th>ESTADO</th><th>ACCIONES</th></tr></thead>
             <tbody>
               {filtrados.map((u) => {
                 const activo = activoDe(u);
@@ -448,10 +500,10 @@ export default function UsuariosPage() {
         <CargaMasivaModal onClose={() => setShowCarga(false)} onProcesado={() => { cargar(); }} />
       )}
       {modal?.mode === "nuevo" && (
-        <UsuarioModal initial={null} proveedores={proveedores} onClose={() => setModal(null)} onGuardado={() => { setInfo("Usuario registrado."); cargar(); }} />
+        <UsuarioModal initial={null} proveedores={proveedores} onClose={() => setModal(null)} onGuardado={(m) => { setInfo(m || "Usuario registrado."); cargar(); }} />
       )}
       {modal?.mode === "editar" && (
-        <UsuarioModal initial={modal.u} proveedores={proveedores} onClose={() => setModal(null)} onGuardado={() => { setInfo("Usuario actualizado."); cargar(); }} />
+        <UsuarioModal initial={modal.u} proveedores={proveedores} onClose={() => setModal(null)} onGuardado={(m) => { setInfo(m || "Usuario actualizado."); cargar(); }} />
       )}
       {modalPwd && (
         <CambioPasswordModal u={modalPwd} onClose={() => setModalPwd(null)} onOk={(m) => { setInfo(m); }} />

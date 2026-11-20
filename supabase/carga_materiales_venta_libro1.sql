@@ -1,9 +1,11 @@
 -- Importación inicial de asignaciones de material (Libro1.xlsx, hoja MATERIALES VF).
--- Ejecutar después de migracion_04_cotizaciones_ventas_integradores.sql.
+-- Ejecutar después de migracion_05_proveedores_directos_usuario_multi.sql y
+-- carga_proveedores_libro1.sql. Si los usuarios demo ya existen, este script
+-- también enlaza sus IDs de asesor a los materiales de Libro1.
 -- Reejecutable: actualiza la misma combinación código/proveedor/asesor/ambiente.
 BEGIN;
 DO $$
-DECLARE r RECORD; v_id TEXT; v_next INT; v_id_proveedor TEXT; v_id_integrador TEXT; v_id_asesor TEXT; v_id_oficina TEXT; v_id_grupo TEXT;
+DECLARE r RECORD; v_id TEXT; v_next INT; v_id_proveedor TEXT; v_id_asesor TEXT; v_id_oficina TEXT; v_id_grupo TEXT;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
     ('VENTAS','HUBERTO ECHEGARAY','LANDCORP INVERSIONES E.I.R.L.','COCINA','4507974','MUEBLE DE COCINA COTIZADO - L&H','','AMCA','AM8'),
@@ -84,7 +86,6 @@ BEGIN
     ('VENTAS','HUBERTO ECHEGARAY','LANDCORP INVERSIONES E.I.R.L.','REMODELACION','4501179','REMODELACIÓN COTIZADO OBRA CIVIL - LANDCORP','','AMCA','AM8'),
     ('VENTAS','HUBERTO ECHEGARAY','LANDCORP INVERSIONES E.I.R.L.','REMODELACION','4501180','REMODELACIÓN COTIZADO VIDRIOS Y ALUMINIO - LANDCORP','','AMCA','AM8'),
     ('VENTAS','HUBERTO ECHEGARAY','LANDCORP INVERSIONES E.I.R.L.','REMODELACION','4501182','REMODELACIÓN COTIZADO TECHOS E IMPERMEABILIZACIÓN - LANDCORP','','AMCA','AM8'),
-    ('VENTAS','HUBERTO ECHEGARAY','LANDCORP INVERSIONES E.I.R.L.','REMODELACION','4502450','VISITA TÉCNICA - AMCA 2.0 - LANDCORP','','AMCA','AM8'),
     ('VENTAS','OMAR VENANCIO','RESCATE 24','REMODELACION','4501316','REMODELACIÓN COTIZADO PINTURA - RESCATE24','','AMCA','AM0'),
     ('VENTAS','OMAR VENANCIO','RESCATE 24','REMODELACION','4501325','REMODELACIÓN COTIZADO VIDRIERIA - RESCATE24','','AMCA','AM0'),
     ('VENTAS','OMAR VENANCIO','RESCATE 24','REMODELACION','4501462','REMODELACIÓN COTIZADO ELECTRICIDAD E ILUMINACIÓN - RESCATE24','','AMCA','AM0'),
@@ -95,11 +96,10 @@ BEGIN
     ('VENTAS','OMAR VENANCIO','RESCATE 24','REMODELACION','4501812','REMODELACIÓN COTIZADO DRYWALL - RESCATE24','','AMCA','AM0'),
     ('VENTAS','OMAR VENANCIO','RESCATE 24','REMODELACION','4501892','REMODELACIÓN COTIZADO OBRA CIVIL - RESCATE24','','AMCA','AM0'),
     ('VENTAS','OMAR VENANCIO','RESCATE 24','REMODELACION','4502360','REMODELACIÓN COTIZADO VIDRIOS Y ALUMINIO - RESCATE24','','AMCA','AM0'),
-    ('VENTAS','OMAR VENANCIO','RESCATE 24','REMODELACION','4502449','REMODELACIÓN COTIZADO TECHOS E IMPERMEABILIZACIÓN - RESCATE24','','AMCA','AM0'),
-    ('VENTAS','OMAR VENANCIO','RESCATE 24','REMODELACION','4502451','VISITA TÉCNICA - AMCA 2.0 - RESCATE24','','AMCA','AM0')
+    ('VENTAS','OMAR VENANCIO','RESCATE 24','REMODELACION','4502449','REMODELACIÓN COTIZADO TECHOS E IMPERMEABILIZACIÓN - RESCATE24','','AMCA','AM0')
   ) AS x(espacio,asesor,proveedor,ambiente,codigo_sap,nombre,precio,oficina,grupo)
   LOOP
-    SELECT id,id_integrador INTO v_id_proveedor,v_id_integrador FROM public.mae_proveedores WHERE lower(coalesce(razon_social,''))=lower(r.proveedor) OR lower(coalesce(nombre_comercial,''))=lower(r.proveedor) OR lower(coalesce(interlocutor,''))=lower(r.proveedor) LIMIT 1;
+    SELECT id INTO v_id_proveedor FROM public.mae_proveedores WHERE lower(coalesce(razon_social,''))=lower(r.proveedor) OR lower(coalesce(nombre_comercial,''))=lower(r.proveedor) OR lower(coalesce(interlocutor,''))=lower(r.proveedor) LIMIT 1;
     SELECT id INTO v_id_asesor FROM public.seg_usuarios WHERE lower(nombre)=lower(r.asesor) AND r.asesor <> 'Todos los proveedores' LIMIT 1;
     SELECT id INTO v_id_oficina FROM public.mae_oficinas_ventas WHERE lower(codigo_sap)=lower(r.oficina) OR lower(nombre)=lower(r.oficina) LIMIT 1;
     SELECT id INTO v_id_grupo FROM public.mae_grupos_vendedores WHERE lower(codigo_sap)=lower(r.grupo) OR lower(nombre)=lower(r.grupo) LIMIT 1;
@@ -108,16 +108,17 @@ BEGIN
       SELECT coalesce(max((regexp_match(id,'^MAT-([0-9]{5})$'))[1]::INT),0)+1 INTO v_next FROM public.mae_materiales;
       v_id := 'MAT-' || lpad(v_next::TEXT,5,'0');
       INSERT INTO public.mae_materiales(id,codigo_sap,nombre,descripcion,unidad,tipo_medida,decimales,estado,espacio,espacio_remodelar,id_proveedor,id_integrador,id_asesor,asesor_nombre,proveedor_nombre,integrador_nombre,id_oficina,id_grupo,oficina_ref,grupo_ref)
-      VALUES(v_id,r.codigo_sap,r.nombre,'Libro1 · '||r.proveedor,'UND','LONGITUD',2,'ACTIVO',r.espacio,r.ambiente,v_id_proveedor,v_id_integrador,v_id_asesor,nullif(r.asesor,''),nullif(r.proveedor,''),null,v_id_oficina,v_id_grupo,nullif(r.oficina,''),nullif(r.grupo,''));
+      VALUES(v_id,r.codigo_sap,r.nombre,'Libro1 · '||r.proveedor,'UND','LONGITUD',2,'ACTIVO',r.espacio,r.ambiente,v_id_proveedor,NULL,v_id_asesor,nullif(r.asesor,''),nullif(r.proveedor,''),NULL,v_id_oficina,v_id_grupo,nullif(r.oficina,''),nullif(r.grupo,''));
     ELSE
-      UPDATE public.mae_materiales SET nombre=r.nombre,descripcion='Libro1 · '||r.proveedor,estado='ACTIVO',id_proveedor=coalesce(v_id_proveedor,id_proveedor),id_integrador=coalesce(v_id_integrador,id_integrador),id_asesor=coalesce(v_id_asesor,id_asesor),asesor_nombre=nullif(r.asesor,''),proveedor_nombre=nullif(r.proveedor,''),id_oficina=coalesce(v_id_oficina,id_oficina),id_grupo=coalesce(v_id_grupo,id_grupo),oficina_ref=nullif(r.oficina,''),grupo_ref=nullif(r.grupo,'') WHERE id=v_id;
+      UPDATE public.mae_materiales SET nombre=r.nombre,descripcion='Libro1 · '||r.proveedor,estado='ACTIVO',id_proveedor=coalesce(v_id_proveedor,id_proveedor),id_integrador=NULL,id_asesor=coalesce(v_id_asesor,id_asesor),asesor_nombre=nullif(r.asesor,''),proveedor_nombre=nullif(r.proveedor,''),integrador_nombre=NULL,id_oficina=coalesce(v_id_oficina,id_oficina),id_grupo=coalesce(v_id_grupo,id_grupo),oficina_ref=nullif(r.oficina,''),grupo_ref=nullif(r.grupo,'') WHERE id=v_id;
     END IF;
     IF nullif(r.precio,'') IS NOT NULL THEN
       UPDATE public.pre_tarifario SET fecha_fin=CURRENT_DATE-1,estado='VENCIDA' WHERE id_material=v_id AND fecha_fin IS NULL AND fecha_inicio<CURRENT_DATE;
       IF NOT EXISTS(SELECT 1 FROM public.pre_tarifario WHERE id_material=v_id AND fecha_inicio=CURRENT_DATE AND fecha_fin IS NULL) THEN INSERT INTO public.pre_tarifario(id_material,precio,moneda,incluye_igv,fecha_inicio,fecha_fin,estado) VALUES(v_id,replace(r.precio,',','.')::NUMERIC,'PEN',true,CURRENT_DATE,NULL,'VIGENTE'); END IF;
     END IF;
-    v_id:=NULL;v_id_proveedor:=NULL;v_id_integrador:=NULL;v_id_asesor:=NULL;v_id_oficina:=NULL;v_id_grupo:=NULL;
+    v_id:=NULL;v_id_proveedor:=NULL;v_id_asesor:=NULL;v_id_oficina:=NULL;v_id_grupo:=NULL;
   END LOOP;
 END $$;
 COMMIT;
--- Filas procesadas: 91; códigos únicos: 46.
+-- Las dos filas "VISITA TÉCNICA - AMCA 2.0" se excluyen porque el costo
+-- corresponde a la remodelación y ya no se cotiza como producto independiente.

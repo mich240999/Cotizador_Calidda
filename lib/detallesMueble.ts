@@ -1,12 +1,11 @@
 /**
  * lib/detallesMueble.ts — Detalles del mueble de la cotización.
  *
- * Los 6 campos (marca de melamina, colores, tiradores, vidrios) son
- * obligatorios al crear la cotización. Se guardan como bloque de texto
+ * Los accesorios/acabados de la cotización se guardan como bloque de texto
  * estructurado al inicio de `observaciones` (sin columnas nuevas en BD):
  *
  *   [DETALLES DEL MUEBLE]
- *   Marca de Melamina: ...
+ *   Accesorios premium: Sí/No
  *   ...
  *   [FIN DETALLES]
  *
@@ -14,23 +13,26 @@
  */
 
 export interface DetalleMueble {
-  marca_melamina: string;
-  color_estructura: string;
-  color_puertas: string;
-  color_tablero: string;
+  accesorios_premium: string;
+  luz_led: string;
+  puerta_vidrio: string;
   tiradores: string;
-  vidrios: string;
 }
 
 export const DETALLES_LABELS: { clave: keyof DetalleMueble; etiqueta: string }[] = [
-  { clave: "marca_melamina", etiqueta: "Marca de Melamina" },
-  { clave: "color_estructura", etiqueta: "Color estructura de mueble" },
-  { clave: "color_puertas", etiqueta: "Color de Puertas" },
-  { clave: "color_tablero", etiqueta: "Color Tablero" },
+  { clave: "accesorios_premium", etiqueta: "Accesorios premium" },
+  { clave: "luz_led", etiqueta: "Luz LED" },
+  { clave: "puerta_vidrio", etiqueta: "Puerta de vidrio" },
   { clave: "tiradores", etiqueta: "Tiradores" },
-  { clave: "vidrios", etiqueta: "Vidrios" },
 ];
 
+const DETALLES_ANTERIORES = [
+  "Marca de Melamina",
+  "Color estructura de mueble",
+  "Color de Puertas",
+  "Color Tablero",
+  "Vidrios",
+];
 const INICIO = "[DETALLES DEL MUEBLE]";
 const FIN = "[FIN DETALLES]";
 
@@ -59,7 +61,7 @@ export function extraerDetalles(obs: string | null | undefined): {
     const m = ln.match(/^([^:]+):\s*(.*)$/);
     if (m) valores.set(m[1].trim(), m[2].trim());
   }
-  const detalles = DETALLES_LABELS.map(({ etiqueta }) => ({
+  const detalles = [...DETALLES_LABELS.map(({ etiqueta }) => etiqueta), ...DETALLES_ANTERIORES].map((etiqueta) => ({
     etiqueta,
     valor: valores.get(etiqueta) ?? "",
   })).filter((d) => d.valor !== "");

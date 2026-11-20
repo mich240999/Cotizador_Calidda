@@ -85,7 +85,7 @@ async function ejecutar() {
       email,
       password,
       email_confirm: true,
-      user_metadata: { nombre: marca },
+      user_metadata: { nombre: marca, rol: "ADMIN" },
     });
     if (eUser) throw eUser;
     userId = nuevo.user.id;
@@ -267,23 +267,28 @@ async function ejecutar() {
       // la siguiente petición debe provisionarla antes de escribir created_by.
       const { error: ePerfilAusente } = await service.from("profiles").delete().eq("id", userId);
       aviso("preparar usuario sin profile", !ePerfilAusente, ePerfilAusente?.message ?? "perfil temporalmente ausente");
+      const { data: proveedorPrueba, error: eProveedorPrueba } = await service.from("mae_proveedores").select("id").eq("estado", "ACTIVO").limit(1).single();
+      if (eProveedorPrueba) throw eProveedorPrueba;
+      const segPruebaId = `U${nroDoc.slice(-5)}`;
+      const { error: eSegPrueba } = await service.from("seg_usuarios").insert({ id: segPruebaId, nombre: marca, correo: email, tipo_doc: "DNI", nro_doc: nroDoc, rol_codigo: "ADMIN", estado: "ACTIVO" });
+      if (eSegPrueba) throw eSegPrueba;
       const rCot = await op("crearCotizacionSGT", {
         cliente_id: creado.clienteSgtId,
-        items: [{ codigo: "PRUEBA-HUMO", descripcion: "ITEM DE PRUEBA", cantidad: 1, precio_unit: 100, descuento_pct: 0 }],
+        id_proveedor: proveedorPrueba.id,
+        items: [{ codigo: "PRUEBA-HUMO", descripcion: "ITEM DE PRUEBA", ambiente: "COCINA", cantidad: 1, precio_unit: 100, descuento_pct: 0 }],
         cuota_inicial: 0,
         tea: 40,
         plazo: 9,
         asesor: marca,
         observaciones: marca,
         detalles: {
-          marca_melamina: "PRUEBA",
-          color_estructura: "PRUEBA",
-          color_puertas: "PRUEBA",
-          color_tablero: "PRUEBA",
-          tiradores: "PRUEBA",
-          vidrios: "PRUEBA",
+          accesorios_premium: "Sí",
+          luz_led: "No",
+          puerta_vidrio: "Sí",
+          tiradores: "No",
         },
       });
+      await service.from("seg_usuarios").delete().eq("id", segPruebaId);
       creado.cotizacionId = rCot.cuerpo?.datos?.id ?? null;
       const codigoCot = rCot.cuerpo?.datos?.codigo ?? "";
       aviso("crearCotizacionSGT", rCot.status === 200 && Boolean(creado.cotizacionId), `HTTP ${rCot.status} ${JSON.stringify(rCot.cuerpo?.error ?? "")}`);
@@ -308,7 +313,7 @@ async function ejecutar() {
         aviso("buscarCotizacionesParaVenta la encuentra por DNI", encontrada);
 
         const rPrefill = await op("obtenerCotizacionParaVenta", { cotizacion_id: creado.cotizacionId });
-        aviso("obtenerCotizacionParaVenta", rPrefill.status === 200, `HTTP ${rPrefill.status}`);
+        aviso("obtenerCotizacionParaVenta", rPrefill.status === 200, `HTTP ${rPrefill.status} ${JSON.stringify(rPrefill.cuerpo?.error ?? "")}`);
 
         if (materialVentas && rPrefill.status === 200) {
           const idMaterial = String(materialVentas.id ?? materialVentas.material_id ?? "");
@@ -318,6 +323,8 @@ async function ejecutar() {
             pago_modo: "financiado_total",
             tea: 40,
             cotizacion_id: creado.cotizacionId,
+            medio_respaldo: "audio",
+            codigo_llamada: "PRUEBA-HUMO",
             items: [{ id_material: idMaterial, cantidad: 1, precio_unit: 100, descuento_monto: 0, modo: "financiado", medio_pago: "financiado" }],
           });
           creado.solicitudId = rSol.cuerpo?.datos?.id ?? null;
@@ -329,7 +336,7 @@ async function ejecutar() {
             const estadoPv = String(rPv.cuerpo?.datos?.solicitud?.estado ?? rPv.cuerpo?.datos?.estado ?? "").toLowerCase();
             aviso("registrarPV -> generada", rPv.status === 200 && estadoPv === "generada", `HTTP ${rPv.status} ${estadoPv || JSON.stringify(rPv.cuerpo?.error ?? "")}`);
           } else {
-            omitidoLog("crearSolicitudVenta", `HTTP ${rSol.status} ${JSON.stringify(rSol.cuerpo?.error ?? "")}`);
+            aviso("crearSolicitudVenta desde cotizacion", false, `HTTP ${rSol.status} ${JSON.stringify(rSol.cuerpo?.error ?? "")}`);
           }
         } else {
           omitidoLog("crearSolicitudVenta", materialVentas ? "sin prefill" : "sin material en VENTAS");
@@ -394,6 +401,7 @@ async function ejecutar() {
         await dormir(700);
       }
       if (userId) {
+        await service.from("seg_usuarios").delete().eq("correo", email);
         const { data: sols } = await service.from("vta_solicitudes_venta").select("id").eq("created_by", userId);
         const ids = (sols ?? []).map((s) => s.id);
         if (ids.length) {

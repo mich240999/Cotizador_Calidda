@@ -345,14 +345,13 @@ export default function VentasPage() {
         items?: { cotizacion_item_id: string; descripcion: string; material_codigo: string; material_id: string; material_nombre: string; cantidad: number; precio_unit: number; descuento_pct: number; importe?: number; ambiente?: string; alto?: number; ancho?: number; fondo?: number }[];
         financiamiento?: { cuota_inicial: number; capital: number; plazo: number; tea: number; cuota_mensual?: number };
         proveedor?: string; asesor?: string; asesor_telefono?: string;
-        id_proveedor?: string | null; id_integrador?: string | null; id_asesor?: string | null;
+        id_proveedor?: string | null; id_asesor?: string | null;
       }>("obtenerCotizacionParaVenta", { cotizacion_id: c.id });
       if (!d?.cotizacion || !d?.cliente) throw new Error("Sin datos de la cotización");
       setPrefill({
         cotizacion_id: String(d.cotizacion.id),
         codigo: String(d.cotizacion.codigo ?? c.codigo ?? ""),
         id_proveedor: d.id_proveedor ?? null,
-        id_integrador: d.id_integrador ?? null,
         id_asesor: d.id_asesor ?? null,
         cliente: {
           id: String(d.cliente.id ?? ""),

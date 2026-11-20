@@ -260,9 +260,10 @@ export default function CotizacionDetallePage({
                   Creada: {formatoFecha(cot.created_at)}
                 </p>
                 {obsLibres && (
-                  <p className="mt-2 text-sm bg-slate-50 border rounded-lg p-2">
-                    {obsLibres}
-                  </p>
+                  <div className="mt-2 rounded-lg border bg-slate-50 p-2">
+                    <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">Detalles adicionales</p>
+                    <p className="text-sm">{obsLibres}</p>
+                  </div>
                 )}
               </div>
               <div className="card p-5">
@@ -324,7 +325,7 @@ export default function CotizacionDetallePage({
 
             {detalles.length > 0 && (
               <div className="card p-5">
-                <h2 className="font-semibold mb-3">Detalles del mueble</h2>
+                <h2 className="font-semibold mb-3">Accesorios y acabados</h2>
                 <dl className="grid gap-2 sm:grid-cols-2 text-sm">
                   {detalles.map((d) => (
                     <div key={d.etiqueta} className="flex justify-between gap-3 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">

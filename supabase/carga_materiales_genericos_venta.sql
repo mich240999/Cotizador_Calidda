@@ -3,7 +3,7 @@
 -- Cubre los cinco ambientes del Excel Libro1.xlsx: COCINA, SALA, DORMITORIO,
 -- DISEÑO y REMODELACION. Sirven de respaldo cuando un proveedor o asesor no
 -- tiene una asignación específica, y como catálogo de servicios comunes.
--- Ejecutar después de migracion_04_cotizaciones_ventas_integradores.sql.
+-- Ejecutar después de migracion_05_proveedores_directos_usuario_multi.sql.
 -- Reejecutable: actualiza la misma combinación ambiente / nombre genérico.
 -- ============================================================================
 BEGIN;
@@ -35,8 +35,7 @@ BEGIN
     ('REMODELACION','REMODELACIÓN COTIZADO DRYWALL'),
     ('REMODELACION','REMODELACIÓN COTIZADO OBRA CIVIL'),
     ('REMODELACION','REMODELACIÓN COTIZADO VIDRIOS Y ALUMINIO'),
-    ('REMODELACION','REMODELACIÓN COTIZADO TECHOS E IMPERMEABILIZACIÓN'),
-    ('REMODELACION','VISITA TÉCNICA - AMCA 2.0')
+    ('REMODELACION','REMODELACIÓN COTIZADO TECHOS E IMPERMEABILIZACIÓN')
   ) AS x(ambiente, nombre)
   LOOP
     SELECT id INTO v_id
@@ -83,5 +82,8 @@ BEGIN
   END LOOP;
 END $$;
 
+UPDATE public.mae_materiales SET estado='INACTIVO'
+ WHERE espacio='VENTAS' AND upper(nombre) LIKE 'VISITA TÉCNICA - AMCA 2.0%';
+
 COMMIT;
--- Filas genéricas esperadas: 16 (3 muebles + 1 diseño + 12 remodelación).
+-- Filas genéricas esperadas: 15 (3 muebles + 1 diseño + 11 remodelación).

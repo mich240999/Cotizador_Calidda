@@ -15,8 +15,8 @@ export interface SesionInfo {
   segId?: string | null;
   /** Proveedor de su ficha (para alcance EMPRESA). */
   idProveedor?: string | null;
-  /** Empresa integradora a la que pertenece el asesor. */
-  idIntegrador?: string | null;
+  /** Lista de proveedores asociados al usuario. */
+  idProveedores?: string[];
 }
 
 /**
@@ -59,6 +59,9 @@ export async function asegurarPerfilUsuario(
  * Vacío = sin restricción.
  */
 export function isEmailAllowed(email: string): boolean {
+  // Las cuentas demo se provisionan exclusivamente desde Administración.
+  // No existe registro público; el login sigue exigiendo una cuenta Auth y clave válida.
+  if ((email.split("@")[1] ?? "").toLowerCase() === "demo.calidda.com.pe") return true;
   const raw = (process.env.AUTH_ALLOWED_DOMAINS ?? "").trim();
   if (!raw) return true;
   const allowed = raw
@@ -126,7 +129,7 @@ export async function getSession(): Promise<SesionInfo | null> {
   let alcance = rol === "admin" ? "GLOBAL" : "PROPIO";
   let segId: string | null = null;
   let idProveedor: string | null = null;
-  let idIntegrador: string | null = null;
+  let idProveedores: string[] = [];
   let nombreSgt: string | null = null;
   let rolSgt = "";
 
@@ -135,25 +138,30 @@ export async function getSession(): Promise<SesionInfo | null> {
   // Usa service_role (solo lectura) para no depender del RLS.
   try {
     const svc = createSupabaseServiceRole();
-    let consultaFicha = await svc
+    const consultaFicha = await svc
       .from("seg_usuarios")
-      .select("id,nombre,rol_codigo,estado,id_proveedor,id_integrador")
+      .select("id,nombre,rol_codigo,estado,id_proveedor")
       .eq("correo", email)
       .maybeSingle();
-    if (consultaFicha.error && /id_integrador|column|schema cache/i.test(consultaFicha.error.message)) {
-      consultaFicha = await svc.from("seg_usuarios")
-        .select("id,nombre,rol_codigo,estado,id_proveedor")
-        .eq("correo", email)
-        .maybeSingle();
-    }
-    const f = consultaFicha.data as { id?: string; nombre?: string; rol_codigo?: string; estado?: string; id_proveedor?: string | null; id_integrador?: string | null } | null;
+    const f = consultaFicha.data as { id?: string; nombre?: string; rol_codigo?: string; estado?: string; id_proveedor?: string | null } | null;
     if (f) {
       if (String(f.estado ?? "").toUpperCase() !== "ACTIVO") return null; // inactivo SGT
       segId = f.id ?? null;
       nombreSgt = f.nombre ?? null;
       rolSgt = String(f.rol_codigo ?? "").toUpperCase();
       idProveedor = f.id_proveedor ?? null;
-      idIntegrador = f.id_integrador ?? null;
+      if (f.id) {
+        const { data: enlaces, error: eEnlaces } = await svc
+          .from("seg_usuario_proveedores")
+          .select("id_proveedor")
+          .eq("id_usuario", f.id);
+        if (!eEnlaces) {
+          idProveedores = [...new Set(((enlaces ?? []) as { id_proveedor?: string }[])
+            .map((r) => String(r.id_proveedor ?? "")).filter(Boolean))];
+        }
+      }
+      if (!idProveedores.length && idProveedor) idProveedores = [idProveedor];
+      if (!idProveedor && idProveedores.length) idProveedor = idProveedores[0];
       if (rolSgt === "ADMIN") rol = "admin";
       const { data: r } = await svc.from("seg_roles").select("alcance").eq("codigo", rolSgt).maybeSingle();
       const al = String((r as { alcance?: string } | null)?.alcance ?? "").toUpperCase();
@@ -181,7 +189,7 @@ export async function getSession(): Promise<SesionInfo | null> {
     alcance,
     segId,
     idProveedor,
-    idIntegrador
+    idProveedores
   };
 }
 

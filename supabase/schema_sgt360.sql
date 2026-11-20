@@ -50,11 +50,13 @@ COMMENT ON FUNCTION public.fn_cuota_francesa(numeric, numeric, int) IS 'SGT360: 
 CREATE TABLE IF NOT EXISTS public.mae_proveedores (
   id               TEXT PRIMARY KEY CHECK (id ~ '^PRV[0-9]{4}$'),
   interlocutor     TEXT NOT NULL UNIQUE,
-  ruc              CHAR(11) NOT NULL UNIQUE CHECK (char_length(ruc) = 11),
+  ruc              CHAR(11) UNIQUE CHECK (ruc IS NULL OR char_length(ruc) = 11),
   razon_social     TEXT NOT NULL,
   nombre_comercial TEXT,
   correo           TEXT,
   telefono         TEXT,
+  sitio_web        TEXT,
+  direccion        TEXT,
   estado           TEXT NOT NULL DEFAULT 'ACTIVO' CHECK (estado IN ('ACTIVO','INACTIVO')),
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -123,6 +125,14 @@ CREATE TABLE IF NOT EXISTS public.seg_usuarios (
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 COMMENT ON TABLE public.seg_usuarios IS 'SGT360 seg: usuarios app. id U00xxx. rol FK a seg_roles. id_proveedor nullable.';
+
+CREATE TABLE IF NOT EXISTS public.seg_usuario_proveedores (
+  id_usuario   TEXT NOT NULL REFERENCES public.seg_usuarios(id) ON DELETE CASCADE,
+  id_proveedor TEXT NOT NULL REFERENCES public.mae_proveedores(id) ON DELETE CASCADE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (id_usuario, id_proveedor)
+);
+COMMENT ON TABLE public.seg_usuario_proveedores IS 'Proveedores asignados a cada usuario; relación muchos a muchos.';
 
 CREATE TABLE IF NOT EXISTS public.seg_permisos_matriz (
   rol_codigo TEXT NOT NULL REFERENCES public.seg_roles(codigo) ON DELETE CASCADE,
@@ -271,6 +281,7 @@ CREATE INDEX IF NOT EXISTS ix_gve_oficina       ON public.mae_grupos_vendedores(
 CREATE INDEX IF NOT EXISTS ix_seg_usr_rol       ON public.seg_usuarios(rol_codigo);
 CREATE INDEX IF NOT EXISTS ix_seg_usr_prov      ON public.seg_usuarios(id_proveedor);
 CREATE INDEX IF NOT EXISTS ix_seg_usr_correo    ON public.seg_usuarios(correo);
+CREATE INDEX IF NOT EXISTS ix_seg_usr_prov_link ON public.seg_usuario_proveedores(id_proveedor, id_usuario);
 CREATE INDEX IF NOT EXISTS ix_perm_modulo       ON public.seg_permisos_matriz(modulo);
 CREATE INDEX IF NOT EXISTS ix_cli_nrodoc        ON public.mae_clientes(tipo_doc, nro_doc);
 CREATE INDEX IF NOT EXISTS ix_cli_sap           ON public.mae_clientes(codigo_sap);
@@ -338,6 +349,7 @@ ALTER TABLE public.rel_proveedor_oficinas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mae_grupos_vendedores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.seg_roles            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.seg_usuarios         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.seg_usuario_proveedores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.seg_permisos_matriz  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.seg_recursos_visuales ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mae_clientes         ENABLE ROW LEVEL SECURITY;
@@ -353,7 +365,7 @@ DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'mae_proveedores','mae_oficinas_ventas','rel_proveedor_oficinas',
-    'mae_grupos_vendedores','seg_roles','seg_usuarios','seg_permisos_matriz',
+    'mae_grupos_vendedores','seg_roles','seg_usuarios','seg_usuario_proveedores','seg_permisos_matriz',
     'seg_recursos_visuales','mae_clientes','mae_materiales','pre_tarifario',
     'ven_cotizaciones','ven_cotizacion_items','ven_financiamiento_sim']
   LOOP

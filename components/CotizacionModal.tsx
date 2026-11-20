@@ -18,8 +18,8 @@ function cuotaMensual(capital: number, n: number) {
 }
 
 type Cliente = { id: string; nombres?: string; nombre?: string; nombre_razon_social?: string; dni?: string; nro_doc?: string; email?: string; correo?: string; telefono?: string; cuenta_contrato?: string };
-type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string; id_integrador?: string | null; integrador_nombre?: string | null };
-type UsuarioSGT = { id: string | number; nombre: string; telefono?: string; correo?: string; id_proveedor?: string | number | null; id_integrador?: string | null; rol?: string; rol_codigo?: string };
+type Proveedor = { id: string | number; nombre?: string; nombre_comercial?: string; razon_social?: string };
+type UsuarioSGT = { id: string | number; nombre: string; telefono?: string; correo?: string; id_proveedor?: string | number | null; id_proveedores?: string[]; rol?: string; rol_codigo?: string };
 type Material = { id: string; codigo?: string; codigo_sap?: string; codigo_tmp?: string; nombre: string; descripcion?: string; espacio?: string | null; espacio_remodelar?: string; id_proveedor?: string | number | null; proveedor_nombre?: string | null; precio_unit?: number; precio_vigente?: number };
 
 type Fila = { material_id: string; nombre: string; descripcion: string; ambiente: string; tipo_remodelacion: string; alto: string; ancho: string; fondo: string; precio: number };
@@ -40,18 +40,15 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
   const [buscaCliente, setBuscaCliente] = useState("");
   const [proveedor, setProveedor] = useState("");
   const [proveedorId, setProveedorId] = useState("");
-  const [integradorId, setIntegradorId] = useState("");
   const [asesorId, setAsesorId] = useState("");
   const [asesores, setAsesores] = useState<UsuarioSGT[]>([]);
   const [tel, setTel] = useState("");
   const [obs, setObs] = useState("");
   const [det, setDet] = useState({
-    marca_melamina: "",
-    color_estructura: "",
-    color_puertas: "",
-    color_tablero: "",
+    accesorios_premium: "",
+    luz_led: "",
+    puerta_vidrio: "",
     tiradores: "",
-    vidrios: "",
   });
   const [mat, setMat] = useState<Fila[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -160,19 +157,13 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     const u = asesores.find((a) => String(a.id) === id);
     if (!u) return;
     if (u.telefono) setTel(String(u.telefono));
-    setIntegradorId(String(u.id_integrador ?? ""));
-    // Si la ficha pertenece a un proveedor, queda fijado a ese proveedor.
-    // Si pertenece a un integrador, el usuario elige uno de sus proveedores.
-    if (u.id_proveedor != null && String(u.id_proveedor) !== "") {
-      const p = proveedores.find((x) => String(x.id) === String(u.id_proveedor));
-      if (p) {
-        setProveedorId(String(p.id));
-        setProveedor(nombreProv(p));
-        setIntegradorId(String(p.id_integrador ?? u.id_integrador ?? ""));
-      } else {
-        setProveedorId("");
-        setProveedor("");
-      }
+    const asignados = u.id_proveedores?.length
+      ? u.id_proveedores.map(String)
+      : u.id_proveedor != null ? [String(u.id_proveedor)] : [];
+    if (asignados.length === 1) {
+      const p = proveedores.find((x) => String(x.id) === asignados[0]);
+      setProveedorId(p ? String(p.id) : "");
+      setProveedor(p ? nombreProv(p) : "");
     } else {
       setProveedorId("");
       setProveedor("");
@@ -181,9 +172,11 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
 
   const proveedoresVisibles = useMemo(() => {
     const asesor = asesores.find((a) => String(a.id) === asesorId);
-    if (asesor?.id_proveedor) return proveedores.filter((p) => String(p.id) === String(asesor.id_proveedor));
-    if (asesor?.id_integrador) return proveedores.filter((p) => String(p.id_integrador ?? "") === String(asesor.id_integrador));
-    return proveedores;
+    if (!asesor) return [];
+    const asignados = asesor.id_proveedores?.length
+      ? asesor.id_proveedores.map(String)
+      : asesor.id_proveedor != null ? [String(asesor.id_proveedor)] : [];
+    return proveedores.filter((p) => asignados.includes(String(p.id)));
   }, [asesores, asesorId, proveedores]);
 
   const proveedorSelId = useMemo(() => {
@@ -196,11 +189,6 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
     const p = proveedores.find((x) => String(x.id) === proveedorSelId);
     return p ? nombreProv(p) : proveedor;
   }, [proveedores, proveedorSelId, proveedor]);
-  const integradorSelNombre = useMemo(() => {
-    const p = proveedores.find((x) => String(x.id) === proveedorSelId);
-    return String(p?.integrador_nombre ?? "");
-  }, [proveedores, proveedorSelId]);
-
   const elegirMaterial = (i: number, materialId: string) => {
     const m = materiales.find((x) => String(x.id) === materialId);
     setMat((prev) =>
@@ -225,6 +213,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
 
   const opcionesRemodelacion = useMemo(() => {
     const etiquetas = new Map<string, string>();
+    const normalizar = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
     for (const m of materialesRemodelacion) {
       const nombre = String(m.nombre ?? "").trim();
       if (!nombre) continue;
@@ -233,7 +222,6 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       if (separador >= 0) {
         const sufijo = etiqueta.slice(separador + 3);
         const proveedor = String(m.proveedor_nombre ?? "");
-        const normalizar = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
         const sufijoNorm = normalizar(sufijo);
         const proveedorNorm = normalizar(proveedor);
         if (sufijoNorm && proveedorNorm && (proveedorNorm.includes(sufijoNorm) || sufijoNorm.includes(proveedorNorm))) {
@@ -242,6 +230,7 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       }
       etiqueta = etiqueta.replace(/^remodelaci[oó]n\s+cotizado\s+/i, "").trim();
       if (!etiqueta) continue;
+      if (normalizar(etiqueta).startsWith("visita tecnica")) continue;
       const clave = etiqueta.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
       if (!etiquetas.has(clave)) etiquetas.set(clave, etiqueta);
     }
@@ -290,12 +279,10 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       }
     }
     const CAMPOS_DET: { clave: keyof typeof det; etiqueta: string }[] = [
-      { clave: "marca_melamina", etiqueta: "Marca de Melamina" },
-      { clave: "color_estructura", etiqueta: "Color estructura de mueble" },
-      { clave: "color_puertas", etiqueta: "Color de Puertas" },
-      { clave: "color_tablero", etiqueta: "Color Tablero" },
+      { clave: "accesorios_premium", etiqueta: "Accesorios premium" },
+      { clave: "luz_led", etiqueta: "Luz LED" },
+      { clave: "puerta_vidrio", etiqueta: "Puerta de vidrio" },
       { clave: "tiradores", etiqueta: "Tiradores" },
-      { clave: "vidrios", etiqueta: "Vidrios" },
     ];
     for (const c of CAMPOS_DET) {
       if (!String(det[c.clave] ?? "").trim()) {
@@ -322,12 +309,10 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
       });
       let creada: unknown = null;
       const detalles = {
-        marca_melamina: det.marca_melamina.trim(),
-        color_estructura: det.color_estructura.trim(),
-        color_puertas: det.color_puertas.trim(),
-        color_tablero: det.color_tablero.trim(),
+        accesorios_premium: det.accesorios_premium.trim(),
+        luz_led: det.luz_led.trim(),
+        puerta_vidrio: det.puerta_vidrio.trim(),
         tiradores: det.tiradores.trim(),
-        vidrios: det.vidrios.trim(),
       };
       try {
         creada = await apiOperacion("crearCotizacionSGT", {
@@ -338,7 +323,6 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
           tea: 40,
           plazo: cuotas,
           id_proveedor: proveedorSelId,
-          id_integrador: integradorId,
           id_asesor: asesorId,
           proveedor,
           ambiente: [...new Set(items.map((i) => i.ambiente).filter(Boolean))].join(", "),
@@ -410,13 +394,12 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                 <select
                   className="input"
                   value={proveedorSelId}
-                  disabled={!!asesorSel?.id_proveedor}
+                  disabled={!asesorSel || proveedoresVisibles.length === 1}
                   onChange={(e) => {
                     const id = e.target.value;
                     setProveedorId(id);
                     const p = proveedores.find((x) => String(x.id) === id);
                     setProveedor(p ? nombreProv(p) : "");
-                    setIntegradorId(String(p?.id_integrador ?? ""));
                   }}
                 >
                   <option value="">— Seleccionar —</option>
@@ -424,7 +407,6 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                     <option key={String(p.id)} value={String(p.id)}>{nombreProv(p)}</option>
                   ))}
                 </select>
-                {integradorSelNombre && <p className="text-[11px] text-slate-400 mt-1">Integradora: {integradorSelNombre}</p>}
               </div>
               <div>
                 <label className="label">Asesor *</label>
@@ -593,34 +575,35 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
             </div>
           </section>
 
-          <section className="card !shadow-none p-5">
-            <h3 className="font-bold">Detalles del mueble <span className="text-red-600">*</span></h3>
-            <p className="text-xs text-slate-400 mb-3">Todos los campos son obligatorios para crear la cotización.</p>
+        <section className="card !shadow-none p-5">
+            <h3 className="font-bold">Accesorios y acabados <span className="text-red-600">*</span></h3>
+            <p className="text-xs text-slate-400 mb-3">Indica si incluye cada accesorio.</p>
             <div className="grid md:grid-cols-2 gap-3">
               {([
-                ["marca_melamina", "Marca de Melamina"],
-                ["color_estructura", "Color estructura de mueble"],
-                ["color_puertas", "Color de Puertas"],
-                ["color_tablero", "Color Tablero"],
+                ["accesorios_premium", "Accesorios premium"],
+                ["luz_led", "Luz LED"],
+                ["puerta_vidrio", "Puerta de vidrio"],
                 ["tiradores", "Tiradores"],
-                ["vidrios", "Vidrios"],
               ] as const).map(([clave, etiqueta]) => (
                 <div key={clave}>
                   <label className="label">{etiqueta} <span className="text-red-600">*</span></label>
-                  <input
+                  <select
                     className="input"
-                    placeholder={etiqueta}
                     value={det[clave]}
                     onChange={(e) => setDet((p) => ({ ...p, [clave]: e.target.value }))}
-                  />
+                  >
+                    <option value="">— Selecciona —</option>
+                    <option value="Sí">Sí</option>
+                    <option value="No">No</option>
+                  </select>
                 </div>
               ))}
             </div>
           </section>
 
           <section>
-            <label className="label">Observaciones generales</label>
-            <textarea className="input min-h-[90px]" placeholder="Condiciones, consideraciones o comentarios para la cotización" value={obs} onChange={(e) => setObs(e.target.value)} />
+            <label className="label">Detalles adicionales</label>
+            <textarea className="input min-h-[90px]" placeholder="Condiciones, acabados o comentarios adicionales para la cotización" value={obs} onChange={(e) => setObs(e.target.value)} />
           </section>
         </div>
       </div>

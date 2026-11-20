@@ -576,7 +576,7 @@ export async function buildCotizacionPdf(d: DatosPdf): Promise<jsPDF> {
   if (d.observaciones) {
     y += 2;
     doc.setFont("helvetica", "normal"); doc.setFontSize(8);
-    const lo = doc.splitTextToSize(`Observaciones: ${d.observaciones}`, ANCHO) as string[];
+    const lo = doc.splitTextToSize(`Detalles adicionales: ${d.observaciones}`, ANCHO) as string[];
     if (y + lo.length * 3.8 > 272) { doc.addPage(); y = 18; doc.setFont("helvetica", "normal"); doc.setFontSize(8); }
     doc.text(lo, ML, y);
     y += lo.length * 3.8;

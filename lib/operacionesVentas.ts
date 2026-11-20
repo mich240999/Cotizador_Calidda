@@ -430,7 +430,6 @@ const EsquemaItemVenta = z.object({
 const EsquemaCrearSolicitud = z.object({
   id_cliente: z.string().trim().min(1).max(60),
   id_proveedor: z.string().trim().min(1).max(60).optional().nullable(),
-  id_integrador: z.string().trim().max(20).optional().nullable(),
   canal: z.enum(["proveedor", "microaliado", "contratista"]),
   es_microaliado: z.coerce.boolean().optional().default(false),
   visita_estado: z.enum(["visitado", "agendado"]).optional().default("visitado"),
@@ -737,29 +736,23 @@ async function resolverClienteSGT(ctx: OperacionContext, id: string): Promise<st
 /** Resuelve y autoriza la empresa proveedora en el ámbito del usuario. */
 function validarProveedorEnSesion(
   ctx: OperacionContext,
-  proveedor: { id: string; id_integrador?: string | null }
+  proveedor: { id: string }
 ): void {
   if (ctx.sesion.rol === "admin" || ctx.sesion.alcance === "GLOBAL") return;
-  const permitido = ctx.sesion.idProveedor
-    ? ctx.sesion.idProveedor === proveedor.id
-    : Boolean(ctx.sesion.idIntegrador && ctx.sesion.idIntegrador === proveedor.id_integrador);
-  if (!permitido) lanzar(403, "La empresa proveedora no pertenece a tu proveedor o integrador asignado");
+  const asignados = new Set([...(ctx.sesion.idProveedores ?? []), ...(ctx.sesion.idProveedor ? [ctx.sesion.idProveedor] : [])]);
+  if (!asignados.has(proveedor.id)) lanzar(403, "La empresa proveedora no está asignada a tu usuario");
 }
 
-async function resolverProveedorSGT(ctx: OperacionContext, id: string): Promise<{ id: string; nombre: string; id_integrador: string | null }> {
+async function resolverProveedorSGT(ctx: OperacionContext, id: string): Promise<{ id: string; nombre: string }> {
   const { data: ex, error: eProveedor } = await ctx.service.from("mae_proveedores")
-    .select("id,razon_social,nombre_comercial,id_integrador").eq("id", id).maybeSingle();
-  if (eProveedor && /id_integrador|column|schema cache/i.test(eProveedor.message)) {
-    lanzar(503, "Falta la migración de integradores: ejecuta supabase/migracion_04_cotizaciones_ventas_integradores.sql");
-  }
+    .select("id,razon_social,nombre_comercial").eq("id", id).maybeSingle();
   if (eProveedor) throw new Error(eProveedor.message);
   if (ex) {
-    const p = ex as { id: string; razon_social?: string; nombre_comercial?: string; id_integrador?: string | null };
+    const p = ex as { id: string; razon_social?: string; nombre_comercial?: string };
     validarProveedorEnSesion(ctx, p);
     return {
       id: p.id,
       nombre: String(p.razon_social ?? p.nombre_comercial ?? p.id),
-      id_integrador: p.id_integrador ?? null,
     };
   }
   if (ctx.sesion.rol !== "admin" && ctx.sesion.alcance !== "GLOBAL") {
@@ -772,8 +765,8 @@ async function resolverProveedorSGT(ctx: OperacionContext, id: string): Promise<
     const { data: previo } = await ctx.service.from("mae_proveedores").select("id").eq("ruc", String(b.ruc)).limit(1).maybeSingle();
     if (previo) {
       const p = previo as { id: string };
-      validarProveedorEnSesion(ctx, { id: p.id, id_integrador: null });
-      return { id: p.id, nombre: String(b.nombre ?? p.id), id_integrador: null };
+      validarProveedorEnSesion(ctx, { id: p.id });
+      return { id: p.id, nombre: String(b.nombre ?? p.id) };
     }
   }
   if (!b.ruc) lanzar(422, "El proveedor base no tiene RUC: complétalo en Administración > Proveedores antes de vender");
@@ -789,8 +782,8 @@ async function resolverProveedorSGT(ctx: OperacionContext, id: string): Promise<
     estado: "ACTIVO",
   });
   if (error) lanzar(422, `No se pudo migrar el proveedor al maestro SGT: ${error.message}`);
-  validarProveedorEnSesion(ctx, { id: nuevo, id_integrador: null });
-  return { id: nuevo, nombre: String(b.nombre ?? nuevo), id_integrador: null };
+  validarProveedorEnSesion(ctx, { id: nuevo });
+  return { id: nuevo, nombre: String(b.nombre ?? nuevo) };
 }
 
 /** Resuelve un material a mae_materiales. Si viene de la tabla base, lo migra solo. */
@@ -859,10 +852,7 @@ async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearS
 
     const proveedorSolicitado = String(args.id_proveedor ?? c.id_proveedor ?? "");
     const empresa = await resolverProveedorSGT(ctx, proveedorSolicitado);
-    if (c.id_integrador && empresa.id_integrador !== String(c.id_integrador)) {
-      lanzar(422, "La empresa proveedora elegida no pertenece al integrador de la cotización");
-    }
-    if (c.id_proveedor && String(c.id_proveedor) !== empresa.id && String(c.id_integrador ?? "") !== String(empresa.id_integrador ?? "")) {
+    if (c.id_proveedor && String(c.id_proveedor) !== empresa.id) {
       lanzar(422, "La empresa proveedora no coincide con la cotización");
     }
 
@@ -897,7 +887,7 @@ async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearS
       const mapeo = await resolverMaterialVentaCotizacion(ctx, {
         ...c,
         id_proveedor: empresa.id,
-        id_integrador: empresa.id_integrador,
+        id_integrador: null,
         proveedor: empresa.nombre,
       }, { ...it, ambiente });
       const parteAbono = i === lineasProducto.length - 1
@@ -907,7 +897,6 @@ async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearS
       const financiado = red2(Math.max(it.neto - parteAbono, 0));
       const common = {
         solicitud_id: "",
-        cotizacion_item_id: String(it.id),
         id_material: String(mapeo.id),
         material_codigo: String(mapeo.codigo_sap ?? ""),
         material_nombre: String(mapeo.nombre ?? it.descripcion ?? ""),
@@ -958,7 +947,7 @@ async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearS
       id,
       id_cliente: idClienteSGT,
       id_proveedor: empresa.id,
-      id_integrador: empresa.id_integrador,
+       id_integrador: null,
       cotizacion_id: c.id,
       canal: args.canal,
       es_microaliado: args.es_microaliado ?? false,
@@ -985,7 +974,7 @@ async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearS
     const { data: cab, error: eCab } = await ctx.service.from(T_SOL).insert(filaSol).select().single();
     if (eCab || !cab) {
       if (/column|schema cache/i.test(eCab?.message ?? "")) {
-        throw new Error("Falta la migración 04 para solicitudes, integradores y pedidos de material.");
+        throw new Error("Falta la migración 04 para solicitudes y pedidos de material.");
       }
       if (/foreign key|llave foránea|violates foreign/i.test(eCab?.message ?? "")) {
         lanzar(422, "El cliente, proveedor o material ya no existe en el maestro.");
@@ -996,7 +985,7 @@ async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearS
     const { data: saleItems, error: eDet } = await ctx.service.from(T_ITEM).insert(filasVenta).select();
     if (eDet) {
       await ctx.service.from(T_SOL).delete().eq("id", id);
-      if (/column|schema cache/i.test(eDet.message)) throw new Error("Falta la migración 04 para dimensiones y tipos de pedido en ventas.");
+      if (/column|schema cache/i.test(eDet.message)) throw new Error(`No se pudo guardar el detalle de venta: ${eDet.message}`);
       throw new Error(eDet.message);
     }
     return { solicitud: cab, items: saleItems ?? [], id, numero: id, total: totalProducto, estado: "borrador" };
@@ -1020,7 +1009,6 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
   const idClienteSGT = await resolverClienteSGT(ctx, args.id_cliente);
   const proveedor = args.id_proveedor ? await resolverProveedorSGT(ctx, args.id_proveedor) : null;
   if (args.canal !== "contratista" && !proveedor) lanzar(422, "Selecciona una empresa proveedora.");
-  if (args.id_integrador && args.id_integrador !== proveedor?.id_integrador) lanzar(422, "El proveedor no pertenece al integrador seleccionado.");
   const idProveedorSGT = proveedor?.id ?? null;
   let idAsesor: string | null = args.id_asesor || null;
   let asesorNombre = String(args.asesor ?? "").trim();
@@ -1031,6 +1019,21 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
   } else if (asesorNombre) {
     // Mismo asesor de la cotización: se busca su ficha por nombre.
     idAsesor = await resolverAsesorPorNombre(ctx, asesorNombre);
+  }
+  if (idAsesor && idProveedorSGT) {
+    const { data: relaciones, error: eRel } = await ctx.service.from("seg_usuario_proveedores")
+      .select("id_proveedor").eq("id_usuario", idAsesor);
+    if (eRel && !esTablaFaltante(eRel)) throw new Error(eRel.message);
+    const idsAsignados = !eRel
+      ? ((relaciones ?? []) as { id_proveedor?: string }[]).map((r) => String(r.id_proveedor ?? ""))
+      : [];
+    if (!idsAsignados.length) {
+      const { data: ficha } = await ctx.service.from("seg_usuarios").select("id_proveedor").eq("id", idAsesor).maybeSingle();
+      if ((ficha as { id_proveedor?: string | null } | null)?.id_proveedor) idsAsignados.push(String((ficha as { id_proveedor: string }).id_proveedor));
+    }
+    if (!idsAsignados.includes(idProveedorSGT)) {
+      lanzar(422, "El proveedor seleccionado no está asignado al asesor de la solicitud.");
+    }
   }
   const anticipo = Math.max(Number(args.anticipo ?? 0) || 0, 0);
   const montoFinanciado = Math.max(red2(total - anticipo), 0);
@@ -1043,7 +1046,7 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
       id,
       id_cliente: idClienteSGT,
       id_proveedor: idProveedorSGT,
-      id_integrador: proveedor?.id_integrador ?? null,
+      id_integrador: null,
       canal: args.canal,
       es_microaliado: args.es_microaliado ?? false,
       visita_estado: args.visita_estado ?? "visitado",
@@ -1074,7 +1077,7 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
     };
     let insCab = await ctx.service.from(T_SOL).insert(filaSol).select().single();
     if (insCab.error && /column|schema cache/i.test(insCab.error.message)) {
-      throw new Error("Falta la migración 04 de ventas/integradores y respaldo de la solicitud.");
+      throw new Error("Falta la migración 04 de ventas y respaldo de la solicitud.");
     }
     const { data: cab, error: eCab } = insCab;
     if (eCab || !cab) {
@@ -1465,12 +1468,12 @@ async function hListarInstalacionesPendientes(args: z.infer<typeof EsquemaQInsta
   // Vista del proveedor: TODAS sus ventas con info de instalación (no solo pendientes).
   // Admin ve todo. Otros roles: vacío.
   const alcance = await resolverAlcance(ctx.service, ctx.sesion);
-  if (!alcance.todo && !alcance.proveedor) return { rows: [], total: 0, proveedor: null };
-  const idProveedor = alcance.proveedor;
+  if (!alcance.todo && (!alcance.empresaScope || !alcance.proveedores.length)) return { rows: [], total: 0, proveedor: null };
+  const idsProveedores = alcance.proveedores;
   let q = ctx.service.from(T_SOL)
     .select("id,id_cliente,id_proveedor,canal,estado,created_at,updated_at", { count: "exact" })
     .order("updated_at", { ascending: false }).limit(args.limit);
-  if (idProveedor) q = q.eq("id_proveedor", idProveedor);
+  if (idsProveedores.length) q = q.in("id_proveedor", idsProveedores);
   if (args.estado) q = q.eq("estado", args.estado.toLowerCase());
   const { data, error, count } = await q;
   if (error) throw new Error(error.message);
@@ -1493,7 +1496,7 @@ async function hListarInstalacionesPendientes(args: z.infer<typeof EsquemaQInsta
       instalacion_estado: (mIns.get(String(r.id)) as any)?.estado ?? "pendiente",
     })),
     total: count ?? rows.length,
-    proveedor: idProveedor,
+    proveedor: idsProveedores[0] ?? null,
   };
 }
 
@@ -1510,7 +1513,7 @@ async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionCo
     if (!puedeVerVenta(aVenta, sol)) {
       lanzar(403, "Sin permiso: la venta pertenece a otro usuario o empresa");
     }
-    const puedeVerInstalacion = aVenta.todo || (aVenta.empresaScope && !!aVenta.proveedor);
+    const puedeVerInstalacion = aVenta.todo || (aVenta.empresaScope && aVenta.proveedores.length > 0);
     const [rItems, rAbonos, rIns] = await Promise.all([
       ctx.service.from(T_ITEM).select("*").eq("solicitud_id", args.id),
       ctx.service.from(T_ABO).select("*").eq("solicitud_id", args.id).order("created_at", { ascending: false }),
@@ -1655,7 +1658,6 @@ async function anotarConSolicitud(ctx: OperacionContext, cots: Fila[]): Promise<
       asesor_telefono: c.asesor_telefono ?? null,
       proveedor: c.proveedor ?? null,
       id_proveedor: c.id_proveedor ?? null,
-      id_integrador: c.id_integrador ?? null,
       id_asesor: c.id_asesor ?? null,
       ambiente: c.ambiente ?? null,
       cuota_inicial: c.cuota_inicial ?? 0,
@@ -1681,14 +1683,13 @@ const esValorGlobalVenta = (value: unknown) => normalizarClaveVenta(value).start
 async function resolverMaterialVentaCotizacion(ctx: OperacionContext, cot: Fila, item: Fila): Promise<Fila> {
   const ambiente = normalizarClaveVenta(item.ambiente);
   const providerId = String(cot.id_proveedor ?? "");
-  const integradorId = String(cot.id_integrador ?? "");
   const providerName = normalizarClaveVenta(cot.proveedor);
   const asesorId = String(cot.id_asesor ?? "");
   const asesorNombre = normalizarClaveVenta(cot.asesor);
   if (!ambiente) throw new Error("La cotización no tiene ambiente asignado a uno de sus materiales.");
 
   const { data, error } = await ctx.service.from("mae_materiales")
-    .select("id,codigo_sap,nombre,descripcion,espacio,espacio_remodelar,estado,id_proveedor,id_integrador,id_asesor,asesor_nombre,proveedor_nombre")
+    .select("id,codigo_sap,nombre,descripcion,espacio,espacio_remodelar,estado,id_proveedor,id_asesor,asesor_nombre,proveedor_nombre")
     .eq("espacio", "VENTAS")
     .eq("estado", "ACTIVO")
     .limit(1000);
@@ -1706,15 +1707,12 @@ async function resolverMaterialVentaCotizacion(ctx: OperacionContext, cot: Fila,
     if (!envExacta && !envGenerica && !envOtros) return [];
 
     const mapProvId = String(m.id_proveedor ?? "");
-    const mapIntId = String(m.id_integrador ?? "");
     const mapProvName = normalizarClaveVenta(m.proveedor_nombre);
-    const proveedorGlobal = esValorGlobalVenta(m.proveedor_nombre) && !mapProvId && !mapIntId;
+    const proveedorGlobal = esValorGlobalVenta(m.proveedor_nombre) && !mapProvId;
     const providerExact = Boolean(providerId && mapProvId === providerId);
-    const integratorExact = Boolean(integradorId && mapIntId === integradorId);
     const providerNameExact = Boolean(providerName && mapProvName === providerName);
     if (mapProvId && !providerExact) return [];
-    if (!mapProvId && mapIntId && !integratorExact) return [];
-    if (!proveedorGlobal && !providerExact && !integratorExact && !providerNameExact) return [];
+    if (!proveedorGlobal && !providerExact && !providerNameExact) return [];
 
     const mapAsesorId = String(m.id_asesor ?? "");
     const mapAsesorName = normalizarClaveVenta(m.asesor_nombre);
@@ -1731,13 +1729,13 @@ async function resolverMaterialVentaCotizacion(ctx: OperacionContext, cot: Fila,
 
     const score =
       (envExacta ? 100 : envOtros ? 60 : 0)
-      + (providerExact ? 100 : integratorExact ? 80 : providerNameExact ? 60 : 10)
+      + (providerExact ? 100 : providerNameExact ? 60 : 10)
       + (asesorExact ? 100 : asesorNameExact ? 60 : asesorOk ? 20 : 0)
       + Math.min(coincidencias, 3) * 8;
     return [{
       ...m,
       _score: score,
-      _propio: providerExact || integratorExact || providerNameExact ? 1 : 0,
+      _propio: providerExact || providerNameExact ? 1 : 0,
       _asesor: asesorOk ? 1 : 0,
     }];
   });
@@ -1819,7 +1817,6 @@ async function hObtenerCotizacionParaVenta(args: z.infer<typeof EsquemaCotizacio
         cuenta_contrato: cuentaContrato || null,
         total: Number(c.total ?? importeNeto),
         id_proveedor: c.id_proveedor ?? null,
-        id_integrador: c.id_integrador ?? null,
         id_asesor: c.id_asesor ?? null,
         proveedor: c.proveedor ?? null,
         asesor: c.asesor ?? null,
@@ -1849,7 +1846,6 @@ async function hObtenerCotizacionParaVenta(args: z.infer<typeof EsquemaCotizacio
           : 0),
       },
       id_proveedor: c.id_proveedor ?? null,
-      id_integrador: c.id_integrador ?? null,
       id_asesor: c.id_asesor ?? null,
       proveedor: String(c.proveedor ?? ""),
       asesor: String(c.asesor ?? ""),

@@ -58,14 +58,16 @@ function ejecutar() {
   check("tablaSimulacion capital 0 -> 0", fin.tablaSimulacion(0, 0.4).every((f) => f.cuota === 0));
   check("tablaSimulacion sin IGV menor", fin.cuotaFrancesa(10000, 0.4, 9) < cuota);
 
-  const d = { marca_melamina: "Arauco", color_estructura: "Blanco", color_puertas: "Roble", color_tablero: "Gris", tiradores: "Acero", vidrios: "No aplica" };
+  const d = { accesorios_premium: "Sí", luz_led: "No", puerta_vidrio: "Sí", tiradores: "No" };
   const comp = det.componerObservaciones(d, "Cliente prefiere entrega por la tarde");
   check("compone bloque detalles", comp.startsWith("[DETALLES DEL MUEBLE]") && comp.includes("[FIN DETALLES]"));
   check("conserva observaciones", comp.trim().endsWith("Cliente prefiere entrega por la tarde"));
   const ex = det.extraerDetalles(comp);
-  check("extrae 6 detalles", ex.detalles.length === 6, String(ex.detalles.length));
-  check("extrae valor color puertas", ex.detalles.find((x) => x.etiqueta === "Color de Puertas")?.valor === "Roble");
+  check("extrae 4 detalles de accesorios", ex.detalles.length === 4, String(ex.detalles.length));
+  check("extrae valor accesorio premium", ex.detalles.find((x) => x.etiqueta === "Accesorios premium")?.valor === "Sí");
   check("extrae resto libre", ex.resto === "Cliente prefiere entrega por la tarde", JSON.stringify(ex.resto));
+  const legacy = det.extraerDetalles("[DETALLES DEL MUEBLE]\nMarca de Melamina: Arauco\nColor estructura de mueble: Blanco\nColor de Puertas: Roble\nColor Tablero: Gris\nTiradores: Acero\nVidrios: No aplica\n[FIN DETALLES]");
+  check("conserva lectura de detalles históricos", legacy.detalles.some((x) => x.etiqueta === "Color de Puertas" && x.valor === "Roble"));
   check("sin observaciones no agrega lineas", det.componerObservaciones(d, "   ").endsWith("[FIN DETALLES]"));
   check("resto vacio", det.extraerDetalles(det.componerObservaciones(d, "   ")).resto === "");
   check("texto plano no rompe", det.extraerDetalles("hola").detalles.length === 0);
