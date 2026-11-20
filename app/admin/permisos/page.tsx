@@ -112,8 +112,8 @@ export default function PermisosPage() {
         return { rol_codigo, recurso: rest.join("|"), permitido };
       });
       const r = await apiOperacion<{ guardados?: number }>("guardarMatrizPermisos", { cambios: lista });
-      setInfo(`Guardados ${r?.guardados ?? lista.length} cambios.`);
       await cargar();
+      setInfo(`Guardados ${r?.guardados ?? lista.length} cambios.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo guardar (requiere rol admin)");
     } finally {
@@ -143,7 +143,7 @@ export default function PermisosPage() {
         {nCambios > 0 && (
           <button className="btn-white" onClick={() => { setCambios({}); setInfo(null); }}>Descartar ({nCambios})</button>
         )}
-        <button className="btn-green" onClick={guardar} disabled title="La matriz aún no controla los accesos efectivos">
+        <button className="btn-green" onClick={guardar} disabled={loading || saving || nCambios === 0}>
           {saving ? "Guardando…" : `Guardar cambios${nCambios > 0 ? ` (${nCambios})` : ""}`}
         </button>
         <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
@@ -202,8 +202,8 @@ export default function PermisosPage() {
                                     type="checkbox"
                                     checked={valor(r.recurso, rol)}
                                     onChange={() => toggle(r.recurso, rol)}
-                                    disabled
-                                    className="h-5 w-5 accent-[#0077B6] cursor-not-allowed"
+                                    disabled={saving}
+                                    className="h-5 w-5 accent-[#0077B6] cursor-pointer"
                                     title={`${bonito(r.recurso)} → ${rol}`}
                                   />
                                 </td>

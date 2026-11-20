@@ -1140,29 +1140,26 @@ const EsquemaGuardarMatriz = z.object({
 });
 
 async function hGuardarMatrizPermisos(args: z.infer<typeof EsquemaGuardarMatriz>, ctx: OperacionContext) {
-  // Valida roles y recursos contra el catálogo antes de guardar.
-  const { data: roles } = await ctx.service.from("seg_roles").select("codigo");
-  const rolOk = new Set(((roles ?? []) as { codigo: string }[]).map((r) => r.codigo));
-  const { data: recs } = await ctx.service.from("seg_permisos_matriz").select("recurso").limit(5000);
-  const recOk = new Set(((recs ?? []) as { recurso: string }[]).map((r) => r.recurso));
-  let guardados = 0;
-  for (const c of args.cambios) {
-    if (!rolOk.has(c.rol_codigo)) {
-      const e = new Error(`Rol desconocido: ${c.rol_codigo}`) as Error & { status?: number };
-      e.status = 422; throw e;
+  const cambios = [...new Map(args.cambios.map((c) => [JSON.stringify([c.rol_codigo, c.recurso]), c])).values()];
+  const codigos = [...new Set(cambios.map((c) => c.rol_codigo))];
+  const recursos = [...new Set(cambios.map((c) => c.recurso))];
+  const [roles, catalogo] = await Promise.all([
+    ctx.service.from("seg_roles").select("codigo").in("codigo", codigos),
+    ctx.service.from("seg_permisos_matriz").select("recurso,modulo,grupo,nombre").in("recurso", recursos),
+  ]);
+  if (roles.error || catalogo.error) throw new Error(roles.error?.message ?? catalogo.error?.message);
+  const rolesValidos = new Set((roles.data ?? []).map((r) => r.codigo));
+  const recursosValidos = new Map((catalogo.data ?? []).map((r) => [r.recurso, r]));
+  const filas = cambios.map((cambio) => {
+    const recurso = recursosValidos.get(cambio.recurso);
+    if (!rolesValidos.has(cambio.rol_codigo) || !recurso) {
+      throw Object.assign(new Error(`Rol o recurso desconocido: ${cambio.rol_codigo} / ${cambio.recurso}`), { status: 422 });
     }
-    if (!recOk.has(c.recurso)) {
-      const e = new Error(`Recurso desconocido: ${c.recurso}`) as Error & { status?: number };
-      e.status = 422; throw e;
-    }
-    const { error } = await ctx.service.from("seg_permisos_matriz")
-      .update({ permitido: c.permitido })
-      .eq("rol_codigo", c.rol_codigo)
-      .eq("recurso", c.recurso);
-    if (error) throw new Error(error.message);
-    guardados++;
-  }
-  return { guardados };
+    return { ...recurso, ...cambio };
+  });
+  const { error } = await ctx.service.from("seg_permisos_matriz").upsert(filas, { onConflict: "rol_codigo,recurso" });
+  if (error) throw new Error(error.message);
+  return { guardados: filas.length };
 }
 
 async function hListarMaterialesSGT(args: z.infer<typeof EsquemaMaterialesSGT>, ctx: OperacionContext) {
