@@ -299,6 +299,8 @@ export default function VentaDetallePage() {
                   ["Cotización del cliente", (venta as Record<string, unknown>).adjunto_cotizacion_url],
                   ["Foto DNI", (venta as Record<string, unknown>).adjunto_dni_url],
                   ["Foto del espacio", (venta as Record<string, unknown>).foto_espacio_url],
+                  ["Voucher", (venta as Record<string, unknown>).voucher_solicitud_url],
+                  ["Contrato físico", (venta as Record<string, unknown>).contrato_fisico_url],
                 ] as [string, unknown][]).map(([label, url]) => (
                   String(url ?? "") ? (
                     <a key={label as string} className="btn-white !py-1.5 !text-xs !no-underline" href={String(url)} target="_blank" rel="noreferrer" title={String(url)}>
@@ -311,6 +313,9 @@ export default function VentaDetallePage() {
                   )
                 ))}
               </div>
+              {Boolean((venta as Record<string, unknown>).codigo_llamada) && (
+                <p className="mt-3 text-sm">Código de audio: {String((venta as Record<string, unknown>).codigo_llamada)}</p>
+              )}
             </section>
 
             <section className="card p-5 mt-4">

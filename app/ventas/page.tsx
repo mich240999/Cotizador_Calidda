@@ -55,7 +55,7 @@ const enRango = (iso: unknown, desde: string, hasta: string) => {
 function PVModal({ v, onClose, onHecho }: { v: Venta; onClose: () => void; onHecho: () => void }) {
   const r = v as Record<string, unknown>;
   const anticipo = Number(r.anticipo ?? 0) || 0;
-  const [codigo, setCodigo] = useState("");
+  const [codigo, setCodigo] = useState(String(r.codigo_llamada ?? ""));
   const [pv, setPv] = useState("");
   const [pvAbono, setPvAbono] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
@@ -63,7 +63,6 @@ function PVModal({ v, onClose, onHecho }: { v: Venta; onClose: () => void; onHec
 
   const guardar = async () => {
     setMsg(null);
-    if (!codigo.trim()) { setMsg("Registra el código de la llamada."); return; }
     if (!pv.trim()) { setMsg("Registra el pedido de venta."); return; }
     if (anticipo > 0 && !pvAbono.trim()) { setMsg("Hay anticipo: registra el PV de abono."); return; }
     setGuardando(true);
@@ -96,7 +95,7 @@ function PVModal({ v, onClose, onHecho }: { v: Venta; onClose: () => void; onHec
         </div>
         <div className="p-6 space-y-3">
           <div>
-            <label className="label">Código de la llamada *</label>
+            <label className="label">Código de la llamada</label>
             <input className="input" placeholder="Código" value={codigo} onChange={(e) => setCodigo(e.target.value)} />
           </div>
           <div>
@@ -172,6 +171,11 @@ function VisorVenta({ id, onClose }: { id: string; onClose: () => void }) {
                   </div>
                 ))}
               </dl>
+              <div className="mt-3 flex flex-wrap gap-3 text-sm">
+                {([ ["Voucher", sol.voucher_solicitud_url], ["Contrato físico", sol.contrato_fisico_url] ] as [string, unknown][]).map(([etiqueta, url]) => url ? (
+                  <a key={etiqueta} className="text-[#0078B5] underline" href={String(url)} target="_blank" rel="noreferrer">{etiqueta} ↗</a>
+                ) : null)}
+              </div>
             </div>
             <div>
               <p className="font-bold text-sm mb-2">Materiales · {items.length}</p>

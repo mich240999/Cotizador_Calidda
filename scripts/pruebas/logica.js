@@ -4,6 +4,7 @@ const base = process.env.PRUEBAS_BUILD || path.join(process.cwd(), ".pruebas-bui
 const fin = require(path.join(base, "financiamiento.js"));
 const det = require(path.join(base, "detallesMueble.js"));
 const mm = require(path.join(base, "materialMatch.js"));
+const { OPERACIONES_VENTAS } = require(path.join(base, "operacionesVentas.js"));
 
 const VERBOSO = process.env.PRUEBAS_VERBOSE === "1";
 let pass = 0;
@@ -32,6 +33,22 @@ function cuotaModal(capital, n) {
 }
 
 function ejecutar() {
+  const solicitud = {
+    id_cliente: "CLI1", canal: "proveedor", pago_modo: "financiado_total",
+    items: [{ id_material: "MAT1", cantidad: 1, precio_unit: 100, modo: "financiado", medio_pago: "financiado" }],
+  };
+  const esquemaSolicitud = OPERACIONES_VENTAS.crearSolicitudVenta.schema;
+  const sustentos = [
+    { codigo_llamada: "AUDIO-1" },
+    { voucher_solicitud_url: "https://example.com/voucher.pdf" },
+    { contrato_fisico_url: "https://example.com/contrato.pdf" },
+  ];
+  for (let mascara = 1; mascara < 8; mascara++) {
+    const datos = Object.assign({}, solicitud, ...sustentos.filter((_, i) => mascara & (1 << i)));
+    check(`acepta combinación de sustentos ${mascara}`, esquemaSolicitud.safeParse(datos).success);
+  }
+  check("rechaza solicitud sin sustento", !esquemaSolicitud.safeParse(solicitud).success);
+  check("permite registrar PV sin código de audio", OPERACIONES_VENTAS.registrarPV.schema.safeParse({ solicitud_id: "VTA-1", numero_pedido_venta: "PV-1" }).success);
   check("redondeo2(2.675)=2.68", fin.redondeo2(2.675) === 2.68, String(fin.redondeo2(2.675)));
   check("redondeo2(-0.001)=0", fin.redondeo2(-0.001) === 0, String(fin.redondeo2(-0.001)));
   check("redondeo2(NaN)=0", fin.redondeo2(NaN) === 0);

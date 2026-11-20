@@ -325,6 +325,8 @@ async function ejecutar() {
             cotizacion_id: creado.cotizacionId,
             medio_respaldo: "audio",
             codigo_llamada: "PRUEBA-HUMO",
+            voucher_solicitud_url: "https://example.com/voucher.pdf",
+            contrato_fisico_url: "https://example.com/contrato.pdf",
             items: [{ id_material: idMaterial, cantidad: 1, precio_unit: 100, descuento_monto: 0, modo: "financiado", medio_pago: "financiado" }],
           });
           creado.solicitudId = rSol.cuerpo?.datos?.id ?? null;
@@ -332,9 +334,12 @@ async function ejecutar() {
             aviso("crearSolicitudVenta desde cotizacion", true, creado.solicitudId);
             const rGet = await op("getVenta", { id: creado.solicitudId });
             aviso("getVenta de la solicitud nueva", rGet.status === 200, `HTTP ${rGet.status}`);
-            const rPv = await op("registrarPV", { solicitud_id: creado.solicitudId, codigo_llamada: "PRUEBA-LLAMADA", numero_pedido_venta: "PV-PRUEBA" });
+            const solGuardada = rGet.cuerpo?.datos?.solicitud;
+            aviso("conserva los tres sustentos", solGuardada?.codigo_llamada === "PRUEBA-HUMO" && solGuardada?.voucher_solicitud_url === "https://example.com/voucher.pdf" && solGuardada?.contrato_fisico_url === "https://example.com/contrato.pdf");
+            const rPv = await op("registrarPV", { solicitud_id: creado.solicitudId, numero_pedido_venta: "PV-PRUEBA" });
             const estadoPv = String(rPv.cuerpo?.datos?.solicitud?.estado ?? rPv.cuerpo?.datos?.estado ?? "").toLowerCase();
             aviso("registrarPV -> generada", rPv.status === 200 && estadoPv === "generada", `HTTP ${rPv.status} ${estadoPv || JSON.stringify(rPv.cuerpo?.error ?? "")}`);
+            aviso("registrarPV conserva código de audio", rPv.cuerpo?.datos?.solicitud?.codigo_llamada === "PRUEBA-HUMO");
           } else {
             aviso("crearSolicitudVenta desde cotizacion", false, `HTTP ${rSol.status} ${JSON.stringify(rSol.cuerpo?.error ?? "")}`);
           }

@@ -438,7 +438,7 @@ const EsquemaCrearSolicitud = z.object({
   id_asesor: z.string().trim().max(20).optional().nullable(),
   asesor: z.string().trim().max(200).optional().default(""),
   asesor_telefono: z.string().trim().max(30).optional().default(""),
-  medio_respaldo: z.enum(["audio", "voucher", "contrato"]),
+  medio_respaldo: z.enum(["audio", "voucher", "contrato"]).optional(),
   codigo_llamada: z.string().trim().max(60).optional().default(""),
   voucher_solicitud_url: zUrlDoc.optional(),
   contrato_fisico_url: zUrlDoc.optional(),
@@ -458,21 +458,8 @@ const EsquemaCrearSolicitud = z.object({
   cuota_mensual: z.coerce.number().min(0).max(10_000_000).optional().default(0),
   items: z.array(EsquemaItemVenta).min(1).max(200),
 }).superRefine((v, ctx) => {
-  if (v.medio_respaldo === "audio" && !v.codigo_llamada.trim()) {
-    ctx.addIssue({ code: "custom", path: ["codigo_llamada"], message: "Ingresa el código de audio de la llamada." });
-  }
-  if (v.medio_respaldo === "voucher" && !v.voucher_solicitud_url) {
-    ctx.addIssue({ code: "custom", path: ["voucher_solicitud_url"], message: "Adjunta el voucher." });
-  }
-  if (v.medio_respaldo === "contrato" && !v.contrato_fisico_url) {
-    ctx.addIssue({ code: "custom", path: ["contrato_fisico_url"], message: "Adjunta el contrato físico firmado." });
-  }
-  const incompatibles =
-    (v.medio_respaldo !== "audio" && !!v.codigo_llamada.trim())
-    || (v.medio_respaldo !== "voucher" && !!v.voucher_solicitud_url)
-    || (v.medio_respaldo !== "contrato" && !!v.contrato_fisico_url);
-  if (incompatibles) {
-    ctx.addIssue({ code: "custom", path: ["medio_respaldo"], message: "Elige solo una forma de sustento." });
+  if (!v.codigo_llamada.trim() && !v.voucher_solicitud_url && !v.contrato_fisico_url) {
+    ctx.addIssue({ code: "custom", path: ["codigo_llamada"], message: "Ingresa un código de audio o adjunta un voucher o contrato." });
   }
 });
 
@@ -511,7 +498,7 @@ const EsquemaObservarSolicitud = z.object({
 // El PV de abono solo se exige si hubo anticipo (abono inicial).
 const EsquemaRegistrarPV = z.object({
   solicitud_id: z.string().trim().min(1).max(20),
-  codigo_llamada: z.string().trim().min(1).max(60),
+  codigo_llamada: z.string().trim().max(60).optional(),
   numero_pedido_venta: z.string().trim().min(1).max(60),
   numero_pedido_abono: z.string().trim().max(60).optional().default(""),
 });
@@ -963,10 +950,10 @@ async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearS
       nro_cuotas: plazo,
       cuota_mensual: cuotaTotal,
       ambiente: String(c.ambiente ?? [...new Set(lineasProducto.map((x) => x.ambiente).filter(Boolean))].join(", ")),
-      codigo_llamada: args.medio_respaldo === "audio" ? args.codigo_llamada.trim() : null,
-      medio_respaldo: args.medio_respaldo,
-      voucher_solicitud_url: args.medio_respaldo === "voucher" ? args.voucher_solicitud_url : null,
-      contrato_fisico_url: args.medio_respaldo === "contrato" ? args.contrato_fisico_url : null,
+      codigo_llamada: args.codigo_llamada.trim() || null,
+      medio_respaldo: args.codigo_llamada.trim() ? "audio" : args.voucher_solicitud_url ? "voucher" : "contrato",
+      voucher_solicitud_url: args.voucher_solicitud_url || null,
+      contrato_fisico_url: args.contrato_fisico_url || null,
       observaciones: args.observaciones || "",
       estado: "borrador",
       created_by: ctx.sesion.userId,
@@ -1059,10 +1046,10 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
       observaciones: args.observaciones || "",
       adjunto_cotizacion_url: args.adjunto_cotizacion_url || null,
       adjunto_dni_url: args.adjunto_dni_url || null,
-      codigo_llamada: args.medio_respaldo === "audio" ? args.codigo_llamada.trim() : null,
-      medio_respaldo: args.medio_respaldo,
-      voucher_solicitud_url: args.medio_respaldo === "voucher" ? args.voucher_solicitud_url : null,
-      contrato_fisico_url: args.medio_respaldo === "contrato" ? args.contrato_fisico_url : null,
+      codigo_llamada: args.codigo_llamada.trim() || null,
+      medio_respaldo: args.codigo_llamada.trim() ? "audio" : args.voucher_solicitud_url ? "voucher" : "contrato",
+      voucher_solicitud_url: args.voucher_solicitud_url || null,
+      contrato_fisico_url: args.contrato_fisico_url || null,
       estado: "borrador",
       created_by: ctx.sesion.userId,
     };
@@ -1872,7 +1859,7 @@ async function hRegistrarPV(args: z.infer<typeof EsquemaRegistrarPV>, ctx: Opera
     if (anticipo <= 0 && pvAbono) lanzar(422, "La solicitud no tiene abono inicial: el PV de abono no aplica");
     const parcheCompleto: Fila = {
       numero_pedido: String(args.numero_pedido_venta).trim(),
-      codigo_llamada: String(args.codigo_llamada).trim(),
+      codigo_llamada: String(args.codigo_llamada ?? "").trim() || s.codigo_llamada || null,
       pv_abono: pvAbono || null,
       estado: "generada",
     };
@@ -2352,7 +2339,7 @@ async function hActualizarTea(args: z.infer<typeof EsquemaTea>, ctx: OperacionCo
 
 export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   listarVentas: { descripcion: "Ventas: lista solicitudes con cliente/proveedor (scope por rol)", roles: TODOS, schema: EsquemaListarVentas, handler: hListarVentas },
-  crearSolicitudVenta: { descripcion: "Ventas: crea solicitud VTA-xxxxxx en borrador con un único respaldo (audio, voucher o contrato)", roles: OPERATIVO, schema: EsquemaCrearSolicitud, handler: hCrearSolicitud },
+  crearSolicitudVenta: { descripcion: "Ventas: crea solicitud VTA-xxxxxx en borrador con uno o más sustentos", roles: OPERATIVO, schema: EsquemaCrearSolicitud, handler: hCrearSolicitud },
   registrarAbono: { descripcion: "Ventas: registra abono pendiente + aviso email a admin (best-effort)", roles: OPERATIVO, schema: EsquemaRegistrarAbono, handler: hRegistrarAbono },
   validarAbono: { descripcion: "Ventas: valida u observa un abono", roles: SOLO_ADMIN, schema: EsquemaValidarAbono, handler: hValidarAbono },
   aprobarSolicitud: { descripcion: "Ventas: aprueba solicitud exigiendo n.º de pedido por cada ítem", roles: SOLO_ADMIN, schema: EsquemaAprobar, handler: hAprobarSolicitud },
@@ -2385,7 +2372,7 @@ export const REGLAS_VENTAS = {
   schema_sql: "supabase/schema_ventas.sql",
   scope_por_rol: "GLOBAL (admin): todo. EMPRESA (proveedor): solo su empresa. EQUIPO (supervisor): solo asesores asignados de su empresa. PROPIO (asesor): solo propios por UUID, sin confiar en nombres. Instalaciones: solo admin/proveedor, con límite por empresa.",
   tea: "default 40; solo admin puede crear con TEA ≠ 40 (403) y solo admin puede actualizarla",
-  adjuntos: "opcionales: cotización del cliente, DNI y foto del espacio; el respaldo obligatorio es exactamente uno: código de audio, voucher o contrato físico",
+  adjuntos: "opcionales: cotización del cliente, DNI y foto del espacio; se requiere al menos un respaldo entre código de audio, voucher y contrato físico",
   subtotal_item: "cantidad * precio_unit − descuento_monto (422 si el descuento supera el bruto)",
   correlativo: "id VTA-xxxxxx (6 dígitos)",
   abonos: "registrarAbono deja estado 'pendiente' y avisa a admin por correo best-effort (aviso_email: enviado|omitido); validarAbono: validar → 'validado', observar → 'pendiente' + observacion (observacion obligatoria al observar)",
