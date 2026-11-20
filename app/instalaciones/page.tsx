@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
@@ -373,6 +374,7 @@ export default function InstalacionesPage() {
                         <AccSolicitar title="Solicitar liquidación" onClick={() => setReg(v)} />
                       )}
                       <AccVer title="Ver evidencias" onClick={() => setVer(v)} />
+                      <Link href={`/ventas/${encodeURIComponent(String(v.id))}`} className="btn-white !py-1 !px-3 !text-xs" title="Gestionar instalación y venta">Gestionar</Link>
                       {puedeLiquidar(v) && (
                         <button className="btn-green !py-1 !px-3 !text-xs" title="Liquidar (ya liquidado en SAP)" disabled={liquidando === String(v.id)} onClick={() => liquidar(v)}>
                           {liquidando === String(v.id) ? "…" : "✓ Liquidar"}

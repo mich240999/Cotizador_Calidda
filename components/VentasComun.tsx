@@ -52,7 +52,7 @@ export function fileToDataURL(f: File, maxMB = 6): Promise<string> {
 
 export type RolVista = "vendedor" | "admin" | "stephany";
 
-/** Detecta rol admin probando una operación SOLO_ADMIN; siempre permite cambio manual de vista. */
+/** Detecta el rol real del usuario para mostrar las acciones disponibles. */
 export function useRolVista() {
   const [rol, setRol] = useState<RolVista>("vendedor");
   const [detectado, setDetectado] = useState(false);
@@ -60,9 +60,11 @@ export function useRolVista() {
     let vivo = true;
     (async () => {
       try {
-        await apiOperacion("adminListarUsuarios", { limit: 1 });
+        const respuesta = await fetch("/api/mi-perfil", { cache: "no-store" });
+        const perfil = await respuesta.json();
+        if (!respuesta.ok || !perfil?.ok) return;
         if (vivo) {
-          setRol("admin");
+          if (String(perfil.rol).toUpperCase() === "ADMIN") setRol("admin");
           setDetectado(true);
         }
       } catch {

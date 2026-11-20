@@ -362,9 +362,9 @@ export default function VentaDetallePage() {
                   <p className="text-xs text-slate-400">El proveedor entrega 7 evidencias; administración aprueba o rechaza cada una con observación.</p>
                 </div>
                 <span className="ml-auto text-xs font-semibold text-slate-500">{(estIns || "pendiente_instalar").replace(/_/g, " ").toUpperCase()}</span>
-                {!esAdmin && puedeInstalar && <button className="btn-white !py-1 !px-3 text-xs" onClick={abrirInstalacion}>{evidencias.length ? "Subsanar evidencias" : "Registrar instalación"}</button>}
+                {puedeInstalar && <button className="btn-white !py-1 !px-3 text-xs" onClick={abrirInstalacion}>{evidencias.length ? "Subsanar evidencias" : "Registrar instalación"}</button>}
               </div>
-              {showInst && !esAdmin ? (
+              {showInst ? (
                 <div className="grid md:grid-cols-2 gap-3 mt-3">
                   {SUSTENTOS_INSTALACION.map((s) => (
                     <div key={s.key}>

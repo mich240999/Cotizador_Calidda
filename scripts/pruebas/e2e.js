@@ -340,6 +340,17 @@ async function ejecutar() {
             const estadoPv = String(rPv.cuerpo?.datos?.solicitud?.estado ?? rPv.cuerpo?.datos?.estado ?? "").toLowerCase();
             aviso("registrarPV -> generada", rPv.status === 200 && estadoPv === "generada", `HTTP ${rPv.status} ${estadoPv || JSON.stringify(rPv.cuerpo?.error ?? "")}`);
             aviso("registrarPV conserva código de audio", rPv.cuerpo?.datos?.solicitud?.codigo_llamada === "PRUEBA-HUMO");
+            const rInstalacion = await op("registrarInstalacion", {
+              solicitud_id: creado.solicitudId,
+              foto_antes_url: "https://example.com/antes.jpg",
+              foto_durante_url: "https://example.com/durante.jpg",
+              foto_despues_url: "https://example.com/despues.jpg",
+              foto_dni_url: "https://example.com/dni.jpg",
+              foto_cliente_dni_url: "https://example.com/cliente-dni.jpg",
+              acta_url: "https://example.com/acta.pdf",
+              boleta_url: "https://example.com/boleta.pdf",
+            });
+            aviso("admin registra instalación con siete evidencias", rInstalacion.status === 200 && rInstalacion.cuerpo?.datos?.evidencias?.length === 7, `HTTP ${rInstalacion.status} ${JSON.stringify(rInstalacion.cuerpo?.error ?? "")}`);
           } else {
             aviso("crearSolicitudVenta desde cotizacion", false, `HTTP ${rSol.status} ${JSON.stringify(rSol.cuerpo?.error ?? "")}`);
           }

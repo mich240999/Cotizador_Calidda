@@ -20,6 +20,14 @@ const bonito = (code: string) =>
 const bonitoModulo = (m: string) =>
   String(m ?? "").replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 
+const permisosInstalaciones = [
+  ["Ver instalaciones y evidencias", true, true],
+  ["Registrar y subsanar evidencias", true, true],
+  ["Aprobar o rechazar evidencias", true, false],
+  ["Solicitar liquidación", true, true],
+  ["Liquidar venta", true, false],
+] as const;
+
 export default function PermisosPage() {
   const [roles, setRoles] = useState<string[]>([]);
   const [modulos, setModulos] = useState<PermModulo[]>([]);
@@ -135,7 +143,7 @@ export default function PermisosPage() {
         {nCambios > 0 && (
           <button className="btn-white" onClick={() => { setCambios({}); setInfo(null); }}>Descartar ({nCambios})</button>
         )}
-        <button className="btn-green" onClick={guardar} disabled={saving || nCambios === 0}>
+        <button className="btn-green" onClick={guardar} disabled title="La matriz aún no controla los accesos efectivos">
           {saving ? "Guardando…" : `Guardar cambios${nCambios > 0 ? ` (${nCambios})` : ""}`}
         </button>
         <button className="btn-white" onClick={cargar} disabled={loading}>{loading ? "Cargando…" : "Actualizar"}</button>
@@ -144,6 +152,19 @@ export default function PermisosPage() {
 
     {error && <p className="card p-4 mt-4 text-sm text-red-700 bg-red-50 border-red-200">{error}</p>}
     {info && <p className="card p-4 mt-4 text-sm text-emerald-700 bg-emerald-50 border-emerald-200">{info}</p>}
+    <p className="card p-4 mt-4 text-sm text-amber-900 bg-amber-50 border-amber-200">Esta matriz guarda una configuración de referencia. Los accesos efectivos se verifican en el servidor según el rol y el alcance de cada usuario. Cambiar una casilla aún no modifica esos accesos.</p>
+    <section className="card p-5 mt-4">
+      <h2 className="font-bold text-sm">Accesos efectivos de instalaciones</h2>
+      <p className="mt-1 text-xs text-slate-500">El proveedor accede a sus empresas asignadas. Las acciones también dependen del estado de la venta.</p>
+      <div className="overflow-x-auto mt-3">
+        <table className="tabla min-w-[560px]">
+          <thead><tr><th>Acción</th><th>ADMIN</th><th>PROVEEDOR</th><th>SUPERVISOR</th><th>ASESOR</th></tr></thead>
+          <tbody>{permisosInstalaciones.map(([nombre, admin, proveedor]) => (
+            <tr key={nombre}><td>{nombre}</td><td>{admin ? "Sí" : "No"}</td><td>{proveedor ? "Sí" : "No"}</td><td>No</td><td>No</td></tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </section>
 
     {loading ? (
       <div className="card p-10 mt-4 text-center text-slate-500">Cargando permisos…</div>
@@ -181,7 +202,8 @@ export default function PermisosPage() {
                                     type="checkbox"
                                     checked={valor(r.recurso, rol)}
                                     onChange={() => toggle(r.recurso, rol)}
-                                    className="h-5 w-5 accent-[#0077B6] cursor-pointer"
+                                    disabled
+                                    className="h-5 w-5 accent-[#0077B6] cursor-not-allowed"
                                     title={`${bonito(r.recurso)} → ${rol}`}
                                   />
                                 </td>
