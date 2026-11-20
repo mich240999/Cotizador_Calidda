@@ -239,7 +239,22 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!email) {
     return (
-      <div className="flex h-[100dvh] flex-col overflow-hidden lg:flex-row bg-white dark:bg-slate-950 transition-colors">
+      <div className="relative flex min-h-[100dvh] flex-col overflow-x-hidden bg-gradient-to-br from-[#0B5FA5] via-[#0088C7] to-[#00A9CE] transition-colors lg:h-[100dvh] lg:min-h-0 lg:flex-row lg:overflow-hidden lg:bg-white dark:lg:bg-slate-950">
+        {/* Marca compacta en móvil: conserva identidad visual sin quitar espacio al formulario. */}
+        <div className="relative flex min-h-[218px] shrink-0 flex-col justify-center overflow-hidden px-6 pb-14 pt-8 text-white sm:min-h-[245px] sm:px-10 lg:hidden">
+          <div aria-hidden className="pointer-events-none absolute -right-14 -top-24 h-64 w-64 rounded-full border-[34px] border-white/10" />
+          <div aria-hidden className="pointer-events-none absolute -bottom-36 -left-20 h-64 w-64 rounded-full bg-[#00A9CE]/35 blur-2xl" />
+          <div className="relative flex items-center gap-3">
+            <Asterisco className="h-10 w-10 text-white drop-shadow-sm sm:h-12 sm:w-12" />
+            <span className="text-xs font-bold uppercase tracking-[0.22em] text-white/75">Cálidda · Ambientes</span>
+          </div>
+          <h2 className="relative mt-4 text-[1.8rem] font-extrabold leading-tight tracking-tight sm:mt-5 sm:text-4xl">
+            Hola, Ambientes<br />Cáliddos
+          </h2>
+          <p className="relative mt-2 max-w-sm text-sm leading-relaxed text-white/80 sm:text-base">
+            Cotizaciones y gestión comercial, en un solo lugar.
+          </p>
+        </div>
         {/* Izquierda: panel marca azul profundo */}
         <div className="relative hidden h-full min-h-0 overflow-hidden lg:flex lg:w-[46%] bg-gradient-to-br from-[#0B5FA5] via-[#0088C7] to-[#00A9CE] text-white flex-col justify-between p-10 xl:p-16">
           <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.14]" viewBox="0 0 600 800" fill="none" stroke="white" strokeWidth="1.5" preserveAspectRatio="xMidYMid slice">
@@ -263,8 +278,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Derecha: acceso */}
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-3 sm:p-8 lg:overflow-hidden lg:p-10 xl:p-16 bg-white dark:bg-slate-950 transition-colors">
-          <div className="w-full max-w-sm py-2">
+        <div className="relative z-10 -mt-8 flex min-h-0 flex-1 items-start justify-center overflow-y-auto rounded-t-[2rem] bg-white px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-7 shadow-[0_-14px_40px_rgba(2,49,87,0.16)] dark:bg-slate-950 sm:mx-auto sm:w-full sm:max-w-lg sm:rounded-3xl sm:p-8 sm:shadow-2xl lg:mx-0 lg:mt-0 lg:max-w-none lg:items-center lg:overflow-hidden lg:rounded-none lg:p-10 lg:shadow-none xl:p-16">
+          <div className="w-full max-w-sm py-2 sm:py-0">
             <div className="flex items-center gap-2.5 sm:gap-3">
               <LogoCalidda className="h-9 sm:h-11 w-auto" />
               <span className="text-xl sm:text-2xl font-extrabold text-slate-950 dark:text-white tracking-tight">Ambientes Cáliddos</span>
