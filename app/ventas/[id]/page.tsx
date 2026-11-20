@@ -55,6 +55,8 @@ export default function VentaDetallePage() {
   const [showLiquidar, setShowLiquidar] = useState(false);
   const [ordenPedidoVenta, setOrdenPedidoVenta] = useState("");
   const [ordenPedidoAbono, setOrdenPedidoAbono] = useState("");
+  const [sustentoOrdenPedidoVenta, setSustentoOrdenPedidoVenta] = useState("");
+  const [sustentoOrdenPedidoAbono, setSustentoOrdenPedidoAbono] = useState("");
   const [notaLiquidacion, setNotaLiquidacion] = useState("");
   const [showObservar, setShowObservar] = useState(false);
   const [motivo, setMotivo] = useState("");
@@ -179,6 +181,8 @@ export default function VentaDetallePage() {
     const raw = (venta ?? {}) as Record<string, unknown>;
     setOrdenPedidoVenta(String(raw.orden_pedido_venta ?? ""));
     setOrdenPedidoAbono(String(raw.orden_pedido_abono ?? ""));
+    setSustentoOrdenPedidoVenta(String(raw.orden_pedido_venta_sustento_url ?? ""));
+    setSustentoOrdenPedidoAbono(String(raw.orden_pedido_abono_sustento_url ?? ""));
     setNotaLiquidacion("");
     setShowLiquidar(true);
   };
@@ -186,11 +190,15 @@ export default function VentaDetallePage() {
   const confirmarLiquidacion = () => correr(async () => {
     const raw = (venta ?? {}) as Record<string, unknown>;
     if (!ordenPedidoVenta.trim()) throw new Error("Ingresa la orden del PV de venta.");
+    if (!sustentoOrdenPedidoVenta.trim()) throw new Error("Adjunta el sustento SAP de la orden de venta.");
     if (Number(raw.anticipo ?? 0) > 0 && !ordenPedidoAbono.trim()) throw new Error("Esta venta tiene abono; ingresa también la orden del PV de abono.");
+    if (Number(raw.anticipo ?? 0) > 0 && !sustentoOrdenPedidoAbono.trim()) throw new Error("Adjunta el sustento SAP de la orden de abono.");
     await apiOperacion("liquidarVenta", {
       solicitud_id: id,
       orden_pedido_venta: ordenPedidoVenta.trim(),
+      orden_pedido_venta_sustento_url: sustentoOrdenPedidoVenta,
       orden_pedido_abono: ordenPedidoAbono.trim(),
+      orden_pedido_abono_sustento_url: sustentoOrdenPedidoAbono,
       nota: notaLiquidacion.trim(),
     });
     setShowLiquidar(false);
@@ -344,10 +352,10 @@ export default function VentaDetallePage() {
               <div className="px-5 py-3 border-b font-semibold">Ítems y números de pedido · {items.length}</div>
               <div className="grid gap-3 px-5 py-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
                 <div><div className="label">PV venta</div><div className="font-mono">{String((venta as Record<string, unknown>).numero_pedido ?? "—")}</div></div>
-                <div><div className="label">Orden PV venta</div><div className="font-mono">{String((venta as Record<string, unknown>).orden_pedido_venta ?? "—")}</div></div>
+                <div><div className="label">Orden venta SAP</div><div className="font-mono">{String((venta as Record<string, unknown>).orden_pedido_venta ?? "—")}</div>{String((venta as Record<string, unknown>).orden_pedido_venta_sustento_url ?? "") && <a className="text-xs font-semibold text-sky-700 hover:underline" href={String((venta as Record<string, unknown>).orden_pedido_venta_sustento_url)} target="_blank" rel="noreferrer">Ver sustento ↗</a>}</div>
                 {Number((venta as Record<string, unknown>).anticipo ?? 0) > 0 && <>
                   <div><div className="label">PV abono</div><div className="font-mono">{String((venta as Record<string, unknown>).pv_abono ?? "—")}</div></div>
-                  <div><div className="label">Orden PV abono</div><div className="font-mono">{String((venta as Record<string, unknown>).orden_pedido_abono ?? "—")}</div></div>
+                  <div><div className="label">Orden abono SAP</div><div className="font-mono">{String((venta as Record<string, unknown>).orden_pedido_abono ?? "—")}</div>{String((venta as Record<string, unknown>).orden_pedido_abono_sustento_url ?? "") && <a className="text-xs font-semibold text-sky-700 hover:underline" href={String((venta as Record<string, unknown>).orden_pedido_abono_sustento_url)} target="_blank" rel="noreferrer">Ver sustento ↗</a>}</div>
                 </>}
               </div>
               {items.length === 0 ? (
@@ -502,8 +510,8 @@ export default function VentaDetallePage() {
               <div><b>PV venta:</b> {String((venta as Record<string, unknown> | null)?.numero_pedido ?? "—")}</div>
               {Number((venta as Record<string, unknown> | null)?.anticipo ?? 0) > 0 && <div><b>PV abono:</b> {String((venta as Record<string, unknown> | null)?.pv_abono ?? "—")}</div>}
             </div>
-            <div><label className="label">Orden del pedido de venta *</label><input className="input" value={ordenPedidoVenta} onChange={(e) => setOrdenPedidoVenta(e.target.value)} /></div>
-            {Number((venta as Record<string, unknown> | null)?.anticipo ?? 0) > 0 && <div><label className="label">Orden del pedido de abono *</label><input className="input" value={ordenPedidoAbono} onChange={(e) => setOrdenPedidoAbono(e.target.value)} /></div>}
+            <div className="space-y-2"><label className="label">Orden de venta creada en SAP *</label><input className="input" value={ordenPedidoVenta} onChange={(e) => setOrdenPedidoVenta(e.target.value)} /><label className="label">Sustento de la orden de venta *</label><input className="input" type="file" accept=".pdf,image/*" disabled={subiendo !== null} onChange={(e) => { const f = e.target.files?.[0]; if (f) void subirA(f, "sustentos", setSustentoOrdenPedidoVenta, "orden-venta"); e.currentTarget.value = ""; }} />{subiendo === "orden-venta" && <p className="text-xs text-slate-500">Subiendo sustento…</p>}{sustentoOrdenPedidoVenta && <a className="text-xs font-semibold text-sky-700 hover:underline" href={sustentoOrdenPedidoVenta} target="_blank" rel="noreferrer">Ver sustento cargado ↗</a>}</div>
+            {Number((venta as Record<string, unknown> | null)?.anticipo ?? 0) > 0 && <div className="space-y-2"><label className="label">Orden de abono creada en SAP *</label><input className="input" value={ordenPedidoAbono} onChange={(e) => setOrdenPedidoAbono(e.target.value)} /><label className="label">Sustento de la orden de abono *</label><input className="input" type="file" accept=".pdf,image/*" disabled={subiendo !== null} onChange={(e) => { const f = e.target.files?.[0]; if (f) void subirA(f, "sustentos", setSustentoOrdenPedidoAbono, "orden-abono"); e.currentTarget.value = ""; }} />{subiendo === "orden-abono" && <p className="text-xs text-slate-500">Subiendo sustento…</p>}{sustentoOrdenPedidoAbono && <a className="text-xs font-semibold text-sky-700 hover:underline" href={sustentoOrdenPedidoAbono} target="_blank" rel="noreferrer">Ver sustento cargado ↗</a>}</div>}
             <div><label className="label">Nota de liquidación (opcional)</label><textarea className="input min-h-[80px]" value={notaLiquidacion} onChange={(e) => setNotaLiquidacion(e.target.value)} /></div>
             {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
           </div>

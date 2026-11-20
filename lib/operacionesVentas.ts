@@ -2314,7 +2314,9 @@ const EsquemaRegistrarLiquidacion = z.object({
 const EsquemaLiquidar = z.object({
   solicitud_id: z.string().trim().min(1).max(20),
   orden_pedido_venta: z.string().trim().min(1, "Registra la orden del pedido de venta.").max(80),
+  orden_pedido_venta_sustento_url: zUrlDoc,
   orden_pedido_abono: z.string().trim().max(80).optional().default(""),
+  orden_pedido_abono_sustento_url: zUrlDocOpcional,
   nota: z.string().trim().max(2000).optional().default(""),
 });
 
@@ -2538,19 +2540,22 @@ async function hLiquidarVenta(args: z.infer<typeof EsquemaLiquidar>, ctx: Operac
     await exigirEvidenciasAprobadas(ctx, args.solicitud_id);
     await exigirPedidosRegistrados(ctx, args.solicitud_id);
     const { data: solicitud, error: eSolicitud } = await ctx.service.from(T_SOL)
-      .select("anticipo,numero_pedido,pv_abono,orden_pedido_venta,orden_pedido_abono").eq("id", args.solicitud_id).maybeSingle();
+      .select("anticipo,numero_pedido,pv_abono,orden_pedido_venta,orden_pedido_abono,orden_pedido_venta_sustento_url,orden_pedido_abono_sustento_url").eq("id", args.solicitud_id).maybeSingle();
     if (eSolicitud) throw new Error(/column|schema cache/i.test(eSolicitud.message)
-      ? "Falta ejecutar supabase/migracion_ordenes_liquidacion_01.sql para registrar las órdenes antes de liquidar."
+      ? "Falta ejecutar supabase/migracion_ordenes_liquidacion_01.sql para registrar las órdenes y sustentos SAP antes de liquidar."
       : eSolicitud.message);
     const cab = solicitud as Fila | null;
     if (!String(cab?.numero_pedido ?? "").trim()) lanzar(422, "La venta no tiene PV de venta registrado.");
     const tieneAbono = Number(cab?.anticipo ?? 0) > 0;
     if (tieneAbono && !String(cab?.pv_abono ?? "").trim()) lanzar(422, "La venta tiene anticipo, pero falta el PV de abono.");
     if (tieneAbono && !args.orden_pedido_abono.trim()) lanzar(422, "Registra la orden del pedido de abono.");
+    if (tieneAbono && !args.orden_pedido_abono_sustento_url.trim()) lanzar(422, "Adjunta el sustento SAP de la orden del pedido de abono.");
     const nota = args.nota.trim();
     const uOrdenes = await ctx.service.from(T_SOL).update({
       orden_pedido_venta: args.orden_pedido_venta.trim(),
       orden_pedido_abono: tieneAbono ? args.orden_pedido_abono.trim() : null,
+      orden_pedido_venta_sustento_url: args.orden_pedido_venta_sustento_url,
+      orden_pedido_abono_sustento_url: tieneAbono ? args.orden_pedido_abono_sustento_url || null : null,
     }).eq("id", args.solicitud_id);
     if (uOrdenes.error) throw new Error(uOrdenes.error.message);
     const u1 = await ctx.service.from(T_INS).update({ estado: "liquidada", observacion: nota || null }).eq("solicitud_id", args.solicitud_id);
