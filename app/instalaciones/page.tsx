@@ -66,9 +66,9 @@ function VentanaInstalacion({ v, accion, esAdmin, onClose, onChanged }: {
             </dl>}
             {accion === "detalle" && Array.isArray(v.items) && v.items.length > 0 && <div className="mt-4 overflow-x-auto">
               <table className="tabla">
-                <thead><tr><th>Material</th><th>Cantidad</th><th>Subtotal</th><th>Pedido de venta</th><th>Pedido de abono</th></tr></thead>
+                <thead><tr><th>Material de venta</th><th>Cantidad</th><th>Subtotal</th><th>Pedido de venta</th><th>Pedido de abono</th></tr></thead>
                 <tbody>{(v.items as Fila[]).map((item) => <tr key={String(item.id)}>
-                  <td>{String(item.material_nombre ?? item.id_material ?? "—")}</td>
+                  <td>{[item.material_codigo, item.material_nombre].map((valor) => String(valor ?? "").trim()).filter(Boolean).join(" · ") || String(item.id_material ?? "—")}</td>
                   <td>{String(item.cantidad ?? "—")}</td>
                   <td>{formatoMoneda(Number(item.subtotal ?? 0))}</td>
                   <td>{String(item.numero_pedido_venta ?? "—")}</td>

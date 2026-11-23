@@ -2421,7 +2421,7 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
     if (rows.length) {
       try {
         const { data: its } = await ctx.service.from(T_ITEM)
-          .select("id,solicitud_id,numero_pedido_venta,numero_pedido_abono,material_nombre,id_material,cantidad,precio_unit,subtotal,tipo_pedido")
+          .select("id,solicitud_id,numero_pedido_venta,numero_pedido_abono,material_codigo,material_nombre,id_material,cantidad,precio_unit,subtotal,tipo_pedido")
           .in("solicitud_id", rows.map((r) => String(r.id))).limit(2000);
         for (const it of ((its ?? []) as Fila[])) {
           const k = String(it.solicitud_id);
