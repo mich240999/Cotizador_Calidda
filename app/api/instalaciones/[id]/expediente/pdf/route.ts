@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import sharp from "sharp";
 import { getSession } from "@/lib/auth";
@@ -18,9 +20,89 @@ const EVIDENCIAS_ORDEN = [
   ["foto_despues", "Foto después de la instalación"],
 ] as const;
 const A4: [number, number] = [595.28, 841.89];
+const COLOR = {
+  azul: rgb(0.02, 0.34, 0.58),
+  azulNoche: rgb(0.02, 0.17, 0.32),
+  celeste: rgb(0, 0.61, 0.84),
+  verde: rgb(0.0, 0.58, 0.38),
+  texto: rgb(0.10, 0.16, 0.23),
+  tenue: rgb(0.38, 0.45, 0.53),
+  borde: rgb(0.84, 0.89, 0.94),
+  fondo: rgb(0.95, 0.97, 0.99),
+  blanco: rgb(1, 1, 1),
+  fila: rgb(0.97, 0.985, 0.995),
+};
 
-function dibujarEtiqueta(page: ReturnType<PDFDocument["addPage"]>, texto: string, font: Awaited<ReturnType<PDFDocument["embedFont"]>>) {
-  page.drawText(texto, { x: 42, y: A4[1] - 38, size: 13, font, color: rgb(0.02, 0.34, 0.55) });
+function textoSeguro(value: unknown, fallback = "—"): string {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  return text || fallback;
+}
+
+function envolver(texto: string, font: Awaited<ReturnType<PDFDocument["embedFont"]>>, size: number, width: number, maxLines = 2): string[] {
+  const words = texto.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(candidate, size) <= width) current = candidate;
+    else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  if (lines.length > maxLines) {
+    lines.length = maxLines;
+    const last = lines[maxLines - 1];
+    lines[maxLines - 1] = `${last.slice(0, Math.max(1, last.length - 2))}…`;
+  }
+  return lines;
+}
+
+function dibujarEncabezado(
+  page: ReturnType<PDFDocument["addPage"]>,
+  titulo: string,
+  referencia: string,
+  font: Awaited<ReturnType<PDFDocument["embedFont"]>>,
+  bold: Awaited<ReturnType<PDFDocument["embedFont"]>>,
+  logo?: Awaited<ReturnType<PDFDocument["embedPng"]>>,
+) {
+  const [width, height] = A4;
+  page.drawRectangle({ x: 0, y: 0, width, height, color: COLOR.blanco });
+  page.drawRectangle({ x: 0, y: height - 118, width, height: 118, color: COLOR.azul });
+  page.drawRectangle({ x: 0, y: height - 125, width, height: 7, color: COLOR.celeste });
+  page.drawRectangle({ x: 34, y: height - 94, width: 126, height: 61, color: COLOR.blanco });
+  if (logo) {
+    const fit = logo.scale(Math.min(108 / logo.width, 43 / logo.height));
+    page.drawImage(logo, { x: 43 + (108 - fit.width) / 2, y: height - 84 + (43 - fit.height) / 2, ...fit });
+  } else {
+    page.drawText("CÁLIDDA", { x: 49, y: height - 67, size: 17, font: bold, color: COLOR.azul });
+  }
+  page.drawText("PLATAFORMA AMCA", { x: 181, y: height - 42, size: 8, font: bold, color: rgb(0.58, 0.86, 0.96) });
+  page.drawText(titulo.toUpperCase(), { x: 181, y: height - 66, size: 17, font: bold, color: COLOR.blanco, maxWidth: width - 220 });
+  page.drawText("Expediente de instalación · sustentos aprobados", { x: 181, y: height - 84, size: 9, font, color: rgb(0.88, 0.94, 0.98) });
+  page.drawRectangle({ x: 181, y: height - 111, width: 220, height: 19, color: COLOR.blanco });
+  page.drawText(`PEDIDO DE VENTA  ${referencia}`, { x: 190, y: height - 105, size: 8, font: bold, color: COLOR.azul });
+}
+
+function dibujarEtiqueta(
+  page: ReturnType<PDFDocument["addPage"]>,
+  texto: string,
+  font: Awaited<ReturnType<PDFDocument["embedFont"]>>,
+  bold: Awaited<ReturnType<PDFDocument["embedFont"]>>,
+  logo?: Awaited<ReturnType<PDFDocument["embedPng"]>>,
+) {
+  const [width, height] = A4;
+  page.drawRectangle({ x: 0, y: height - 76, width, height: 76, color: COLOR.azul });
+  page.drawRectangle({ x: 0, y: height - 81, width, height: 5, color: COLOR.celeste });
+  if (logo) {
+    const fit = logo.scale(Math.min(94 / logo.width, 43 / logo.height));
+    page.drawImage(logo, { x: width - 38 - fit.width, y: height - 60, ...fit });
+  }
+  page.drawText("CÁLIDDA  ·  PLATAFORMA AMCA", { x: 38, y: height - 28, size: 8, font: bold, color: rgb(0.68, 0.88, 0.96) });
+  envolver(texto.toUpperCase(), bold, 15, width - 160, 1).forEach((line, index) => page.drawText(line, { x: 38, y: height - 54 - index * 17, size: 15, font: bold, color: COLOR.blanco }));
+  page.drawText("EVIDENCIA REVISADA Y APROBADA", { x: 38, y: 28, size: 7, font: bold, color: COLOR.tenue });
+  page.drawLine({ start: { x: 38, y: 40 }, end: { x: width - 38, y: 40 }, thickness: 0.6, color: COLOR.borde });
 }
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
@@ -49,65 +131,132 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     if (!supabaseUrl) throw new Error("No está configurada la URL de Storage");
     const storageHost = new URL(supabaseUrl).host;
-    const documento = await PDFDocument.create();
-    const font = await documento.embedFont(StandardFonts.Helvetica);
-    const bold = await documento.embedFont(StandardFonts.HelveticaBold);
-    const page = documento.addPage(A4);
-    page.drawText("EXPEDIENTE DE INSTALACIÓN", { x: 42, y: 785, size: 19, font: bold, color: rgb(0.02, 0.34, 0.55) });
-    page.drawText(`Pedido de venta: ${String(venta.numero_pedido ?? "—")}`, { x: 42, y: 750, size: 13, font: bold });
-
-    const { data: cliente } = await service.from("mae_clientes").select("nombre_razon_social,nombres,nro_doc,cuenta_contrato").eq("id", String(venta.id_cliente ?? "")).maybeSingle();
-    const { data: proveedor } = await service.from("mae_proveedores").select("razon_social,nombre_comercial").eq("id", String(venta.id_proveedor ?? "")).maybeSingle();
     const { data: cotizacion } = venta.cotizacion_id
-      ? await service.from("cotizaciones").select("codigo").eq("id", String(venta.cotizacion_id)).maybeSingle()
+      ? await service.from("cotizaciones").select("*").eq("id", String(venta.cotizacion_id)).maybeSingle()
       : { data: null };
+    const idCotizacion = String(venta.cotizacion_id ?? "").trim();
+    const idsCliente = [...new Set([venta.id_cliente, venta.cliente_id, cotizacion?.id_cliente, cotizacion?.cliente_id].map((id) => String(id ?? "").trim()).filter(Boolean))];
+    let cliente: Record<string, unknown> | null = null;
+    for (const idCliente of idsCliente) {
+      for (const tabla of ["mae_clientes", "clientes"]) {
+        try {
+          const { data, error } = await service.from(tabla).select("*").eq("id", idCliente).maybeSingle();
+          if (!error && data) { cliente = data as Record<string, unknown>; break; }
+        } catch { /* prueba el catálogo alternativo */ }
+      }
+      if (cliente) break;
+    }
+    // Algunas cotizaciones guardan el documento aunque el registro de cliente
+    // provenga del catálogo anterior; úsalo para recuperar la ficha maestra.
+    const docCotizacion = String(cotizacion?.nro_doc ?? cotizacion?.dni ?? cotizacion?.documento ?? "").trim();
+    if (!cliente && docCotizacion) {
+      try {
+        const { data } = await service.from("mae_clientes").select("*").eq("nro_doc", docCotizacion).maybeSingle();
+        if (data) cliente = data as Record<string, unknown>;
+      } catch { /* ficha no disponible por documento */ }
+    }
+    const { data: proveedor } = await service.from("mae_proveedores").select("*").eq("id", String(venta.id_proveedor ?? venta.proveedor_id ?? cotizacion?.id_proveedor ?? "")).maybeSingle();
     const { data: itemsVenta } = await service.from("vta_venta_items")
       .select("material_nombre,cantidad,subtotal,tipo_pedido,numero_pedido_venta,numero_pedido_abono")
       .eq("solicitud_id", params.id).order("id", { ascending: true });
     const { data: asesor } = venta.id_asesor
       ? await service.from("seg_usuarios").select("nombre").eq("id", String(venta.id_asesor)).maybeSingle()
       : { data: null };
-    const clienteNombre = String(cliente?.nombre_razon_social ?? cliente?.nombres ?? venta.cliente_nombre ?? "—");
-    const lineas = [
-      `Cliente: ${clienteNombre}`,
-      `Documento: ${String(cliente?.nro_doc ?? "—")}  |  Cuenta contrato: ${String(venta.cuenta_contrato ?? cliente?.cuenta_contrato ?? "—")}`,
-      `Proveedor: ${String(proveedor?.razon_social ?? proveedor?.nombre_comercial ?? venta.proveedor_nombre ?? "—")}`,
-      `Asesor: ${String(asesor?.nombre ?? venta.asesor_nombre ?? "—")}`,
-      `Cotización: ${String(cotizacion?.codigo ?? venta.cotizacion_id ?? "—")}  |  Fecha: ${String(venta.created_at ?? "—")}`,
-      `Ambiente: ${String(venta.ambiente ?? "—")}`,
-      `Total productos: S/ ${Number(venta.monto_total ?? venta.total ?? 0).toFixed(2)}  |  Anticipo: S/ ${Number(venta.anticipo ?? 0).toFixed(2)}`,
-      `Financiado: S/ ${Number(venta.monto_financiado ?? 0).toFixed(2)}  |  Cuotas: ${String(venta.nro_cuotas ?? "—")}`,
-      `Pedido de abono: ${Number(venta.anticipo ?? 0) > 0 ? String(venta.pv_abono ?? "—") : "No corresponde"}`,
-      `Detalles adicionales: ${String(venta.observaciones ?? "—").replace(/\s+/g, " ").slice(0, 150)}`,
-    ];
-    lineas.forEach((texto, i) => page.drawText(texto, { x: 42, y: 710 - i * 23, size: 10, font, maxWidth: 510 }));
+    const clienteNombre = textoSeguro(cliente?.nombre_razon_social ?? cliente?.nombres ?? cliente?.nombre ?? venta.cliente_nombre ?? cotizacion?.cliente_nombre, "Cliente sin nombre");
+    const documentoCliente = textoSeguro(cliente?.nro_doc ?? cliente?.dni ?? cliente?.documento ?? venta.cliente_documento ?? cotizacion?.nro_doc ?? cotizacion?.dni, "No registrado");
+    const cuentaContrato = textoSeguro(venta.cuenta_contrato ?? venta.cta_contrato ?? cliente?.cuenta_contrato ?? cotizacion?.cuenta_contrato, "No registrada");
+    const proveedorNombre = textoSeguro(proveedor?.razon_social ?? proveedor?.nombre_comercial ?? venta.proveedor_nombre ?? cotizacion?.proveedor_nombre);
+    const asesorNombre = textoSeguro(asesor?.nombre ?? venta.asesor_nombre);
+    const codigoCotizacion = textoSeguro(cotizacion?.codigo ?? cotizacion?.numero ?? venta.cotizacion_codigo ?? idCotizacion);
+    const rawFecha = venta.created_at ?? venta.fecha_venta;
+    const fechaVenta = rawFecha
+      ? new Date(String(rawFecha)).toLocaleString("es-PE", { timeZone: "America/Lima", dateStyle: "medium", timeStyle: "short" })
+      : "—";
+    const items = (itemsVenta ?? []) as Record<string, unknown>[];
+    const sumaItems = items.reduce((suma, item) => suma + Number(item.subtotal ?? 0), 0);
+    const montoFinanciado = Number(venta.monto_financiado ?? venta.capital_financiado ?? 0);
+    const anticipo = Number(venta.anticipo ?? venta.cuota_inicial ?? 0);
+    const totalProductos = sumaItems > 0 ? sumaItems : Number(venta.monto_total ?? venta.total ?? cotizacion?.total ?? montoFinanciado + anticipo);
+    const formatoDinero = (monto: number) => `S/ ${monto.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const numeroCuotas = textoSeguro(venta.numero_cuotas ?? venta.cuotas ?? venta.cuotas_elegidas ?? cotizacion?.cuotas_elegidas);
+    const pv = textoSeguro(venta.numero_pedido, params.id);
+    const documento = await PDFDocument.create();
+    const font = await documento.embedFont(StandardFonts.Helvetica);
+    const bold = await documento.embedFont(StandardFonts.HelveticaBold);
+    let logo: Awaited<ReturnType<PDFDocument["embedPng"]>> | undefined;
+    try { logo = await documento.embedPng(await readFile(join(process.cwd(), "public", "logo-calidda.png"))); } catch { /* el expediente conserva el encabezado de marca en texto */ }
+
+    let page = documento.addPage(A4);
+    dibujarEncabezado(page, "Expediente de instalación", pv, font, bold, logo);
+    const texto = (p: typeof page, value: string, x: number, y: number, size = 9, isBold = false, maxWidth = 240, color = COLOR.texto) => {
+      const f = isBold ? bold : font;
+      envolver(value, f, size, maxWidth, 2).forEach((line, index) => p.drawText(line, { x, y: y - index * (size + 3), size, font: f, color }));
+    };
+    const tarjeta = (p: typeof page, x: number, y: number, width: number, height: number, titulo: string) => {
+      p.drawRectangle({ x, y, width, height, color: COLOR.blanco, borderColor: COLOR.borde, borderWidth: 0.8 });
+      p.drawRectangle({ x, y: y + height - 25, width, height: 25, color: COLOR.fondo });
+      p.drawText(titulo.toUpperCase(), { x: x + 12, y: y + height - 17, size: 8, font: bold, color: COLOR.azul });
+    };
+    const etiquetaDato = (p: typeof page, label: string, value: string, x: number, y: number, width: number) => {
+      p.drawText(label.toUpperCase(), { x, y, size: 6.5, font: bold, color: COLOR.tenue });
+      texto(p, value, x, y - 14, 9, false, width);
+    };
+    tarjeta(page, 36, 568, 255, 133, "Datos del cliente");
+    etiquetaDato(page, "Cliente", clienteNombre, 48, 678, 228);
+    etiquetaDato(page, "Documento", documentoCliente, 48, 638, 105);
+    etiquetaDato(page, "Cuenta contrato", cuentaContrato, 164, 638, 112);
+    tarjeta(page, 304, 568, 255, 133, "Datos de la venta");
+    etiquetaDato(page, "Proveedor", proveedorNombre, 316, 678, 230);
+    etiquetaDato(page, "Asesor", asesorNombre, 316, 638, 105);
+    etiquetaDato(page, "Cotización", codigoCotizacion, 430, 638, 118);
+    etiquetaDato(page, "Fecha de venta", fechaVenta, 316, 598, 230);
+    tarjeta(page, 36, 449, 523, 103, "Resumen económico");
+    etiquetaDato(page, "Total de productos", formatoDinero(totalProductos), 49, 526, 145);
+    etiquetaDato(page, "Anticipo", formatoDinero(anticipo), 210, 526, 110);
+    etiquetaDato(page, "Monto financiado", formatoDinero(montoFinanciado || Math.max(totalProductos - anticipo, 0)), 337, 526, 125);
+    etiquetaDato(page, "Cuotas", numeroCuotas, 475, 526, 68);
+    etiquetaDato(page, "Ambiente", textoSeguro(venta.ambiente), 49, 483, 145);
+    etiquetaDato(page, "Pedido de abono", textoSeguro(venta.pv_abono ?? venta.numero_pedido_abono), 210, 483, 160);
+    const detalles = textoSeguro(venta.detalles_adicionales ?? venta.detalle_adicional ?? venta.observaciones ?? cotizacion?.observaciones, "Sin detalles adicionales");
+    tarjeta(page, 36, 391, 523, 45, "Detalles adicionales");
+    texto(page, detalles, 48, 403, 8, false, 493);
 
     let hojaItems = page;
-    let yItems = 468;
-    const pintarCabeceraItems = () => {
-      hojaItems.drawText("MATERIALES DE LA VENTA", { x: 42, y: yItems, size: 10, font: bold });
-      yItems -= 18;
-      hojaItems.drawText("MATERIAL", { x: 42, y: yItems, size: 7, font: bold });
-      hojaItems.drawText("CANT.", { x: 300, y: yItems, size: 7, font: bold });
-      hojaItems.drawText("SUBTOTAL", { x: 340, y: yItems, size: 7, font: bold });
-      hojaItems.drawText("PV", { x: 414, y: yItems, size: 7, font: bold });
-      hojaItems.drawText("PV ABONO", { x: 477, y: yItems, size: 7, font: bold });
-      yItems -= 15;
+    let yItems = 367;
+    const pintarCabeceraItems = (continuacion = false) => {
+      hojaItems.drawText(continuacion ? "MATERIALES DE LA VENTA · CONTINUACIÓN" : "MATERIALES DE LA VENTA", { x: 36, y: yItems, size: 9, font: bold, color: COLOR.azulNoche });
+      yItems -= 20;
+      hojaItems.drawRectangle({ x: 36, y: yItems - 5, width: 523, height: 22, color: COLOR.azul });
+      hojaItems.drawText("MATERIAL", { x: 44, y: yItems + 2, size: 6.8, font: bold, color: COLOR.blanco });
+      hojaItems.drawText("CANT.", { x: 318, y: yItems + 2, size: 6.8, font: bold, color: COLOR.blanco });
+      hojaItems.drawText("SUBTOTAL", { x: 358, y: yItems + 2, size: 6.8, font: bold, color: COLOR.blanco });
+      hojaItems.drawText("PEDIDO VENTA", { x: 425, y: yItems + 2, size: 6.3, font: bold, color: COLOR.blanco });
+      hojaItems.drawText("PEDIDO ABONO", { x: 494, y: yItems + 2, size: 6.3, font: bold, color: COLOR.blanco });
+      yItems -= 22;
     };
     pintarCabeceraItems();
-    for (const item of (itemsVenta ?? []) as Record<string, unknown>[]) {
-      if (yItems < 45) {
-        hojaItems = documento.addPage(A4);
-        yItems = A4[1] - 42;
-        pintarCabeceraItems();
-      }
+    for (const [index, item] of items.entries()) {
       const tipo = String(item.tipo_pedido ?? "VENTA").toUpperCase();
-      hojaItems.drawText(String(item.material_nombre ?? "Material").slice(0, 48), { x: 42, y: yItems, size: 7, font, maxWidth: 250 });
-      hojaItems.drawText(String(item.cantidad ?? "—"), { x: 300, y: yItems, size: 7, font });
-      hojaItems.drawText(`S/ ${Number(item.subtotal ?? 0).toFixed(2)}`, { x: 340, y: yItems, size: 7, font });
-      hojaItems.drawText(tipo === "VENTA" ? String(item.numero_pedido_venta ?? venta.numero_pedido ?? "—").slice(0, 12) : "—", { x: 414, y: yItems, size: 7, font });
-      hojaItems.drawText(tipo === "ABONO" ? String(item.numero_pedido_abono ?? venta.pv_abono ?? "—").slice(0, 12) : "—", { x: 477, y: yItems, size: 7, font });
-      yItems -= 13;
+      const nombre = textoSeguro(item.material_nombre ?? item.nombre_material, "Material");
+      const renglones = envolver(nombre, font, 7.2, 263, 2);
+      const altoFila = Math.max(27, 12 + renglones.length * 9);
+      if (yItems - altoFila < 53) {
+        hojaItems = documento.addPage(A4);
+        dibujarEncabezado(hojaItems, "Materiales de venta · continuación", pv, font, bold, logo);
+        yItems = 685;
+        pintarCabeceraItems(true);
+      }
+      hojaItems.drawRectangle({ x: 36, y: yItems - altoFila + 3, width: 523, height: altoFila, color: index % 2 ? COLOR.blanco : COLOR.fila });
+      renglones.forEach((line, lineIndex) => hojaItems.drawText(line, { x: 44, y: yItems - 10 - lineIndex * 9, size: 7.2, font, color: COLOR.texto }));
+      hojaItems.drawText(String(item.cantidad ?? "—"), { x: 318, y: yItems - 10, size: 7.2, font, color: COLOR.texto });
+      hojaItems.drawText(formatoDinero(Number(item.subtotal ?? 0)), { x: 358, y: yItems - 10, size: 7, font, color: COLOR.texto });
+      hojaItems.drawText(tipo === "VENTA" ? String(item.numero_pedido_venta ?? venta.numero_pedido ?? "—").slice(0, 15) : "—", { x: 425, y: yItems - 10, size: 6.7, font, color: COLOR.texto });
+      hojaItems.drawText(tipo === "ABONO" ? String(item.numero_pedido_abono ?? venta.pv_abono ?? "—").slice(0, 15) : "—", { x: 494, y: yItems - 10, size: 6.7, font, color: COLOR.texto });
+      yItems -= altoFila;
+    }
+    for (const p of [page, ...documento.getPages().slice(1)]) {
+      p.drawLine({ start: { x: 36, y: 33 }, end: { x: A4[0] - 36, y: 33 }, thickness: 0.6, color: COLOR.borde });
+      p.drawText(`CÁLIDDA  ·  PLATAFORMA AMCA                                      Expediente PV ${pv}`, { x: 36, y: 21, size: 6.5, font, color: COLOR.tenue });
     }
 
     for (const [tipo, etiqueta] of EVIDENCIAS_ORDEN) {
@@ -123,27 +272,27 @@ export async function GET(_request: Request, { params }: { params: { id: string 
         const fuente = await PDFDocument.load(bytes);
         const paginas = await documento.copyPages(fuente, fuente.getPageIndices());
         const portadaArchivo = documento.addPage(A4);
-        dibujarEtiqueta(portadaArchivo, etiqueta, bold);
-        portadaArchivo.drawText("Documento adjunto", { x: 42, y: A4[1] - 63, size: 9, font, color: rgb(0.35, 0.4, 0.48) });
+        dibujarEtiqueta(portadaArchivo, etiqueta, font, bold, logo);
+        portadaArchivo.drawText("Documento adjunto aprobado para el expediente", { x: 42, y: A4[1] - 101, size: 9, font, color: COLOR.tenue });
         paginas.forEach((p) => documento.addPage(p));
       } else {
         const png = await sharp(bytes).rotate().png().toBuffer();
         const imagen = await documento.embedPng(png);
         const fotoPage = documento.addPage(A4);
-        dibujarEtiqueta(fotoPage, etiqueta, bold);
+        dibujarEtiqueta(fotoPage, etiqueta, font, bold, logo);
         const margen = 42;
         const ancho = A4[0] - margen * 2;
-        const alto = A4[1] - 90;
+        const alto = A4[1] - 160;
         const escala = Math.min(ancho / imagen.width, alto / imagen.height);
-        fotoPage.drawImage(imagen, { x: (A4[0] - imagen.width * escala) / 2, y: (A4[1] - 40 - imagen.height * escala) / 2, width: imagen.width * escala, height: imagen.height * escala });
+        fotoPage.drawImage(imagen, { x: (A4[0] - imagen.width * escala) / 2, y: 56 + (alto - imagen.height * escala) / 2, width: imagen.width * escala, height: imagen.height * escala });
       }
     }
 
     const archivo = Buffer.from(await documento.save());
-    const pv = String(venta.numero_pedido ?? params.id).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const nombrePv = String(venta.numero_pedido ?? params.id).replace(/[^a-zA-Z0-9_-]/g, "_");
     return new Response(archivo, { status: 200, headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="expediente-${pv}.pdf"`,
+      "Content-Disposition": `attachment; filename="expediente-${nombrePv}.pdf"`,
       "Content-Length": String(archivo.length),
       "Cache-Control": "no-store",
     } });
