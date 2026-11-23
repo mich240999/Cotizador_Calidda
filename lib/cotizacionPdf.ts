@@ -99,13 +99,7 @@ async function obtenerDatosSGT(service: SupabaseClient, numero: string): Promise
     const dscto = dsctoTipo === "%" ? valor : 0;
     const neto = Number(it.neto ?? cant * punit * (1 - dscto / 100));
     const nombre = String(mat.nombre ?? `Material ${it.id_material ?? ""}`);
-    const desc = String(mat.descripcion ?? "");
-    const cod = String(mat.codigo_tmp ?? mat.id ?? "");
-    const base = cod ? `${cod} · ${nombre}` : nombre;
-    const dims = [it.alto, it.ancho, it.fondo].some((v) => Number(v) > 0)
-      ? ` · ${Number(it.alto ?? 0)} × ${Number(it.ancho ?? 0)} × ${Number(it.fondo ?? 0)} m`
-      : "";
-    const material = `${desc ? `${base} — ${desc}` : base}${dims}`;
+    const material = descripcionItemPdf(it, nombre);
     return { idx: i + 1, material, cant, punit, dscto, neto, alto: it.alto, ancho: it.ancho, fondo: it.fondo, ambiente: it.ambiente };
   });
 
@@ -164,6 +158,16 @@ async function obtenerDatosSGT(service: SupabaseClient, numero: string): Promise
   };
 }
 
+function descripcionItemPdf(item: ItemPdf, nombre: string): string {
+  const ambiente = (item.ambiente?.trim() || nombre.match(/\bambiente\s+([^—·]+)/i)?.[1] || "")
+    .replace(/^ambiente\s+/i, "").replace(/\s+cotizado$/i, "").trim().toLocaleLowerCase("es-PE");
+  const titulo = ambiente ? `Ambiente ${ambiente} cotizado` : nombre.split(/\s+—\s+/)[0].trim();
+  const medidas = (["alto", "ancho", "fondo"] as const)
+    .filter((campo) => Number(item[campo]) > 0)
+    .map((campo) => `${campo} ${Number(item[campo]).toLocaleString("es-PE")} m`);
+  return medidas.length ? `${titulo}\n${medidas.join(" · ")}` : titulo;
+}
+
 /** Completa el nombre desde el maestro SGT cuando el join legacy viene null. */
 async function nombresMaePdf(service: SupabaseClient, ids: string[]): Promise<Map<string, string>> {
   const map = new Map<string, string>();
@@ -201,10 +205,7 @@ async function obtenerDatosLegacy(service: SupabaseClient, id: string): Promise<
     const mat = snap || (it.materiales
       ? `${it.materiales?.codigo ?? ""} ${it.materiales?.nombre ?? "Ítem"}`.trim()
       : (matMae || `Ítem ${it.material_id ?? ""}`.trim() || "Ítem"));
-    const dims = [it.alto, it.ancho, it.fondo].some((v) => Number(v) > 0)
-      ? ` · ${Number(it.alto ?? 0)} × ${Number(it.ancho ?? 0)} × ${Number(it.fondo ?? 0)} m`
-      : "";
-    return { idx: i + 1, material: `${mat}${dims}`, cant, punit, dscto, neto, alto: it.alto, ancho: it.ancho, fondo: it.fondo, ambiente: it.ambiente };
+    return { idx: i + 1, material: descripcionItemPdf(it, mat), cant, punit, dscto, neto, alto: it.alto, ancho: it.ancho, fondo: it.fondo, ambiente: it.ambiente };
   });
   const bruto = items.reduce((a, it) => a + it.cant * it.punit, 0);
   const netoSum = items.reduce((a, it) => a + it.neto, 0);
