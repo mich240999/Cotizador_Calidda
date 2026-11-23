@@ -126,7 +126,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     }
     const { data: proveedor } = await service.from("mae_proveedores").select("*").eq("id", String(venta.id_proveedor ?? venta.proveedor_id ?? cotizacion?.id_proveedor ?? "")).maybeSingle();
     const { data: itemsVenta, error: errorItems } = await service.from("vta_venta_items")
-      .select("id_material,material_codigo,material_nombre,cantidad,subtotal,tipo_pedido,numero_pedido_venta,numero_pedido_abono")
+      .select("id_material,material_codigo,material_nombre,alto,ancho,fondo,cantidad,subtotal,tipo_pedido,numero_pedido_venta,numero_pedido_abono")
       .eq("solicitud_id", params.id).order("id", { ascending: true });
     if (errorItems) throw new Error("No se pudieron leer los materiales de la venta.");
     const { data: asesor } = venta.id_asesor
@@ -212,7 +212,11 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       const nombre = [item.material_codigo, item.material_nombre]
         .map((valor) => textoSeguro(valor, "")).filter(Boolean).join(" · ")
         || textoSeguro(item.id_material, "Material");
+      const medidas = (["alto", "ancho", "fondo"] as const)
+        .filter((campo) => Number(item[campo]) > 0)
+        .map((campo) => `${campo} ${Number(item[campo]).toLocaleString("es-PE")} m`);
       const renglones = envolver(nombre, font, 7.2, 263, 2);
+      if (medidas.length) renglones.push(...envolver(medidas.join(" · "), font, 7.2, 263));
       const altoFila = Math.max(22, 9 + renglones.length * 9);
       if (yItems - altoFila < 53) {
         hojaItems = documento.addPage(A4);
