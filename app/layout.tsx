@@ -2,13 +2,14 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Cálidda | Ambientes Cáliddos — Gestión comercial y financiamiento",
-  description: "Plataforma comercial Ambientes Cáliddos: clientes, cotizaciones, materiales y administración.",
+  title: "Plataforma AMCA - Cálidda",
+  applicationName: "Plataforma AMCA - Cálidda",
+  description: "Plataforma AMCA de Cálidda para gestionar cotizaciones, ventas, proveedores e instalaciones.",
   icons: { icon: "/logo-calidda.png" },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Cáliddos",
+    title: "Plataforma AMCA - Cálidda",
   },
 };
 

@@ -3,9 +3,9 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
-    name: "Ambientes Cáliddos · Gestión comercial",
-    short_name: "Cáliddos",
-    description: "Plataforma comercial de Ambientes Cáliddos.",
+    name: "Plataforma AMCA - Cálidda",
+    short_name: "Plataforma AMCA - Cálidda",
+    description: "Plataforma AMCA de Cálidda para gestionar cotizaciones, ventas, proveedores e instalaciones.",
     start_url: "/",
     scope: "/",
     display: "fullscreen",
