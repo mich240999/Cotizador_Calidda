@@ -125,9 +125,10 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       } catch { /* ficha no disponible por documento */ }
     }
     const { data: proveedor } = await service.from("mae_proveedores").select("*").eq("id", String(venta.id_proveedor ?? venta.proveedor_id ?? cotizacion?.id_proveedor ?? "")).maybeSingle();
-    const { data: itemsVenta } = await service.from("vta_venta_items")
-      .select("material_nombre,cantidad,subtotal,tipo_pedido,numero_pedido_venta,numero_pedido_abono")
+    const { data: itemsVenta, error: errorItems } = await service.from("vta_venta_items")
+      .select("id_material,material_codigo,material_nombre,cantidad,subtotal,tipo_pedido,numero_pedido_venta,numero_pedido_abono")
       .eq("solicitud_id", params.id).order("id", { ascending: true });
+    if (errorItems) throw new Error("No se pudieron leer los materiales de la venta.");
     const { data: asesor } = venta.id_asesor
       ? await service.from("seg_usuarios").select("nombre").eq("id", String(venta.id_asesor)).maybeSingle()
       : { data: null };
@@ -208,7 +209,9 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     pintarCabeceraItems();
     for (const [index, item] of items.entries()) {
       const tipo = String(item.tipo_pedido ?? "VENTA").toUpperCase();
-      const nombre = textoSeguro(item.material_nombre ?? item.nombre_material, "Material");
+      const nombre = [item.material_codigo, item.material_nombre]
+        .map((valor) => textoSeguro(valor, "")).filter(Boolean).join(" · ")
+        || textoSeguro(item.id_material, "Material");
       const renglones = envolver(nombre, font, 7.2, 263, 2);
       const altoFila = Math.max(22, 9 + renglones.length * 9);
       if (yItems - altoFila < 53) {
