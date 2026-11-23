@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
 import LogoCalidda from "@/components/LogoCalidda";
 import PasswordInput from "@/components/PasswordInput";
+import { aplicarTema, leerTema, normalizarTema, THEMES, type ThemeName } from "@/lib/theme";
 
 const STROKE = {
   fill: "none",
@@ -77,7 +78,7 @@ const ITEMS = [
 // Se conserva entre navegaciones del App Router para que el sidebar no se
 // despliegue un instante al montar de nuevo la página.
 let estadoPlegado: boolean | null = null;
-let estadoTema: boolean | null = null;
+let estadoTema: ThemeName | null = null;
 // Se conserva el rol entre navegaciones para que los módulos restringidos no
 // aparezcan y desaparezcan mientras /api/mi-perfil responde.
 let rolCache: string | null = null;
@@ -103,7 +104,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const [email, setEmail] = useState<string | null>(null);
   const [nombre, setNombre] = useState(() => nombreCache ?? "");
   const [telefono, setTelefono] = useState("");
-  const [oscuro, setOscuro] = useState(() => estadoTema ?? false);
+  const [tema, setTema] = useState<ThemeName>(() => estadoTema ?? "light");
   const [plegado, setPlegado] = useState(() => estadoPlegado ?? false);
   const [miRol, setMiRol] = useState(() => rolCache ?? "");
   const [menuCuenta, setMenuCuenta] = useState(false);
@@ -183,13 +184,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   }, [miRol, pathname, router]);
 
   useEffect(() => {
-    if (estadoTema === null) {
-      try {
-        estadoTema = localStorage.getItem("sh-theme") === "dark";
-      } catch { estadoTema = false; }
-    }
-    setOscuro(estadoTema);
-    document.documentElement.classList.toggle("dark", estadoTema);
+    if (estadoTema === null) estadoTema = leerTema();
+    setTema(estadoTema);
+    aplicarTema(estadoTema);
     if (estadoPlegado === null) {
       try {
         estadoPlegado = localStorage.getItem("sh-sidebar") === "off";
@@ -198,14 +195,21 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     setPlegado(estadoPlegado);
   }, []);
 
+  useEffect(() => {
+    const sincronizarTema = (event: Event) => {
+      const nuevo = normalizarTema((event as CustomEvent<ThemeName>).detail);
+      estadoTema = nuevo;
+      setTema(nuevo);
+    };
+    window.addEventListener("amca-theme-change", sincronizarTema);
+    return () => window.removeEventListener("amca-theme-change", sincronizarTema);
+  }, []);
+
   const alternarTema = () => {
-    const n = !oscuro;
-    estadoTema = n;
-    setOscuro(n);
-    document.documentElement.classList.toggle("dark", n);
-    try {
-      localStorage.setItem("sh-theme", n ? "dark" : "light");
-    } catch { /* sin storage */ }
+    const indice = THEMES.findIndex((item) => item.id === tema);
+    const siguiente = THEMES[(indice + 1) % THEMES.length].id;
+    estadoTema = aplicarTema(siguiente);
+    setTema(estadoTema);
   };
 
   const alternarMenu = () => {
@@ -324,12 +328,12 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           <div className="ml-auto flex items-center gap-3 relative">
             <button
               onClick={alternarTema}
-              title={oscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
-              aria-label={oscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+              title={`Tema ${THEMES.find((item) => item.id === tema)?.label ?? "claro"}. Cambiar tema`}
+              aria-label={`Tema actual: ${THEMES.find((item) => item.id === tema)?.label ?? "claro"}. Cambiar tema`}
               className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#0099D8]/45 dark:border-[#00A9CE]/55 text-[#0077B6] dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-slate-800 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0099D8]"
             >
               <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                {oscuro ? (
+                {THEMES.find((item) => item.id === tema)?.dark ? (
                   <>
                     <circle cx="12" cy="12" r="4" />
                     <path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" />

@@ -456,23 +456,23 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl w-full max-w-5xl shadow-xl my-6">
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-extrabold">Nueva solicitud de venta</h2>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-2 sm:p-4">
+      <div className="my-1 flex max-h-[calc(100dvh-1rem)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl sm:my-6 sm:max-h-[calc(100dvh-3rem)]">
+        <div className="flex shrink-0 flex-col gap-3 border-b px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+            <h2 className="text-base font-extrabold sm:text-lg">Nueva solicitud de venta</h2>
             {esPrefill && prefill && (
               <span className="text-[11px] font-bold bg-emerald-100 text-emerald-700 rounded-lg px-2 py-1">Desde {prefill.codigo}</span>
             )}
             <span className="text-[11px] font-bold bg-sky-100 text-sky-700 rounded-lg px-2 py-1">Borrador sin guardar</span>
           </div>
-          <div className="flex gap-2">
-            <button className="btn-white !py-2" onClick={onClose}>Cerrar</button>
-            <button className="btn-green !py-2" onClick={guardar} disabled={guardando || cargando || subiendo > 0}>{guardando ? "Guardando…" : subiendo > 0 ? "Subiendo archivos…" : "Guardar como borrador"}</button>
+          <div className="grid w-full shrink-0 grid-cols-2 gap-2 sm:w-auto sm:flex">
+            <button className="btn-white min-w-0 !px-2 !py-2 text-xs sm:!px-4 sm:text-sm" onClick={onClose}>Cerrar</button>
+            <button className="btn-green min-w-0 !px-2 !py-2 text-xs sm:!px-4 sm:text-sm" onClick={guardar} disabled={guardando || cargando || subiendo > 0}>{guardando ? "Guardando…" : subiendo > 0 ? "Subiendo archivos…" : <><span className="sm:hidden">Guardar borrador</span><span className="hidden sm:inline">Guardar como borrador</span></>}</button>
           </div>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 sm:space-y-6 sm:p-6">
           {error && <p className="card p-3 text-sm text-red-700 bg-red-50 border-red-200">{error}</p>}
           {ok && <p className="card p-3 text-sm text-emerald-700 bg-emerald-50 border-emerald-200">{ok}</p>}
           {avisos.map((a) => <p key={a} className="card p-3 text-sm text-amber-800 bg-amber-50 border-amber-200">{a}</p>)}

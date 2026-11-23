@@ -179,3 +179,102 @@ table.tabla tbody tr:hover {
 .dark .recharts-legend-item-text {
   color: #94a3b8 !important;
 }
+
+/* Liquid glass: superficies translúcidas con contraste y desenfoque en ambas paletas. */
+html.liquid-glass body {
+  background-color: #eaf5ff;
+  background-image:
+    radial-gradient(ellipse at 8% 0%, rgba(56, 189, 248, .25), transparent 34rem),
+    radial-gradient(ellipse at 92% 16%, rgba(129, 140, 248, .2), transparent 32rem),
+    linear-gradient(145deg, #f8fcff, #e8f3ff 55%, #f4f1ff);
+  background-attachment: fixed;
+}
+
+html.dark.liquid-glass body {
+  background-color: #081426;
+  background-image:
+    radial-gradient(ellipse at 8% 0%, rgba(14, 116, 180, .34), transparent 34rem),
+    radial-gradient(ellipse at 92% 16%, rgba(91, 75, 160, .3), transparent 32rem),
+    linear-gradient(145deg, #07111f, #0b1b31 55%, #15152a);
+}
+
+.liquid-glass .card,
+.liquid-glass .table-wrap {
+  background: rgba(255, 255, 255, .66);
+  border-color: rgba(255, 255, 255, .86);
+  box-shadow: 0 12px 34px rgba(41, 73, 120, .1), inset 0 1px rgba(255, 255, 255, .88);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
+  backdrop-filter: blur(22px) saturate(145%);
+}
+
+.dark.liquid-glass .card,
+.dark.liquid-glass .table-wrap {
+  color: #f1f5f9;
+  background: rgba(15, 27, 47, .68);
+  border-color: rgba(186, 220, 255, .15);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .22), inset 0 1px rgba(255, 255, 255, .09);
+}
+
+.liquid-glass header,
+.liquid-glass aside,
+.liquid-glass .fixed.bottom-0 {
+  background: rgba(255, 255, 255, .68) !important;
+  border-color: rgba(255, 255, 255, .82) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: blur(24px) saturate(150%);
+}
+
+.dark.liquid-glass header,
+.dark.liquid-glass aside,
+.dark.liquid-glass .fixed.bottom-0 {
+  background: rgba(10, 23, 41, .72) !important;
+  border-color: rgba(186, 220, 255, .15) !important;
+}
+
+.liquid-glass .fixed.inset-0 > div.bg-white,
+.liquid-glass .fixed.inset-0 section.bg-white {
+  background: rgba(250, 253, 255, .9);
+  border-color: rgba(255, 255, 255, .9);
+  box-shadow: 0 24px 72px rgba(15, 38, 74, .22);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%);
+}
+
+.dark.liquid-glass .fixed.inset-0 > div.bg-white,
+.dark.liquid-glass .fixed.inset-0 section.bg-white {
+  color: #f1f5f9;
+  background: rgba(12, 24, 42, .92);
+  border-color: rgba(186, 220, 255, .18);
+}
+
+.liquid-glass .btn-white,
+.liquid-glass .input {
+  background: rgba(255, 255, 255, .72);
+  border-color: rgba(148, 178, 210, .5);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.dark.liquid-glass .btn-white,
+.dark.liquid-glass .input {
+  background: rgba(22, 39, 62, .8);
+  border-color: rgba(186, 220, 255, .2);
+}
+
+.liquid-glass .btn-green,
+.liquid-glass .btn-blue {
+  box-shadow: 0 8px 22px rgba(0, 119, 182, .2), inset 0 1px rgba(255, 255, 255, .22);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .liquid-glass .card,
+  .liquid-glass .btn-white,
+  .liquid-glass .btn-green {
+    transition: background-color .2s ease, border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+  }
+
+  .liquid-glass .btn-white:hover,
+  .liquid-glass .btn-green:hover {
+    transform: translateY(-1px);
+  }
+}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabaseClient";
+import { aplicarTema, leerTema } from "@/lib/theme";
 import LogoCalidda from "./LogoCalidda";
 
 /**
@@ -60,8 +61,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      const temaOscuro = localStorage.getItem("sh-theme") === "dark";
-      document.documentElement.classList.toggle("dark", temaOscuro);
+      aplicarTema(leerTema());
       const guardado = localStorage.getItem("calidda_correo");
       if (guardado) setCorreo(guardado);
     } catch {
