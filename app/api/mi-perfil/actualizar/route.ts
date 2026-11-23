@@ -36,7 +36,12 @@ const ClaveSchema = z.object({
 
 export async function POST(req: Request) {
   const origin = req.headers.get("origin");
-  if (origin && new URL(req.url).origin !== origin) {
+  const fetchSite = req.headers.get("sec-fetch-site");
+  // El navegador establece este encabezado usando la URL pública, incluso
+  // cuando el proxy entrega a Next una URL interna con otro esquema o host.
+  const mismoOrigen = fetchSite === "same-origin"
+    || (!fetchSite && origin === new URL(req.url).origin);
+  if (!mismoOrigen) {
     return NextResponse.json({ ok: false, error: "Origen no permitido." }, { status: 403 });
   }
 
