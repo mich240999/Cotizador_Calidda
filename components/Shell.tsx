@@ -294,7 +294,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="min-h-screen bg-[#F4F7FA] dark:bg-slate-950">
+    <div className="app-shell min-h-screen bg-[#F4F7FA] dark:bg-slate-950">
       {/* Cabecera delineada con la paleta Cálidda */}
       <header className="bg-white dark:bg-slate-900 border-x border-t border-b-2 border-x-[#0099D8]/45 border-t-[#0099D8]/45 border-b-[#0099D8] dark:border-x-[#00A9CE]/45 dark:border-t-[#00A9CE]/45 dark:border-b-[#00A9CE] shadow-sm sticky top-0 z-30">
         <div className="flex items-center gap-3 px-4 lg:px-6 h-16 group/barra">
