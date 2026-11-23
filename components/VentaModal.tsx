@@ -53,16 +53,18 @@ function lineasDesdeCotizacion(prefill: PrefillVenta): Item[] {
   }));
   const total = lineas.reduce((sum, it) => sum + it.importe, 0);
   const abono = Math.max(Number(prefill.financiamiento.cuota_inicial ?? 0) || 0, 0);
-  let distribuido = 0;
   const salida: Item[] = [];
-  lineas.forEach((it, i) => {
-    const parteAbono = abono <= 0 || total <= 0
-      ? 0
-      : i === lineas.length - 1
-        ? Math.round((abono - distribuido) * 100) / 100
-        : Math.round((abono * it.importe / total) * 100) / 100;
-    distribuido = Math.round((distribuido + parteAbono) * 100) / 100;
-    const financiado = Math.max(Math.round((it.importe - parteAbono) * 100) / 100, 0);
+  const abonosLinea = lineas.map((it) => abono > 0 && total > 0 ? Math.round(abono * it.importe / total * 100) / 100 : 0);
+  if (abonosLinea.length) {
+    const asignado = Math.round(abonosLinea.slice(0, -1).reduce((sum, monto) => sum + monto, 0) * 100) / 100;
+    abonosLinea[abonosLinea.length - 1] = Math.round((abono - asignado) * 100) / 100;
+  }
+  const lineasFinanciadas = lineas.map((it, i) => ({
+    ...it,
+    financiado: Math.max(Math.round((it.importe - (abonosLinea[i] ?? 0)) * 100) / 100, 0),
+  }));
+  lineasFinanciadas.forEach((it) => {
+    const financiado = it.financiado;
     const comun = {
       material_id: it.material_id,
       material_codigo: it.material_codigo,
@@ -87,17 +89,28 @@ function lineasDesdeCotizacion(prefill: PrefillVenta): Item[] {
         tipo_pedido: "VENTA",
       });
     }
-    if (parteAbono > 0) {
+  });
+  if (abono > 0) {
+    const base = lineas[0];
+    if (base) {
       salida.push({
-        ...comun,
-        precio: parteAbono,
+        material_id: base.material_id,
+        material_codigo: base.material_codigo,
+        material_nombre: base.material_nombre,
+        nombre: `ABONO INICIAL · ${base.material_nombre || base.descripcion}`.trim(),
+        cantidad: 1,
+        precio: Math.round(abono * 100) / 100,
+        tarifaOK: true,
+        dscto_monto: 0,
         modo: "contado",
         medio: "efectivo",
-        tipo_pedido: "ABONO",
+        tea: Number(prefill.financiamiento.tea ?? TEA_FIJA),
         cuotas: 1,
+        cotizacion_item_id: base.cotizacion_item_id,
+        tipo_pedido: "ABONO",
       });
     }
-  });
+  }
   return salida;
 }
 

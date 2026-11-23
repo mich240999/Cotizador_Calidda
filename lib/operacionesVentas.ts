@@ -677,7 +677,7 @@ async function enriquecerSolicitudes(ctx: OperacionContext, rows: Fila[]): Promi
   const mMat = new Map<string, string>();
   if (idsSol.length) {
     try {
-      const { data: its } = await ctx.service.from(T_ITEM).select("solicitud_id,subtotal,id_material").in("solicitud_id", idsSol).order("id", { ascending: true }).limit(2000);
+      const { data: its } = await ctx.service.from(T_ITEM).select("solicitud_id,subtotal,id_material,material_nombre,tipo_pedido").in("solicitud_id", idsSol).order("id", { ascending: true }).limit(2000);
       const porSol = new Map<string, Fila[]>();
       for (const it of ((its ?? []) as Fila[])) {
         const k = String(it.solicitud_id);
@@ -694,9 +694,11 @@ async function enriquecerSolicitudes(ctx: OperacionContext, rows: Fila[]): Promi
       }
       for (const [k, lista] of porSol) {
         mTot.set(k, Math.round(lista.reduce((a, it) => a + (Number(it.subtotal ?? 0) || 0), 0) * 100) / 100);
-        const primero = lista[0];
-        const nMat = mNom.get(String(primero?.id_material ?? ""));
-        mMat.set(k, nMat || (lista.length > 1 ? `${lista.length} materiales` : "—"));
+        const materiales = [...new Set(lista
+          .filter((it) => String(it.tipo_pedido ?? "VENTA").toUpperCase() !== "ABONO")
+          .map((it) => String(it.material_nombre ?? mNom.get(String(it.id_material ?? "")) ?? "").trim())
+          .filter(Boolean))];
+        mMat.set(k, materiales.length ? materiales.join(", ") : "—");
       }
     } catch { /* sin ítems */ }
   }
@@ -906,7 +908,11 @@ async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearS
       : 0;
 
     const detalles: Fila[] = [];
-    let abonoAsignado = 0;
+    const abonosPorLinea = lineasProducto.map((it) => totalProducto > 0 ? red2(anticipo * it.neto / totalProducto) : 0);
+    if (abonosPorLinea.length) {
+      const asignado = red2(abonosPorLinea.slice(0, -1).reduce((sum, monto) => sum + monto, 0));
+      abonosPorLinea[abonosPorLinea.length - 1] = red2(anticipo - asignado);
+    }
     for (const [i, it] of lineasProducto.entries()) {
       const ambiente = String(it.ambiente ?? c.ambiente ?? "");
       const mapeo = await resolverMaterialVentaCotizacion(ctx, {
@@ -915,10 +921,7 @@ async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearS
         id_integrador: null,
         proveedor: empresa.nombre,
       }, { ...it, ambiente });
-      const parteAbono = i === lineasProducto.length - 1
-        ? red2(anticipo - abonoAsignado)
-        : totalProducto > 0 ? red2(anticipo * it.neto / totalProducto) : 0;
-      abonoAsignado = red2(abonoAsignado + parteAbono);
+      const parteAbono = abonosPorLinea[i] ?? 0;
       const financiado = red2(Math.max(it.neto - parteAbono, 0));
       const common = {
         solicitud_id: "",
@@ -943,18 +946,33 @@ async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearS
           cuota_mensual: cuotaFrancesaConIgv(financiado, tea, plazo),
         });
       }
-      if (parteAbono > 0) {
-        detalles.push({
-          ...common,
-          tipo_pedido: "ABONO",
-          precio_unit: parteAbono,
-          subtotal: parteAbono,
-          modo: "contado",
-          medio_pago: "efectivo",
-          nro_cuotas: 1,
-          cuota_mensual: 0,
-        });
-      }
+    }
+    if (anticipo > 0) {
+      const primera = lineasProducto[0];
+      const material = await resolverMaterialVentaCotizacion(ctx, {
+        ...c,
+        id_proveedor: empresa.id,
+        id_integrador: null,
+        proveedor: empresa.nombre,
+      }, { ...primera, ambiente: String(primera.ambiente ?? c.ambiente ?? "") });
+      detalles.push({
+        solicitud_id: "",
+        id_material: String(material.id),
+        material_codigo: String(material.codigo_sap ?? ""),
+        material_nombre: `ABONO INICIAL · ${String(material.nombre ?? primera.descripcion ?? "")}`.trim(),
+        cantidad: 1,
+        descuento_monto: 0,
+        alto: 0,
+        ancho: 0,
+        fondo: 0,
+        modo: "contado",
+        medio_pago: "efectivo",
+        tipo_pedido: "ABONO",
+        precio_unit: red2(anticipo),
+        subtotal: red2(anticipo),
+        nro_cuotas: 1,
+        cuota_mensual: 0,
+      });
     }
 
     const idClienteSGT = await resolverClienteSGT(ctx, String(c.cliente_id));
@@ -1628,7 +1646,7 @@ async function hGetVenta(args: z.infer<typeof EsquemaGetVenta>, ctx: OperacionCo
         numero_pedido_venta: tipoPedido === "VENTA" ? (it.numero_pedido_venta || numeroPedidoVenta || null) : it.numero_pedido_venta,
         numero_pedido_abono: tipoPedido === "ABONO" ? (it.numero_pedido_abono || numeroPedidoAbono || null) : it.numero_pedido_abono,
         material_codigo: codigo,
-        material_nombre: nombre || String(it.id_material ?? ""),
+        material_nombre: String(it.material_nombre ?? "").trim() || nombre || String(it.id_material ?? ""),
         material_descripcion: desc || nombre || String(it.id_material ?? ""),
       };
     });
