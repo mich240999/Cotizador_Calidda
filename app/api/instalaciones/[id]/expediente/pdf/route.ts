@@ -68,41 +68,16 @@ function dibujarEncabezado(
   logo?: Awaited<ReturnType<PDFDocument["embedPng"]>>,
 ) {
   const [width, height] = A4;
-  page.drawRectangle({ x: 0, y: 0, width, height, color: COLOR.blanco });
-  page.drawRectangle({ x: 0, y: height - 118, width, height: 118, color: COLOR.azul });
-  page.drawRectangle({ x: 0, y: height - 125, width, height: 7, color: COLOR.celeste });
-  page.drawRectangle({ x: 34, y: height - 94, width: 126, height: 61, color: COLOR.blanco });
   if (logo) {
-    const fit = logo.scale(Math.min(108 / logo.width, 43 / logo.height));
-    page.drawImage(logo, { x: 43 + (108 - fit.width) / 2, y: height - 84 + (43 - fit.height) / 2, ...fit });
+    const fit = logo.scale(Math.min(102 / logo.width, 38 / logo.height));
+    page.drawImage(logo, { x: 36, y: height - 65, ...fit });
   } else {
-    page.drawText("CÁLIDDA", { x: 49, y: height - 67, size: 17, font: bold, color: COLOR.azul });
+    page.drawText("CÁLIDDA", { x: 36, y: height - 54, size: 16, font: bold, color: COLOR.azul });
   }
-  page.drawText("PLATAFORMA AMCA", { x: 181, y: height - 42, size: 8, font: bold, color: rgb(0.58, 0.86, 0.96) });
-  page.drawText(titulo.toUpperCase(), { x: 181, y: height - 66, size: 17, font: bold, color: COLOR.blanco, maxWidth: width - 220 });
-  page.drawText("Expediente de instalación · sustentos aprobados", { x: 181, y: height - 84, size: 9, font, color: rgb(0.88, 0.94, 0.98) });
-  page.drawRectangle({ x: 181, y: height - 111, width: 220, height: 19, color: COLOR.blanco });
-  page.drawText(`PEDIDO DE VENTA  ${referencia}`, { x: 190, y: height - 105, size: 8, font: bold, color: COLOR.azul });
-}
-
-function dibujarEtiqueta(
-  page: ReturnType<PDFDocument["addPage"]>,
-  texto: string,
-  font: Awaited<ReturnType<PDFDocument["embedFont"]>>,
-  bold: Awaited<ReturnType<PDFDocument["embedFont"]>>,
-  logo?: Awaited<ReturnType<PDFDocument["embedPng"]>>,
-) {
-  const [width, height] = A4;
-  page.drawRectangle({ x: 0, y: height - 76, width, height: 76, color: COLOR.azul });
-  page.drawRectangle({ x: 0, y: height - 81, width, height: 5, color: COLOR.celeste });
-  if (logo) {
-    const fit = logo.scale(Math.min(94 / logo.width, 43 / logo.height));
-    page.drawImage(logo, { x: width - 38 - fit.width, y: height - 60, ...fit });
-  }
-  page.drawText("CÁLIDDA  ·  PLATAFORMA AMCA", { x: 38, y: height - 28, size: 8, font: bold, color: rgb(0.68, 0.88, 0.96) });
-  envolver(texto.toUpperCase(), bold, 15, width - 160, 1).forEach((line, index) => page.drawText(line, { x: 38, y: height - 54 - index * 17, size: 15, font: bold, color: COLOR.blanco }));
-  page.drawText("EVIDENCIA REVISADA Y APROBADA", { x: 38, y: 28, size: 7, font: bold, color: COLOR.tenue });
-  page.drawLine({ start: { x: 38, y: 40 }, end: { x: width - 38, y: 40 }, thickness: 0.6, color: COLOR.borde });
+  page.drawText("AMBIENTES CÁLIDDOS", { x: 155, y: height - 35, size: 8, font, color: COLOR.tenue });
+  page.drawText(titulo.toUpperCase(), { x: 155, y: height - 54, size: 13, font: bold, color: COLOR.azulNoche, maxWidth: width - 191, lineHeight: 12 });
+  page.drawText(`Pedido de venta: ${referencia}`, { x: 155, y: height - 78, size: 9, font, color: COLOR.texto });
+  page.drawLine({ start: { x: 36, y: height - 89 }, end: { x: width - 36, y: height - 89 }, thickness: 1, color: COLOR.azul });
 }
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
@@ -178,7 +153,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     const anticipo = Number(venta.anticipo ?? venta.cuota_inicial ?? 0);
     const totalProductos = sumaItems > 0 ? sumaItems : Number(venta.monto_total ?? venta.total ?? cotizacion?.total ?? montoFinanciado + anticipo);
     const formatoDinero = (monto: number) => `S/ ${monto.toLocaleString("es-PE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const numeroCuotas = textoSeguro(venta.numero_cuotas ?? venta.cuotas ?? venta.cuotas_elegidas ?? cotizacion?.cuotas_elegidas);
+    const numeroCuotas = textoSeguro(venta.nro_cuotas ?? venta.numero_cuotas ?? venta.cuotas ?? venta.cuotas_elegidas ?? cotizacion?.cuotas_elegidas);
     const pv = textoSeguro(venta.numero_pedido, params.id);
     const documento = await PDFDocument.create();
     const font = await documento.embedFont(StandardFonts.Helvetica);
@@ -186,13 +161,13 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     let logo: Awaited<ReturnType<PDFDocument["embedPng"]>> | undefined;
     try { logo = await documento.embedPng(await readFile(join(process.cwd(), "public", "logo-calidda.png"))); } catch { /* el expediente conserva el encabezado de marca en texto */ }
 
-    let page = documento.addPage(A4);
+    const page = documento.addPage(A4);
     dibujarEncabezado(page, "Expediente de instalación", pv, font, bold, logo);
     const texto = (p: typeof page, value: string, x: number, y: number, size = 9, isBold = false, maxWidth = 240, color = COLOR.texto) => {
       const f = isBold ? bold : font;
       envolver(value, f, size, maxWidth, 2).forEach((line, index) => p.drawText(line, { x, y: y - index * (size + 3), size, font: f, color }));
     };
-    const tarjeta = (p: typeof page, x: number, y: number, width: number, height: number, titulo: string) => {
+    const seccion = (p: typeof page, x: number, y: number, width: number, height: number, titulo: string) => {
       p.drawRectangle({ x, y, width, height, color: COLOR.blanco, borderColor: COLOR.borde, borderWidth: 0.8 });
       p.drawRectangle({ x, y: y + height - 25, width, height: 25, color: COLOR.fondo });
       p.drawText(titulo.toUpperCase(), { x: x + 12, y: y + height - 17, size: 8, font: bold, color: COLOR.azul });
@@ -201,16 +176,16 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       p.drawText(label.toUpperCase(), { x, y, size: 6.5, font: bold, color: COLOR.tenue });
       texto(p, value, x, y - 14, 9, false, width);
     };
-    tarjeta(page, 36, 568, 255, 133, "Datos del cliente");
+    seccion(page, 36, 568, 261.5, 133, "1. Datos del cliente");
     etiquetaDato(page, "Cliente", clienteNombre, 48, 678, 228);
     etiquetaDato(page, "Documento", documentoCliente, 48, 638, 105);
     etiquetaDato(page, "Cuenta contrato", cuentaContrato, 164, 638, 112);
-    tarjeta(page, 304, 568, 255, 133, "Datos de la venta");
+    seccion(page, 297.5, 568, 261.5, 133, "2. Datos de la venta");
     etiquetaDato(page, "Proveedor", proveedorNombre, 316, 678, 230);
     etiquetaDato(page, "Asesor", asesorNombre, 316, 638, 105);
     etiquetaDato(page, "Cotización", codigoCotizacion, 430, 638, 118);
     etiquetaDato(page, "Fecha de venta", fechaVenta, 316, 598, 230);
-    tarjeta(page, 36, 449, 523, 103, "Resumen económico");
+    seccion(page, 36, 449, 523, 103, "3. Resumen económico");
     etiquetaDato(page, "Total de productos", formatoDinero(totalProductos), 49, 526, 145);
     etiquetaDato(page, "Anticipo", formatoDinero(anticipo), 210, 526, 110);
     etiquetaDato(page, "Monto financiado", formatoDinero(montoFinanciado || Math.max(totalProductos - anticipo, 0)), 337, 526, 125);
@@ -218,13 +193,13 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     etiquetaDato(page, "Ambiente", textoSeguro(venta.ambiente), 49, 483, 145);
     etiquetaDato(page, "Pedido de abono", textoSeguro(venta.pv_abono ?? venta.numero_pedido_abono), 210, 483, 160);
     const detalles = textoSeguro(venta.detalles_adicionales ?? venta.detalle_adicional ?? venta.observaciones ?? cotizacion?.observaciones, "Sin detalles adicionales");
-    tarjeta(page, 36, 391, 523, 45, "Detalles adicionales");
+    seccion(page, 36, 382, 523, 54, "4. Detalles adicionales");
     texto(page, detalles, 48, 403, 8, false, 493);
 
     let hojaItems = page;
-    let yItems = 367;
+    let yItems = 360;
     const pintarCabeceraItems = (continuacion = false) => {
-      hojaItems.drawText(continuacion ? "MATERIALES DE LA VENTA · CONTINUACIÓN" : "MATERIALES DE LA VENTA", { x: 36, y: yItems, size: 9, font: bold, color: COLOR.azulNoche });
+      hojaItems.drawText(continuacion ? "MATERIALES DE LA VENTA · CONTINUACIÓN" : "5. MATERIALES DE LA VENTA", { x: 36, y: yItems, size: 9, font: bold, color: COLOR.azulNoche });
       yItems -= 20;
       hojaItems.drawRectangle({ x: 36, y: yItems - 5, width: 523, height: 22, color: COLOR.azul });
       hojaItems.drawText("MATERIAL", { x: 44, y: yItems + 2, size: 6.8, font: bold, color: COLOR.blanco });
@@ -259,7 +234,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       p.drawText(`CÁLIDDA  ·  PLATAFORMA AMCA                                      Expediente PV ${pv}`, { x: 36, y: 21, size: 6.5, font, color: COLOR.tenue });
     }
 
-    for (const [tipo, etiqueta] of EVIDENCIAS_ORDEN) {
+    for (const [indice, [tipo, etiqueta]] of EVIDENCIAS_ORDEN.entries()) {
       const item = evidencias.get(tipo)!;
       const url = new URL(item.url);
       if (url.protocol !== "https:" || url.host !== storageHost) throw new Error(`El archivo de ${etiqueta} no pertenece al Storage configurado`);
@@ -272,14 +247,14 @@ export async function GET(_request: Request, { params }: { params: { id: string 
         const fuente = await PDFDocument.load(bytes);
         const paginas = await documento.copyPages(fuente, fuente.getPageIndices());
         const portadaArchivo = documento.addPage(A4);
-        dibujarEtiqueta(portadaArchivo, etiqueta, font, bold, logo);
+        dibujarEncabezado(portadaArchivo, `Anexo ${indice + 1} · ${etiqueta}`, pv, font, bold, logo);
         portadaArchivo.drawText("Documento adjunto aprobado para el expediente", { x: 42, y: A4[1] - 101, size: 9, font, color: COLOR.tenue });
         paginas.forEach((p) => documento.addPage(p));
       } else {
         const png = await sharp(bytes).rotate().png().toBuffer();
         const imagen = await documento.embedPng(png);
         const fotoPage = documento.addPage(A4);
-        dibujarEtiqueta(fotoPage, etiqueta, font, bold, logo);
+        dibujarEncabezado(fotoPage, `Anexo ${indice + 1} · ${etiqueta}`, pv, font, bold, logo);
         const margen = 42;
         const ancho = A4[0] - margen * 2;
         const alto = A4[1] - 160;
