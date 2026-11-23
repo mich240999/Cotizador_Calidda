@@ -155,6 +155,11 @@ export default function CotizacionDetallePage({
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || json?.ok === false) throw new Error(json?.error || "No se pudo enviar");
+      await cargar();
+      if (json?.aviso) {
+        setError(json.aviso);
+        return;
+      }
       alert(`Correo enviado con PDF adjunto (${json?.datos?.filename ?? "cotizacion.pdf"})`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo enviar");

@@ -88,6 +88,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       attachments: [{ filename, content: pdf, contentType: "application/pdf" }]
     });
 
+    const { error: errorEstado } = await service.from("cotizaciones")
+      .update({ estado: "ENVIADA" })
+      .eq("id", id)
+      .ilike("estado", "BORRADOR");
+
     await service.from("audit_log").insert({
       user_id: sesion.userId,
       operacion: "enviarCotizacionPDF",
@@ -97,6 +102,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     return NextResponse.json({
       ok: true,
+      aviso: errorEstado ? "El correo se envió, pero no se pudo actualizar el estado. Puedes marcar la cotización como Enviada manualmente." : undefined,
       datos: { messageId: info.messageId, accepted: info.accepted, filename, proveedor: info.proveedor }
     });
   } catch (e) {
