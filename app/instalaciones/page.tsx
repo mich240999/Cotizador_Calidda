@@ -7,7 +7,7 @@ import AuthGate from "@/components/AuthGate";
 import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState, formatoFecha, formatoMoneda } from "@/components/Tablas";
-import { BadgeEstadoVenta, SUSTENTOS_INSTALACION, useRolVista } from "@/components/VentasComun";
+import { BadgeEstadoVenta, etiquetaEstado, SUSTENTOS_INSTALACION, useRolVista } from "@/components/VentasComun";
 
 type Fila = Record<string, unknown>;
 
@@ -32,6 +32,12 @@ function VentanaInstalacion({ v, accion, onClose, onChanged }: {
   v: Fila; accion: AccionInstalacion; onClose: () => void; onChanged: () => void;
 }) {
   const evidencias = evidenciasDe(v);
+  const estadoVenta = String(v.estado ?? "").toLowerCase();
+  const estadoInstalacion = estadoInstDe(v).toLowerCase();
+  const estadosConExpediente = ["validada_proveedor", "pendiente_liquidar", "liquidada", "cerrada"];
+  const expedienteDisponible = accion === "detalle"
+    && (estadosConExpediente.includes(estadoVenta) || estadosConExpediente.includes(estadoInstalacion))
+    && SUSTENTOS_INSTALACION.every(({ tipo }) => evidencias.some((e) => e.tipo === tipo && e.url && e.estado === "aprobado"));
   const titulo = accion === "detalle" ? "Detalle de venta e instalación"
     : accion === "revision" ? "Revisar evidencias"
     : evidencias.some((e) => e.estado === "rechazado") ? "Subsanar adjuntos" : "Subir adjuntos";
@@ -42,7 +48,7 @@ function VentanaInstalacion({ v, accion, onClose, onChanged }: {
     ["Cotización", v.cotizacion_codigo], ["PV de venta", v.numero_pedido], ["Orden PV de venta", v.orden_pedido_venta],
     ...(Number(v.anticipo ?? 0) > 0 ? [["PV de abono", v.pv_abono] as const, ["Orden PV de abono", v.orden_pedido_abono] as const] : []),
     ["Estado de venta", <BadgeEstadoVenta estado={String(v.estado ?? "")} />],
-    ["Estado de instalación", estadoInstDe(v).replace(/_/g, " ")],
+    ["Estado de instalación", etiquetaEstado(estadoInstDe(v))],
     ["Total", formatoMoneda(Number(v.monto_total ?? 0))], ["Ambiente", v.ambiente],
     ["Anticipo", formatoMoneda(Number(v.anticipo ?? 0))], ["Cuotas", v.nro_cuotas],
   ] as const;
@@ -71,6 +77,12 @@ function VentanaInstalacion({ v, accion, onClose, onChanged }: {
               </table>
             </div>}
             <RevisionEvidencias solicitudId={String(v.id)} evidencias={evidencias} esAdmin={accion === "revision"} onChanged={guardar} />
+            {accion === "detalle" && <div className="mt-4 flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-slate-500">Expediente PDF en el orden de sustentos aprobado. Se genera al descargar y no se almacena.</p>
+              {expedienteDisponible && <a className="btn-green text-center" href={`/api/instalaciones/${encodeURIComponent(String(v.id))}/expediente/pdf`}>
+                Generar expediente PDF · PV {String(v.numero_pedido ?? "")}
+              </a>}
+            </div>}
           </>}
         </div>
       </div>
@@ -251,8 +263,8 @@ export default function InstalacionesPage() {
           <label className="label">Estado venta</label>
           <select className="input !w-auto" value={fSol} onChange={(e) => setFSol(e.target.value)}>
             <option value="">Todos</option>
-            {["generada", "aprobada", "en_instalacion", "instalada", "subsanado_pendiente", "pendiente_liquidar", "validada_proveedor", "observada", "cerrada", "liquidada"].map((e) => (
-              <option key={e} value={e}>{e.replace(/_/g, " ")}</option>
+            {["generada", "aprobada", "en_instalacion", "instalada", "observado_por_sustento", "subsanado_pendiente", "pendiente_liquidar", "validada_proveedor", "observada", "cerrada", "liquidada"].map((e) => (
+              <option key={e} value={e}>{etiquetaEstado(e)}</option>
             ))}
           </select>
         </div>
@@ -261,7 +273,7 @@ export default function InstalacionesPage() {
           <select className="input !w-auto" value={fInst} onChange={(e) => setFInst(e.target.value)}>
             <option value="">Todas</option>
             {["pendiente_instalar", "registrada", "subsanado_pendiente", "pendiente_liquidar", "validada_proveedor", "observada", "cerrada", "liquidada"].map((e) => (
-              <option key={e} value={e}>{e.replace(/_/g, " ")}</option>
+              <option key={e} value={e}>{etiquetaEstado(e)}</option>
             ))}
           </select>
         </div>
@@ -310,12 +322,12 @@ export default function InstalacionesPage() {
                   <td className="whitespace-nowrap text-xs">{v.created_at ? formatoFecha(String(v.created_at)) : "—"}</td>
                   <td className="whitespace-nowrap">
                     <div className="flex gap-1.5">
-                      {(esProveedor || esAdmin) && ["generada", "aprobada", "en_instalacion", "instalada", "observada", "subsanado_pendiente"].includes(String(v.estado)) &&
+                      {(esProveedor || esAdmin) && ["generada", "aprobada", "en_instalacion", "instalada", "observado_por_sustento", "observada", "subsanado_pendiente"].includes(String(v.estado)) &&
                         (["pendiente_instalar", "pendiente", "observada"].includes(estadoInstDe(v)) || evidenciasDe(v).some((e) => e.estado === "rechazado")) &&
                         <button className="btn-white !py-1 !px-3 !text-xs" onClick={() => setVentana({ v, accion: "entrega" })}>
                           {estadoInstDe(v) === "observada" || evidenciasDe(v).some((e) => e.estado === "rechazado") ? "Subsanar adjuntos" : "Subir adjuntos"}
                         </button>}
-                      {esAdmin && ["instalada", "observada", "subsanado_pendiente"].includes(String(v.estado)) && SUSTENTOS_INSTALACION.every(({ tipo }) => evidenciasDe(v).some((e) => e.tipo === tipo && e.url)) &&
+                      {esAdmin && ["instalada", "observado_por_sustento", "observada", "subsanado_pendiente"].includes(String(v.estado)) && SUSTENTOS_INSTALACION.every(({ tipo }) => evidenciasDe(v).some((e) => e.tipo === tipo && e.url)) &&
                         <button className="btn-green !py-1 !px-3 !text-xs" onClick={() => setVentana({ v, accion: "revision" })}>Revisar evidencias</button>}
                       <button className="btn-white !py-1 !px-3 !text-xs" onClick={() => setVentana({ v, accion: "detalle" })}>Ver detalle</button>
                       {puedeLiquidar(v) && (

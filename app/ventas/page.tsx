@@ -585,7 +585,7 @@ export default function VentasPage() {
             ) : (
               <div className="table-wrap">
                 <table className="tabla">
-                  <thead><tr><th>NÚMERO</th><th>COTIZACIÓN</th><th>CLIENTE</th><th>ASESOR</th><th>TOTAL</th><th>ACCIÓN</th></tr></thead>
+                  <thead><tr><th>NÚMERO</th><th>COTIZACIÓN</th><th>CLIENTE</th><th>ASESOR</th><th>CUOTAS</th><th>TOTAL</th><th>ACCIÓN</th></tr></thead>
                   <tbody>
                     {pendientesFiltrados.map((v, i) => {
                       const r = v as Record<string, unknown>;
@@ -595,6 +595,7 @@ export default function VentasPage() {
                             <td>{String(r.cotizacion_codigo ?? "—")}</td>
                             <td className="font-medium">{ventaCliente(v)}</td>
                             <td>{String(r.asesor_nombre ?? "—")}</td>
+                            <td>{r.nro_cuotas == null ? "—" : `${String(r.nro_cuotas)} cuotas`}</td>
                             <td className="whitespace-nowrap font-bold">{formatoMoneda(Number(r.monto_total ?? ventaTotal(v)))}</td>
                             <td className="whitespace-nowrap">
                               <div className="flex gap-1.5">

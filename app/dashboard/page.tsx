@@ -247,7 +247,7 @@ export default function DashboardPage() {
             <label className="label">Estado venta</label>
             <select className="input !w-auto" value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
               <option value="">Todos</option>
-              {["borrador", "pendiente_aprobacion", "observado", "aprobada", "generada", "en_instalacion", "instalada", "validada_proveedor", "pendiente_liquidar", "cerrada", "liquidada"].map((e) => (
+              {["borrador", "pendiente_aprobacion", "observado", "aprobada", "generada", "en_instalacion", "instalada", "observado_por_sustento", "validada_proveedor", "pendiente_liquidar", "cerrada", "liquidada"].map((e) => (
                 <option key={e} value={e}>{e.replace(/_/g, " ")}</option>
               ))}
             </select>

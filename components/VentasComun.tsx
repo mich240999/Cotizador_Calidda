@@ -109,6 +109,7 @@ export const ESTADOS_VENTA = [
   "generada",
   "en_instalacion",
   "instalada",
+  "observado_por_sustento",
   "validada_proveedor",
   "cerrada",
   "liquidada",
@@ -119,6 +120,7 @@ const ETIQUETA_ESTADO: Record<string, string> = {
   borrador: "BORRADOR",
   pendiente_aprobacion: "PENDIENTE APROBACIÓN",
   observado: "OBSERVADO",
+  observado_por_sustento: "OBSERVADO POR SUSTENTO",
   subsanado_pendiente: "SUBSANADO · POR REVISAR",
   aprobada: "APROBADA",
   en_instalacion: "EN INSTALACIÓN",
@@ -131,6 +133,7 @@ const ETIQUETA_ESTADO: Record<string, string> = {
 
 export const etiquetaEstado = (e: string) => {
   const k = String(e ?? "").toLowerCase();
+  if (k === "observada") return "OBSERVADO POR SUSTENTO";
   return ETIQUETA_ESTADO[k] ?? String(e ?? "").toUpperCase().replace(/_/g, " ");
 };
 
@@ -140,6 +143,7 @@ export function BadgeEstadoVenta({ estado }: { estado: string }) {
     borrador: "bg-slate-100 text-slate-700 border-slate-200",
     pendiente_aprobacion: "bg-amber-50 text-amber-700 border-amber-200",
     observado: "bg-orange-50 text-orange-700 border-orange-200",
+    observado_por_sustento: "bg-orange-50 text-orange-700 border-orange-200",
     subsanado_pendiente: "bg-amber-50 text-amber-800 border-amber-300",
     aprobada: "bg-green-50 text-green-700 border-green-200",
     generada: "bg-teal-50 text-teal-700 border-teal-200",
@@ -164,7 +168,7 @@ const ETAPAS = ["BORRADOR", "GENERADA", "APROBADA", "EN INSTALACIÓN", "LIQUIDAD
 function etapaIndex(estado: string): number {
   const n = String(estado ?? "").toLowerCase();
   if (n === "cerrada" || n === "liquidada") return 4;
-  if (["en_instalacion", "instalada", "validada_proveedor"].includes(n)) return 3;
+  if (["en_instalacion", "instalada", "observado_por_sustento", "validada_proveedor"].includes(n)) return 3;
   if (n === "aprobada") return 2;
   if (["generada", "pendiente_aprobacion", "observado"].includes(n)) return 1;
   return 0;

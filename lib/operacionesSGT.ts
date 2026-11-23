@@ -276,6 +276,10 @@ const EsquemaCrearCotSGT = z.object({
   observaciones: z.string().trim().max(2000).optional().default(""),
   detalles: EsquemaDetalleMueble,
   validez_dias: z.coerce.number().int().min(0).max(365).optional().default(15)
+}).superRefine((v, ctx) => {
+  if (!v.observaciones.trim()) {
+    ctx.addIssue({ code: "custom", path: ["observaciones"], message: "Detalles adicionales es obligatorio." });
+  }
 });
 const EsquemaRegenerar = z.object({ cotizacion_id: z.string().uuid() });
 

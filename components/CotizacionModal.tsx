@@ -284,13 +284,15 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
         return;
       }
     }
+    if (!obs.trim()) {
+      setError('El campo "Detalles adicionales" es obligatorio.');
+      return;
+    }
     const CAMPOS_DET: { clave: keyof typeof det; etiqueta: string }[] = [
       { clave: "marca_melamina", etiqueta: "Marca de Melamina" },
       { clave: "color_estructura", etiqueta: "Color estructura de mueble" },
       { clave: "color_puertas", etiqueta: "Color de Puertas" },
       { clave: "color_tablero", etiqueta: "Color Tablero" },
-      { clave: "detalle_tiradores", etiqueta: "Detalle de tiradores" },
-      { clave: "vidrios", etiqueta: "Vidrios" },
       { clave: "accesorios_premium", etiqueta: "Accesorios premium" },
       { clave: "luz_led", etiqueta: "Luz LED" },
       { clave: "puerta_vidrio", etiqueta: "Puerta de vidrio" },
@@ -602,8 +604,6 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
                 ["color_estructura", "Color estructura de mueble"],
                 ["color_puertas", "Color de Puertas"],
                 ["color_tablero", "Color Tablero"],
-                ["detalle_tiradores", "Detalle de tiradores"],
-                ["vidrios", "Vidrios"],
               ] as const).map(([clave, etiqueta]) => (
                 <div key={clave}>
                   <label className="label">{etiqueta} <span className="text-red-600">*</span></label>
@@ -634,8 +634,8 @@ export default function CotizacionModal({ onClose }: { onClose: () => void }) {
           </section>
 
           <section>
-            <label className="label">Detalles adicionales</label>
-            <textarea className="input min-h-[90px]" placeholder="Condiciones, acabados o comentarios adicionales para la cotización" value={obs} onChange={(e) => setObs(e.target.value)} />
+            <label className="label">Detalles adicionales <span className="text-red-600">*</span></label>
+            <textarea required className="input min-h-[90px]" placeholder="Condiciones, acabados o comentarios adicionales para la cotización" value={obs} onChange={(e) => setObs(e.target.value)} />
           </section>
         </div>
       </div>

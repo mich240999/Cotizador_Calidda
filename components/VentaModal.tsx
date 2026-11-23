@@ -114,6 +114,11 @@ function lineasDesdeCotizacion(prefill: PrefillVenta): Item[] {
   return salida;
 }
 
+function teaComoDecimal(valor: number): number {
+  const tasa = Number(valor);
+  return tasa > 1 ? tasa / 100 : tasa;
+}
+
 const MEDIO_LABEL: Record<Item["medio"], string> = {
   financiado: "Pedido financiado",
   efectivo: "Efectivo",
@@ -170,6 +175,7 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
   const [asesorId, setAsesorId] = useState("");
   const [asesorTel, setAsesorTel] = useState("");
   const [pago, setPago] = useState("financiado_total");
+  const tieneAbonoInicial = esPrefill ? anticipoPrefill > 0 : pago === "mixto" || pago === "con_abono";
   const [codigoAudio, setCodigoAudio] = useState("");
   const [voucherSolicitud, setVoucherSolicitud] = useState("");
   const [contratoFisico, setContratoFisico] = useState("");
@@ -365,7 +371,12 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
     if (canal !== "contratista" && !proveedorSel) { setError(`Selecciona el ${canal}.`); return; }
     if (canal === "contratista" && !contratista.trim()) { setError("Indica el contratista."); return; }
     if (items.length === 0) { setError("Agrega al menos un material."); return; }
-    if (!codigoAudio.trim() && !voucherSolicitud.trim() && !contratoFisico.trim()) { setError("Ingresa un código de audio o adjunta un voucher o contrato."); return; }
+    if (tieneAbonoInicial) {
+      if (!voucherSolicitud.trim()) { setError("Adjunta el voucher del abono."); return; }
+    } else {
+      if (!codigoAudio.trim()) { setError("Ingresa el código de llamada."); return; }
+      if (!contratoFisico.trim()) { setError("Adjunta el contrato físico firmado."); return; }
+    }
     for (const it of items) {
       if (!it.material_id) { setError("Cada ítem debe tener un material del catálogo (selecciónalo en su lista)."); return; }
       if (!(it.cantidad > 0)) { setError("Cada ítem debe tener cantidad mayor a 0."); return; }
@@ -388,9 +399,9 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
         ...(esPrefill && nombreAsesorActual ? { asesor: nombreAsesorActual } : {}),
         asesor_telefono: asesorTel.trim(),
         tea: esAdmin ? Number(items[0]?.tea ?? 40) : 40,
-        ...(codigoAudio.trim() ? { codigo_llamada: codigoAudio.trim() } : {}),
-        ...(voucherSolicitud.trim() ? { voucher_solicitud_url: voucherSolicitud.trim() } : {}),
-        ...(contratoFisico.trim() ? { contrato_fisico_url: contratoFisico.trim() } : {}),
+        ...(!tieneAbonoInicial && codigoAudio.trim() ? { codigo_llamada: codigoAudio.trim() } : {}),
+        ...(tieneAbonoInicial && voucherSolicitud.trim() ? { voucher_solicitud_url: voucherSolicitud.trim() } : {}),
+        ...(!tieneAbonoInicial && contratoFisico.trim() ? { contrato_fisico_url: contratoFisico.trim() } : {}),
         observaciones: obsFinal,
         ...(esPrefill
           ? {
@@ -417,7 +428,11 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
           modo: it.modo,
           medio_pago: it.medio,
           nro_cuotas: it.tipo_pedido === "ABONO" ? 1 : (esPrefill ? prefill!.financiamiento.plazo : it.cuotas),
-          cuota_mensual: it.tipo_pedido === "ABONO" ? 0 : cuotaMensual(it.precio, esPrefill ? prefill!.financiamiento.plazo : it.cuotas, TEA_FIJA),
+          cuota_mensual: it.tipo_pedido === "ABONO" ? 0 : cuotaMensual(
+            it.precio,
+            esPrefill ? prefill!.financiamiento.plazo : it.cuotas,
+            esAdmin ? teaComoDecimal(it.tea) : TEA_FIJA,
+          ),
           alto: it.alto ?? 0,
           ancho: it.ancho ?? 0,
           fondo: it.fondo ?? 0,
@@ -601,10 +616,10 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
                 {items.map((it, i) => {
                   const neto = netoItem(it);
                   const cap = it.modo === "financiado" ? neto : 0;
-                  const teaDec = (esAdmin ? it.tea : 40) / 100 || TEA_FIJA;
+                  const teaDec = teaComoDecimal(esAdmin ? it.tea : 40) || TEA_FIJA;
                   return (
                     <div key={i} className="rounded-xl border border-slate-200 p-4">
-                      {esPrefill && <p className={`mb-3 inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${it.tipo_pedido === "ABONO" ? "bg-amber-100 text-amber-800" : "bg-sky-100 text-sky-800"}`}>{it.tipo_pedido === "ABONO" ? "Pedido de abono · 1 cuota · S/ 0.00 de cuota" : `Pedido de venta · ${it.cuotas} cuotas`}</p>}
+                      {esPrefill && <p className={`mb-3 inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${it.tipo_pedido === "ABONO" ? "bg-amber-100 text-amber-800" : "bg-sky-100 text-sky-800"}`}>{it.tipo_pedido === "ABONO" ? "Pedido de abono · 1 cuota · S/ 0.00 de cuota" : `Pedido de venta financiado · ${it.cuotas} cuotas`}</p>}
                       <div className="grid md:grid-cols-4 gap-3">
                         <div className="md:col-span-2">
                           <label className="label">Material (asignado automáticamente) *</label>
@@ -667,7 +682,7 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
                         )}
                         <div>
                           <label className="label">TEA % {esAdmin ? "(editable: admin)" : "(fija 40%)"}</label>
-                          <input type="number" min={0} step="any" className="input" value={esAdmin ? it.tea : 40} readOnly={!esAdmin || esPrefill} onChange={(e) => setItem(i, { tea: Number(e.target.value) })} />
+                          <input type="number" min={0} step="any" className="input" value={esAdmin ? Number((teaComoDecimal(it.tea ?? 40) * 100).toFixed(2)) : 40} readOnly={!esAdmin || esPrefill} onChange={(e) => setItem(i, { tea: Number(e.target.value) })} />
                         </div>
                         {it.modo === "financiado" ? (
                           <div>
@@ -731,17 +746,19 @@ export default function VentaModal({ onClose, prefill }: { onClose: () => void; 
 
           <section className="card !shadow-none p-5">
             <h3 className="font-bold">Respaldo de la solicitud <span className="text-red-600">*</span></h3>
-            <p className="text-xs text-slate-500 mb-3">Ingresa al menos un sustento. Puedes registrar varios.</p>
+            <p className="text-xs text-slate-500 mb-3">{tieneAbonoInicial ? "Con abono, el voucher es obligatorio." : "Sin abono, son obligatorios el código de llamada y el contrato físico."}</p>
+              {!tieneAbonoInicial && <>
               <div className="mt-3">
-                <label className="label">Código de audio de la llamada</label>
-                <input className="input" maxLength={60} value={codigoAudio} onChange={(e) => setCodigoAudio(e.target.value)} placeholder="Ingresa el código de la llamada" />
+                <label className="label">Código de llamada *</label>
+                <input required className="input" maxLength={60} value={codigoAudio} onChange={(e) => setCodigoAudio(e.target.value)} placeholder="Código informado en la solicitud" />
               </div>
               <div className="mt-3">
-                <Adjunto titulo="Voucher (PDF o foto)" url={voucherSolicitud} setUrl={setVoucherSolicitud} onFile={(f) => subirArchivo(f, setVoucherSolicitud, "voucher", "comprobantes")} />
+                <Adjunto titulo="Contrato físico firmado (PDF o foto) *" url={contratoFisico} setUrl={setContratoFisico} onFile={(f) => subirArchivo(f, setContratoFisico, "contrato", "adjuntos")} obligatorio />
               </div>
-              <div className="mt-3">
-                <Adjunto titulo="Contrato físico firmado (PDF o foto)" url={contratoFisico} setUrl={setContratoFisico} onFile={(f) => subirArchivo(f, setContratoFisico, "contrato", "adjuntos")} />
-              </div>
+              </>}
+              {tieneAbonoInicial && <div className="mt-3">
+                <Adjunto titulo="Voucher del abono (PDF o foto) *" url={voucherSolicitud} setUrl={setVoucherSolicitud} onFile={(f) => subirArchivo(f, setVoucherSolicitud, "voucher", "comprobantes")} obligatorio />
+              </div>}
           </section>
 
           <section>

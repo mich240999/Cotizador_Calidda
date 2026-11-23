@@ -71,6 +71,7 @@ export const ESTADOS_SOLICITUD = [
   "generada",
   "en_instalacion",
   "instalada",
+  "observado_por_sustento",
   "validada_proveedor",
   "cerrada",
   "pendiente_liquidar",
@@ -487,8 +488,16 @@ const EsquemaCrearSolicitud = z.object({
   cuota_mensual: z.coerce.number().min(0).max(10_000_000).optional().default(0),
   items: z.array(EsquemaItemVenta).min(1).max(200),
 }).superRefine((v, ctx) => {
-  if (!v.codigo_llamada.trim() && !v.voucher_solicitud_url && !v.contrato_fisico_url) {
-    ctx.addIssue({ code: "custom", path: ["codigo_llamada"], message: "Ingresa un código de audio o adjunta un voucher o contrato." });
+  const tieneAbono = Number(v.anticipo ?? 0) > 0
+    || v.pago_modo === "mixto"
+    || v.pago_modo === "con_abono"
+    || v.items.some((item) => item.tipo_pedido === "ABONO");
+  if (tieneAbono) {
+    if (!v.voucher_solicitud_url) ctx.addIssue({ code: "custom", path: ["voucher_solicitud_url"], message: "Adjunta el voucher del abono." });
+  } else {
+    if (!v.codigo_llamada.trim()) ctx.addIssue({ code: "custom", path: ["codigo_llamada"], message: "Ingresa el código de llamada." });
+    if (!v.contrato_fisico_url) ctx.addIssue({ code: "custom", path: ["contrato_fisico_url"], message: "Adjunta el contrato físico firmado." });
+    if (v.voucher_solicitud_url) ctx.addIssue({ code: "custom", path: ["voucher_solicitud_url"], message: "No se puede adjuntar voucher si la solicitud no tiene abono." });
   }
 });
 
@@ -904,7 +913,7 @@ async function hCrearSolicitudDesdeCotizacion(args: z.infer<typeof EsquemaCrearS
     const tea = teaRaw > 1 ? teaRaw / 100 : teaRaw;
     const plazo = Number(c.plazo ?? 9) || 9;
     const cuotaTotal = montoFinanciado > 0
-      ? Number(c.cuota_mensual ?? 0) || cuotaFrancesaConIgv(montoFinanciado, tea, plazo)
+      ? cuotaFrancesaConIgv(montoFinanciado, tea, plazo)
       : 0;
 
     const detalles: Fila[] = [];
@@ -1405,7 +1414,7 @@ async function hRevisarEvidencia(args: z.infer<typeof EsquemaRevisarEvidencia>, 
       evidencias.some((e) => String(e.tipo) === t && String(e.estado) === "aprobado")
     );
     const estado = rechazadas.length ? "observada" : todasAprobadas ? "validada_proveedor" : "registrada";
-    const estadoSol = todasAprobadas ? "validada_proveedor" : "instalada";
+    const estadoSol = rechazadas.length ? "observado_por_sustento" : todasAprobadas ? "validada_proveedor" : "instalada";
     const observacion = rechazadas.length
       ? `Subsanar: ${rechazadas.map((e) => `${String(e.tipo)} (${String(e.observacion ?? "sin detalle")})`).join("; ")}`
       : null;
@@ -1457,7 +1466,7 @@ async function hRevisarEvidencias(args: z.infer<typeof EsquemaRevisarEvidencias>
   const observacion = observadas.length ? `Subsanar: ${observadas.map((d) => `${d.tipo} (${d.observacion})`).join("; ")}` : null;
   const { error: eInstalacion } = await ctx.service.from(T_INS).update({ estado, observacion }).eq("solicitud_id", args.solicitud_id);
   if (eInstalacion) throw new Error(eInstalacion.message);
-  const estadoSolicitud = observadas.length ? "instalada" : "validada_proveedor";
+  const estadoSolicitud = observadas.length ? "observado_por_sustento" : "validada_proveedor";
   const { error: eSolicitud } = await ctx.service.from(T_SOL).update({ estado: estadoSolicitud }).eq("id", args.solicitud_id);
   if (eSolicitud) throw new Error(eSolicitud.message);
   if (observacion) await avisarObservacion(ctx, args.solicitud_id, "las evidencias de instalación", observacion);
@@ -1952,9 +1961,9 @@ async function hObtenerCotizacionParaVenta(args: z.infer<typeof EsquemaCotizacio
         capital: Math.max(Math.round((importeNeto - cuotaInicial) * 100) / 100, 0),
         plazo: Number(c.plazo ?? 9) || 9,
         tea: Number(c.tea ?? 0.40) > 1 ? Number(c.tea) / 100 : (Number(c.tea ?? 0.40) || 0.40),
-        cuota_mensual: Number(c.cuota_mensual ?? 0) || (importeNeto > cuotaInicial
+        cuota_mensual: importeNeto > cuotaInicial
           ? cuotaFrancesaConIgv(importeNeto - cuotaInicial, Number(c.tea ?? 0.4) > 1 ? Number(c.tea) / 100 : Number(c.tea ?? 0.4), Number(c.plazo ?? 9) || 9)
-          : 0),
+          : 0,
       },
       id_proveedor: c.id_proveedor ?? null,
       id_asesor: c.id_asesor ?? null,
@@ -2306,7 +2315,7 @@ async function hCorreoCotizacionGuardar(
 
 // ---------------------------------------------------------------- Etapa 6: instalaciones y liquidación
 
-const ESTADOS_INSTALABLE = ["generada", "aprobada", "en_instalacion", "instalada", "observada", "validada_proveedor"];
+const ESTADOS_INSTALABLE = ["generada", "aprobada", "en_instalacion", "instalada", "observado_por_sustento", "observada", "validada_proveedor"];
 
 const EsquemaListarInstalaciones = z.object({
   q: z.string().trim().max(120).optional().default(""),
@@ -2354,7 +2363,7 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
     const armar = (conPV: boolean) => {
       let qq = ctx.service.from(T_SOL).select("*", { count: "exact" }).order("created_at", { ascending: false });
       qq = aplicarAlcanceVentas(qq, aIns);
-      qq = qq.in("estado", ["generada", "aprobada", "en_instalacion", "instalada", "subsanado_pendiente", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"]);
+      qq = qq.in("estado", ["generada", "aprobada", "en_instalacion", "instalada", "observado_por_sustento", "subsanado_pendiente", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"]);
       if (args.estado_sol) qq = qq.eq("estado", args.estado_sol.toLowerCase());
       if (args.desde) qq = qq.gte("created_at", `${args.desde}T00:00:00`);
       if (args.hasta) qq = qq.lte("created_at", `${args.hasta}T23:59:59`);
@@ -2387,7 +2396,7 @@ async function hListarInstalaciones(args: z.infer<typeof EsquemaListarInstalacio
       try {
         const { data: extra } = await ctx.service.from(T_SOL).select("*").in("id", idsPorPV).limit(200);
         const vistas = new Set(rows.map((r) => String(r.id)));
-        const estadosOK = ["generada", "aprobada", "en_instalacion", "instalada", "subsanado_pendiente", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"];
+        const estadosOK = ["generada", "aprobada", "en_instalacion", "instalada", "observado_por_sustento", "subsanado_pendiente", "validada_proveedor", "pendiente_liquidar", "observada", "cerrada", "liquidada"];
         for (const r of ((extra ?? []) as Fila[])) {
           if (vistas.has(String(r.id))) continue;
           if (!estadosOK.includes(String(r.estado ?? "").toLowerCase())) continue;

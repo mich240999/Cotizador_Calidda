@@ -230,7 +230,7 @@ export default function VentaDetallePage() {
   // Puertas por estado: nada se puede aprobar/liquidar dos veces.
   const puedeAprobar = ["borrador", "observado"].includes(est);
   const puedeObservarSol = ["borrador", "observado", "aprobada"].includes(est);
-  const puedeInstalar = ["aprobada", "generada", "en_instalacion", "observada", "subsanado_pendiente", "instalada"].includes(est)
+  const puedeInstalar = ["aprobada", "generada", "en_instalacion", "observada", "observado_por_sustento", "subsanado_pendiente", "instalada"].includes(est)
     && (evidencias.length === 0 || hayRechazadas || estIns === "observada" || estIns === "subsanado_pendiente");
   const puedeLiquidar = est === "pendiente_liquidar";
   const puedeRevertir = est === "pendiente_liquidar" || (esAdmin && est === "liquidada");
@@ -345,6 +345,7 @@ export default function VentaDetallePage() {
               <div className="grid gap-3 px-5 py-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
                 <div><div className="label">PV venta</div><div className="font-mono">{String((venta as Record<string, unknown>).numero_pedido ?? "—")}</div></div>
                 <div><div className="label">Orden venta SAP</div><div className="font-mono">{String((venta as Record<string, unknown>).orden_pedido_venta ?? "—")}</div></div>
+                <div><div className="label">Cuotas financiadas</div><div>{Number((venta as Record<string, unknown>).nro_cuotas ?? 0) > 0 ? `${String((venta as Record<string, unknown>).nro_cuotas)} cuotas · ${formatoMoneda(Number((venta as Record<string, unknown>).cuota_mensual ?? 0))} cada una` : "Contado"}</div></div>
                 {Number((venta as Record<string, unknown>).anticipo ?? 0) > 0 && <>
                   <div><div className="label">PV abono</div><div className="font-mono">{String((venta as Record<string, unknown>).pv_abono ?? "—")}</div></div>
                   <div><div className="label">Orden abono SAP</div><div className="font-mono">{String((venta as Record<string, unknown>).orden_pedido_abono ?? "—")}</div></div>
