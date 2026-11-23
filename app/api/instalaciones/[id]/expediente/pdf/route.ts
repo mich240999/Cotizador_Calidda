@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import sharp from "sharp";
 import { getSession } from "@/lib/auth";
-import { resolverAlcance, puedeVerVenta } from "@/lib/alcance";
 import { createSupabaseServiceRole } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
@@ -83,19 +82,14 @@ function dibujarEncabezado(
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   const sesion = await getSession();
   if (!sesion) return NextResponse.json({ ok: false, error: "No autenticado" }, { status: 401 });
+  if (sesion.rol !== "admin") {
+    return NextResponse.json({ ok: false, error: "El expediente está reservado a administración." }, { status: 403 });
+  }
   try {
     const service = createSupabaseServiceRole();
     const { data: venta, error: eVenta } = await service.from("vta_solicitudes_venta").select("*").eq("id", params.id).maybeSingle();
     if (eVenta) throw new Error(eVenta.message);
     if (!venta) return NextResponse.json({ ok: false, error: "Venta no encontrada" }, { status: 404 });
-    const alcance = await resolverAlcance(service, sesion);
-    if (!puedeVerVenta(alcance, venta as Record<string, unknown>)) {
-      return NextResponse.json({ ok: false, error: "Sin permiso para ver esta venta" }, { status: 403 });
-    }
-    if (!alcance.todo && !alcance.empresaScope) {
-      return NextResponse.json({ ok: false, error: "El expediente está habilitado para administración y proveedor" }, { status: 403 });
-    }
-
     const { data: evidenciaRows, error: eEvidencias } = await service.from("vta_instalacion_evidencias")
       .select("tipo,url,estado").eq("solicitud_id", params.id);
     if (eEvidencias) throw new Error(eEvidencias.message);
@@ -257,9 +251,9 @@ export async function GET(_request: Request, { params }: { params: { id: string 
         dibujarEncabezado(fotoPage, `Anexo ${indice + 1} · ${etiqueta}`, pv, font, bold, logo);
         const margen = 42;
         const ancho = A4[0] - margen * 2;
-        const alto = A4[1] - 160;
+        const alto = A4[1] - 220;
         const escala = Math.min(ancho / imagen.width, alto / imagen.height);
-        fotoPage.drawImage(imagen, { x: (A4[0] - imagen.width * escala) / 2, y: 56 + (alto - imagen.height * escala) / 2, width: imagen.width * escala, height: imagen.height * escala });
+        fotoPage.drawImage(imagen, { x: (A4[0] - imagen.width * escala) / 2, y: (A4[1] - imagen.height * escala) / 2, width: imagen.width * escala, height: imagen.height * escala });
       }
     }
 

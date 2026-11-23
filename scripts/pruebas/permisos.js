@@ -535,7 +535,7 @@ async function ejecutar() {
       aviso(`${usuario} expediente sin evidencias -> ${esperado}`, res.status === esperado, `HTTP ${res.status}`);
     };
     await Promise.all([
-      expediente("admin", 409), expediente("provA", 409), expediente("provB", 403), expediente("as1", 403),
+      expediente("admin", 409), expediente("provA", 403), expediente("provB", 403), expediente("as1", 403),
       comprobar("provA", "getVenta", { id: ventaInstalada }, 200),
       comprobar("provB", "getVenta", { id: ventaInstalada }, 403),
       comprobar("admin", "getVenta", { id: ventaInstalada }, 200),

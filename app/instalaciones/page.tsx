@@ -28,14 +28,14 @@ function evidenciasDe(v: Fila): Fila[] {
   return Array.isArray(v.evidencias) ? v.evidencias : [];
 }
 
-function VentanaInstalacion({ v, accion, onClose, onChanged }: {
-  v: Fila; accion: AccionInstalacion; onClose: () => void; onChanged: () => void;
+function VentanaInstalacion({ v, accion, esAdmin, onClose, onChanged }: {
+  v: Fila; accion: AccionInstalacion; esAdmin: boolean; onClose: () => void; onChanged: () => void;
 }) {
   const evidencias = evidenciasDe(v);
   const estadoVenta = String(v.estado ?? "").toLowerCase();
   const estadoInstalacion = estadoInstDe(v).toLowerCase();
   const estadosConExpediente = ["validada_proveedor", "pendiente_liquidar", "liquidada", "cerrada"];
-  const expedienteDisponible = accion === "detalle"
+  const expedienteDisponible = esAdmin && accion === "detalle"
     && (estadosConExpediente.includes(estadoVenta) || estadosConExpediente.includes(estadoInstalacion))
     && SUSTENTOS_INSTALACION.every(({ tipo }) => evidencias.some((e) => e.tipo === tipo && e.url && e.estado === "aprobado"));
   const titulo = accion === "detalle" ? "Detalle de venta e instalación"
@@ -349,7 +349,7 @@ export default function InstalacionesPage() {
         </div>
       )}
 
-      {ventana && <VentanaInstalacion {...ventana} onClose={() => setVentana(null)} onChanged={() => void cargar()} />}
+      {ventana && <VentanaInstalacion {...ventana} esAdmin={esAdmin} onClose={() => setVentana(null)} onChanged={() => void cargar()} />}
       {liquidacion && <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4">
         <section role="dialog" aria-modal="true" aria-labelledby="liquidacion-titulo" className="my-8 w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-xl">
           <header className="flex items-start justify-between border-b bg-slate-50 px-6 py-4">
