@@ -2502,7 +2502,6 @@ async function hRegistrarLiquidacion(args: z.infer<typeof EsquemaRegistrarLiquid
 
 /**
  * Revierte una liquidación registrada por error:
- *  - pendiente_liquidar → validada_proveedor (operativo; borra solo datos exclusivos de liquidación)
  *  - liquidada con acta/anticipo → pendiente_liquidar (solo admin)
  *  - liquidada con cierre operativo → validada_proveedor (solo admin)
  */
@@ -2510,43 +2509,28 @@ async function hRevertirLiquidacion(args: z.infer<typeof EsquemaRevertirLiquidac
   try {
     const s = await ventaVisible(ctx, args.solicitud_id);
     const estSol = String(s.estado ?? "").toLowerCase();
+    if (estSol !== "liquidada") lanzar(422, "Solo se puede revertir una venta liquidada.");
     const { data: ins, error: eIns } = await ctx.service
-      .from(T_INS)
-      .select("id,estado")
-      .eq("solicitud_id", args.solicitud_id)
-      .maybeSingle();
+    .from(T_INS)
+    .select("id,estado")
+    .eq("solicitud_id", args.solicitud_id)
+    .maybeSingle();
     if (eIns) throw new Error(eIns.message);
     if (!ins) lanzar(422, "La venta no tiene instalación o liquidación registrada");
     const estIns = String((ins as Fila).estado ?? "").toLowerCase();
     const nota = args.nota.trim();
 
-    if (estSol === "liquidada") {
-      if (!esAdmin(ctx)) lanzar(403, "Solo admin puede revertir una venta liquidada");
-      const destino = estIns === "cerrada"
-        ? "validada_proveedor"
-        : ["liquidada", "pendiente_liquidar"].includes(estIns)
-          ? "pendiente_liquidar"
-          : "";
-      if (!destino) lanzar(422, `No se puede revertir una venta liquidada con instalación '${estIns}'`);
-      const u1 = await ctx.service.from(T_INS).update({ estado: destino }).eq("solicitud_id", args.solicitud_id);
-      if (u1.error) throw new Error(u1.error.message);
-      const u2 = await ctx.service.from(T_SOL).update({ estado: destino, nota_reversion: nota }).eq("id", args.solicitud_id);
-      if (u2.error) throw new Error(u2.error.message);
-      return { ok: true, estado: destino, nota };
-    }
-
-    if (estSol !== "pendiente_liquidar") {
-      lanzar(422, `Solo se revierte una venta pendiente de liquidar o liquidada (está '${estSol}')`);
-    }
-    const u1 = await ctx.service.from(T_INS).update({
-      estado: "validada_proveedor",
-      tipo_liquidacion: null,
-      observacion: null,
-    }).eq("solicitud_id", args.solicitud_id);
+    const destino = estIns === "cerrada"
+      ? "validada_proveedor"
+      : ["liquidada", "pendiente_liquidar"].includes(estIns)
+        ? "pendiente_liquidar"
+        : "";
+    if (!destino) lanzar(422, `No se puede revertir una venta liquidada con instalación '${estIns}'`);
+    const u1 = await ctx.service.from(T_INS).update({ estado: destino }).eq("solicitud_id", args.solicitud_id);
     if (u1.error) throw new Error(u1.error.message);
-    const u2 = await ctx.service.from(T_SOL).update({ estado: "validada_proveedor", nota_reversion: nota }).eq("id", args.solicitud_id);
+    const u2 = await ctx.service.from(T_SOL).update({ estado: destino, nota_reversion: nota }).eq("id", args.solicitud_id);
     if (u2.error) throw new Error(u2.error.message);
-    return { ok: true, estado: "validada_proveedor", nota };
+    return { ok: true, estado: destino, nota };
   } catch (e) {
     exigirTabla(e);
   }
@@ -2639,7 +2623,7 @@ export const OPERACIONES_VENTAS: Record<string, DefOp> = {
   listarInstalaciones: { descripcion: "Instalaciones: solicitudes post-PV con su instalación (scope proveedor)", roles: TODOS, schema: EsquemaListarInstalaciones, handler: hListarInstalaciones },
   registrarLiquidacion: { descripcion: "Instalaciones: registra liquidación por acta tras aprobar evidencias y validar pedidos → pendiente_liquidar", roles: OPERATIVO, schema: EsquemaRegistrarLiquidacion, handler: hRegistrarLiquidacion },
   liquidarVenta: { descripcion: "Instalaciones: admin liquida con nota tras aprobar evidencias y pedidos → liquidada", roles: SOLO_ADMIN, schema: EsquemaLiquidar, handler: hLiquidarVenta },
-  revertirLiquidacion: { descripcion: "Ventas: revierte con nota pendiente_liquidar → validada_proveedor o liquidada → paso previo (admin)", roles: OPERATIVO, schema: EsquemaRevertirLiquidacion, handler: hRevertirLiquidacion },
+  revertirLiquidacion: { descripcion: "Ventas: revierte una liquidación con nota", roles: SOLO_ADMIN, schema: EsquemaRevertirLiquidacion, handler: hRevertirLiquidacion },
   buscarCotizacionesParaVenta: { descripcion: "Ventas: busca cotizaciones por DNI/nombre/cta-cto/código para generar solicitud", roles: TODOS, schema: EsquemaBuscarCotizaciones, handler: hBuscarCotizacionesParaVenta },
   obtenerCotizacionParaVenta: { descripcion: "Ventas: payload de cotización para prellenar la solicitud", roles: OPERATIVO, schema: EsquemaCotizacionParaVenta, handler: hObtenerCotizacionParaVenta },
 };

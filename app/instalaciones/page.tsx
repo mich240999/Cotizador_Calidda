@@ -145,10 +145,7 @@ export default function InstalacionesPage() {
   }, [rows, q, fSol, fInst, fDesde, fHasta]);
 
   const puedeLiquidar = (v: Fila) => esAdmin && estadoInstDe(v) === "pendiente_liquidar" && String(v.estado ?? "").toLowerCase() !== "liquidada";
-  const puedeRevertir = (v: Fila) => {
-    const ei = estadoInstDe(v);
-    return ei === "pendiente_liquidar" || (esAdmin && ei === "liquidada");
-  };
+  const puedeRevertir = (v: Fila) => esAdmin && String(v.estado ?? "").toLowerCase() === "liquidada";
 
   const abrirLiquidacion = (v: Fila) => {
     setLiquidacion(v);
@@ -336,7 +333,7 @@ export default function InstalacionesPage() {
                         </button>
                       )}
                       {puedeRevertir(v) && (
-                        <button className="btn-white !py-1 !px-3 !text-xs" title="Revertir por error el paso a liquidar" disabled={revirtiendo === String(v.id)} onClick={() => revertir(v)}>
+                        <button className="btn-white !py-1 !px-3 !text-xs" title="Revertir liquidación" disabled={revirtiendo === String(v.id)} onClick={() => revertir(v)}>
                           {revirtiendo === String(v.id) ? "…" : "↩ Revertir"}
                         </button>
                       )}

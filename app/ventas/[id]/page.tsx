@@ -233,7 +233,7 @@ export default function VentaDetallePage() {
   const puedeInstalar = ["aprobada", "generada", "en_instalacion", "observada", "observado_por_sustento", "subsanado_pendiente", "instalada"].includes(est)
     && (evidencias.length === 0 || hayRechazadas || estIns === "observada" || estIns === "subsanado_pendiente");
   const puedeLiquidar = est === "pendiente_liquidar";
-  const puedeRevertir = est === "pendiente_liquidar" || (esAdmin && est === "liquidada");
+  const puedeRevertir = esAdmin && est === "liquidada";
 
   const abrirAprobar = () => {
     const p: Record<string, string> = {};
