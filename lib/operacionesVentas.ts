@@ -1125,6 +1125,7 @@ async function hCrearSolicitud(args: z.infer<typeof EsquemaCrearSolicitud>, ctx:
       anticipo,
       monto_financiado: montoFinanciado,
       nro_cuotas: args.nro_cuotas ?? null,
+      cuota_mensual: args.cuota_mensual,
       ambiente: args.ambiente || null,
     };
     let insCab = await ctx.service.from(T_SOL).insert(filaSol).select().single();

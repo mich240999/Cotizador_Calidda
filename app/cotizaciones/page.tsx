@@ -163,7 +163,7 @@ export default function CotizacionesPage() {
         ) : (
           <div className="table-wrap mt-4">
             <table className="tabla">
-              <thead><tr><th>NÚMERO</th><th>FECHA</th><th>CLIENTE</th><th>PROVEEDOR</th><th>USUARIO DE VENTA</th><th>ESTADO</th><th>SUBTOTAL</th><th>CUOTAS</th><th>ACTUALIZACIÓN</th><th>ACCIONES</th></tr></thead>
+              <thead><tr><th>NÚMERO</th><th>FECHA</th><th>CLIENTE</th><th>PROVEEDOR</th><th>USUARIO DE VENTA</th><th>ESTADO</th><th>SUBTOTAL</th><th>CUOTAS</th><th>CUOTA MENSUAL</th><th>ACTUALIZACIÓN</th><th>ACCIONES</th></tr></thead>
               <tbody>
                 {filtradas.map((r) => (
                   <tr key={r.id}>
@@ -175,6 +175,7 @@ export default function CotizacionesPage() {
                     <td><span className="text-[11px] font-bold bg-amber-100 text-amber-700 rounded-lg px-2 py-1">{String(r.estado ?? "—").toUpperCase()}</span></td>
                     <td>S/ {Number(r.subtotal ?? r.total ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td>{r.plazo ? `${r.plazo} cuotas` : "—"}</td>
+                    <td className="whitespace-nowrap">{Number(r.cuota_mensual) > 0 ? `S/ ${Number(r.cuota_mensual).toFixed(2)}` : "—"}</td>
                     <td>{r.updated_at ?? r.created_at ?? "—"}</td>
                     <td><AccAbrir title="Abrir cotización" href={`/cotizaciones/${r.id}`} /></td>
                   </tr>

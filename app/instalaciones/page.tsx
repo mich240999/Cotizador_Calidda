@@ -51,6 +51,7 @@ function VentanaInstalacion({ v, accion, esAdmin, onClose, onChanged }: {
     ["Estado de instalación", etiquetaEstado(estadoInstDe(v))],
     ["Total", formatoMoneda(Number(v.monto_total ?? 0))], ["Ambiente", v.ambiente],
     ["Anticipo", formatoMoneda(Number(v.anticipo ?? 0))], ["Cuotas", v.nro_cuotas],
+    ["Cuota mensual", Number(v.cuota_mensual) > 0 ? formatoMoneda(Number(v.cuota_mensual)) : "—"],
   ] as const;
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/50 p-4 overflow-y-auto">
@@ -224,6 +225,7 @@ export default function InstalacionesPage() {
           ANTICIPO: Number(v.anticipo ?? 0),
           MONTO_FINANCIADO: Number(v.monto_financiado ?? 0),
           NRO_CUOTAS: String(v.nro_cuotas ?? ""),
+          CUOTA_MENSUAL: Number(v.cuota_mensual) || null,
           AMBIENTE: String(v.ambiente ?? ""),
           MATERIAL: String(v.material_nombre ?? ""),
           FECHA_VENTA: String(v.created_at ?? ""),
@@ -296,7 +298,7 @@ export default function InstalacionesPage() {
         <div className="card mt-4">
           <div className="px-5 py-3 border-b font-semibold">Instalaciones · {filtradas.length}</div>
           <div className="overflow-x-auto"><table className="tabla">
-            <thead><tr><th>ESTADO</th><th>N° COTIZACIÓN</th><th>CLIENTE</th><th>CTA CTO</th><th>PROVEEDOR</th><th>ASESOR</th><th>PV VENTA</th><th>ORDEN VENTA (SAP)</th><th>PV ABONO</th><th>ORDEN ABONO (SAP)</th><th>MONTO TOTAL</th><th>ANTICIPO</th><th>MONTO FINANCIADO</th><th>NRO CUOTAS</th><th>AMBIENTE</th><th>MATERIAL</th><th>FECHA VENTA</th><th>ACCIONES</th></tr></thead>
+            <thead><tr><th>ESTADO</th><th>N° COTIZACIÓN</th><th>CLIENTE</th><th>CTA CTO</th><th>PROVEEDOR</th><th>ASESOR</th><th>PV VENTA</th><th>ORDEN VENTA (SAP)</th><th>PV ABONO</th><th>ORDEN ABONO (SAP)</th><th>MONTO TOTAL</th><th>ANTICIPO</th><th>MONTO FINANCIADO</th><th>NRO CUOTAS</th><th>CUOTA MENSUAL</th><th>AMBIENTE</th><th>MATERIAL</th><th>FECHA VENTA</th><th>ACCIONES</th></tr></thead>
             <tbody>
               {filtradas.map((v) => (
                 <tr key={String(v.id)}>
@@ -314,6 +316,7 @@ export default function InstalacionesPage() {
                   <td className="whitespace-nowrap">{formatoMoneda(Number(v.anticipo ?? 0))}</td>
                   <td className="whitespace-nowrap">{formatoMoneda(Number(v.monto_financiado ?? 0))}</td>
                   <td>{v.nro_cuotas != null ? String(v.nro_cuotas) : "—"}</td>
+                  <td className="whitespace-nowrap">{Number(v.cuota_mensual) > 0 ? formatoMoneda(Number(v.cuota_mensual)) : "—"}</td>
                   <td>{String(v.ambiente ?? "—")}</td>
                   <td>{String(v.material_nombre ?? "—")}</td>
                   <td className="whitespace-nowrap text-xs">{v.created_at ? formatoFecha(String(v.created_at)) : "—"}</td>

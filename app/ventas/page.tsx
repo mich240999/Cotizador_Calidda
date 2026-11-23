@@ -29,6 +29,7 @@ type CotBusqueda = {
   estado?: string;
   total?: number;
   subtotal?: number;
+  cuota_mensual?: number;
   asesor?: string | null;
   proveedor?: string | null;
   cuenta_contrato?: string | null;
@@ -143,6 +144,8 @@ function VisorVenta({ id, onClose }: { id: string; onClose: () => void }) {
     ["Asesor", String(sol.asesor_nombre ?? "")],
     ["Canal", String(sol.canal ?? "—")],
     ["Pago", String(sol.pago_modo ?? "—")],
+    ["Cuotas", String(sol.nro_cuotas ?? "—")],
+    ["Cuota mensual", Number(sol.cuota_mensual) > 0 ? formatoMoneda(Number(sol.cuota_mensual)) : "—"],
     ["Código de llamada", String(sol.codigo_llamada ?? "—")],
     ["Pedido de venta", String(sol.numero_pedido ?? "—")],
     ["PV de abono", String(sol.pv_abono ?? "—")],
@@ -452,6 +455,7 @@ export default function VentasPage() {
           ANTICIPO: Number(r.anticipo ?? 0),
           MONTO_FINANCIADO: Number(r.monto_financiado ?? 0),
           NRO_CUOTAS: String(r.nro_cuotas ?? ""),
+          CUOTA_MENSUAL: Number(r.cuota_mensual) || null,
           AMBIENTE: String(r.ambiente ?? ""),
           MATERIAL: String(r.material_nombre ?? ""),
           FECHA_VENTA: ventaFecha(v),
@@ -496,6 +500,7 @@ export default function VentasPage() {
       total: Number(r.monto_total ?? ventaTotal(v)),
       ant: Number(r.anticipo ?? 0),
       fin: Number(r.monto_financiado ?? 0),
+      cuotaMensual: Number(r.cuota_mensual) > 0 ? formatoMoneda(Number(r.cuota_mensual)) : "—",
       cuotas: r.nro_cuotas != null ? String(r.nro_cuotas) : "—",
       amb: String(r.ambiente ?? "—"),
       mat: String(r.material_nombre ?? "—"),
@@ -549,13 +554,13 @@ export default function VentasPage() {
 
           <div className="table-wrap mt-3">
             <table className="tabla">
-              <thead><tr><th>COTIZACIÓN</th><th>FECHA</th><th>CLIENTE</th><th>CTA. CTO.</th><th>ASESOR</th><th>TOTAL</th><th>ACCIÓN</th></tr></thead>
+              <thead><tr><th>COTIZACIÓN</th><th>FECHA</th><th>CLIENTE</th><th>CTA. CTO.</th><th>ASESOR</th><th>CUOTA MENSUAL</th><th>TOTAL</th><th>ACCIÓN</th></tr></thead>
               <tbody>
                 {buscando && cots.length === 0 && (
-                  <tr><td colSpan={7} className="text-center text-[#0099D8] py-6">Cargando cotizaciones por vender…</td></tr>
+                  <tr><td colSpan={8} className="text-center text-[#0099D8] py-6">Cargando cotizaciones por vender…</td></tr>
                 )}
                 {cots.length === 0 && !buscando && (
-                  <tr><td colSpan={7} className="text-center text-slate-400 py-6">Sin cotizaciones por vender con esos filtros.</td></tr>
+                  <tr><td colSpan={8} className="text-center text-slate-400 py-6">Sin cotizaciones por vender con esos filtros.</td></tr>
                 )}
                 {cots.map((c) => (
                   <tr key={c.id}>
@@ -564,6 +569,7 @@ export default function VentasPage() {
                     <td className="font-medium">{c.cliente_nombre ?? "—"}{c.cliente_doc ? <span className="block text-[11px] text-slate-400">Doc {c.cliente_doc}</span> : null}</td>
                     <td>{c.cuenta_contrato ?? "—"}</td>
                     <td>{c.asesor ?? "—"}</td>
+                    <td className="whitespace-nowrap">{Number(c.cuota_mensual) > 0 ? formatoMoneda(c.cuota_mensual) : "—"}</td>
                     <td className="whitespace-nowrap font-bold">{formatoMoneda(c.total)}</td>
                     <td>
                       <button className="btn-green !py-1.5 !text-xs whitespace-nowrap" disabled={generando === c.id} onClick={() => generarSolicitud(c)}>
@@ -585,7 +591,7 @@ export default function VentasPage() {
             ) : (
               <div className="table-wrap">
                 <table className="tabla">
-                  <thead><tr><th>NÚMERO</th><th>COTIZACIÓN</th><th>CLIENTE</th><th>ASESOR</th><th>CUOTAS</th><th>TOTAL</th><th>ACCIÓN</th></tr></thead>
+                  <thead><tr><th>NÚMERO</th><th>COTIZACIÓN</th><th>CLIENTE</th><th>ASESOR</th><th>CUOTAS</th><th>CUOTA MENSUAL</th><th>TOTAL</th><th>ACCIÓN</th></tr></thead>
                   <tbody>
                     {pendientesFiltrados.map((v, i) => {
                       const r = v as Record<string, unknown>;
@@ -596,6 +602,7 @@ export default function VentasPage() {
                             <td className="font-medium">{ventaCliente(v)}</td>
                             <td>{String(r.asesor_nombre ?? "—")}</td>
                             <td>{r.nro_cuotas == null ? "—" : `${String(r.nro_cuotas)} cuotas`}</td>
+                            <td className="whitespace-nowrap">{Number(r.cuota_mensual) > 0 ? formatoMoneda(Number(r.cuota_mensual)) : "—"}</td>
                             <td className="whitespace-nowrap font-bold">{formatoMoneda(Number(r.monto_total ?? ventaTotal(v)))}</td>
                             <td className="whitespace-nowrap">
                               <div className="flex gap-1.5">
@@ -653,7 +660,7 @@ export default function VentasPage() {
             <div className="px-5 py-3 border-b font-semibold">Solicitudes · {historico.length}</div>
             <div className="overflow-x-auto">
               <table className="tabla">
-                <thead><tr><th>ESTADO</th><th>N° COTIZACIÓN</th><th>CLIENTE</th><th>CTA CTO</th><th>PROVEEDOR</th><th>ASESOR</th><th>MONTO TOTAL</th><th>ANTICIPO</th><th>MONTO FINANCIADO</th><th>NRO CUOTAS</th><th>AMBIENTE</th><th>MATERIAL</th><th>FECHA VENTA</th><th>ACCIONES</th></tr></thead>
+                <thead><tr><th>ESTADO</th><th>N° COTIZACIÓN</th><th>CLIENTE</th><th>CTA CTO</th><th>PROVEEDOR</th><th>ASESOR</th><th>MONTO TOTAL</th><th>ANTICIPO</th><th>MONTO FINANCIADO</th><th>NRO CUOTAS</th><th>CUOTA MENSUAL</th><th>AMBIENTE</th><th>MATERIAL</th><th>FECHA VENTA</th><th>ACCIONES</th></tr></thead>
                 <tbody>
                   {historico.map((v, i) => {
                     const f = filaHist(v);
@@ -669,6 +676,7 @@ export default function VentasPage() {
                         <td className="whitespace-nowrap">{formatoMoneda(f.ant)}</td>
                         <td className="whitespace-nowrap">{formatoMoneda(f.fin)}</td>
                         <td>{f.cuotas}</td>
+                        <td className="whitespace-nowrap">{f.cuotaMensual}</td>
                         <td>{f.amb}</td>
                         <td>{f.mat}</td>
                         <td className="whitespace-nowrap text-xs">{f.fecha ? formatoFecha(f.fecha) : "—"}</td>

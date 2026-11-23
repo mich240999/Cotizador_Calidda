@@ -186,6 +186,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     etiquetaDato(page, "Cuotas", numeroCuotas, 475, 567, 68);
     etiquetaDato(page, "Ambiente", textoSeguro(venta.ambiente), 49, 532, 145);
     etiquetaDato(page, "Pedido de abono", textoSeguro(venta.pv_abono ?? venta.numero_pedido_abono), 210, 532, 160);
+    const cuotaMensual = Number(venta.cuota_mensual ?? 0);
+    etiquetaDato(page, "Cuota mensual", cuotaMensual > 0 ? formatoDinero(cuotaMensual) : "—", 405, 532, 138);
     const detalles = textoSeguro(venta.detalles_adicionales ?? venta.detalle_adicional ?? venta.observaciones ?? cotizacion?.observaciones, "Sin detalles adicionales");
     seccion(page, 36, 435, 523, 54, "4. Detalles adicionales");
     texto(page, detalles, 48, 456, 8, false, 493);

@@ -40,6 +40,8 @@ type Cotizacion = {
   igv?: number;
   total?: number;
   cuota_inicial?: number;
+  cuota_mensual?: number;
+  plazo?: number;
   cuotaInicial?: number;
   capital?: number;
   capital_financiado?: number;
@@ -302,6 +304,10 @@ export default function CotizacionDetallePage({
                       <div className="flex justify-between text-lg border-t pt-2">
                         <dt className="font-bold">Total (valor a financiar)</dt>
                         <dd className="font-bold">{formatoMoneda(total)}</dd>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-slate-500">Cuota mensual{cot.plazo ? ` · ${cot.plazo} cuotas` : ""}</dt>
+                        <dd className="font-semibold">{Number(cot.cuota_mensual) > 0 ? formatoMoneda(cot.cuota_mensual) : "—"}</dd>
                       </div>
                     </dl>
                   );
