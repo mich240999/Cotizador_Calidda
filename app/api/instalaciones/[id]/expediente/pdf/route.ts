@@ -169,35 +169,35 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     };
     const seccion = (p: typeof page, x: number, y: number, width: number, height: number, titulo: string) => {
       p.drawRectangle({ x, y, width, height, color: COLOR.blanco, borderColor: COLOR.borde, borderWidth: 0.8 });
-      p.drawRectangle({ x, y: y + height - 25, width, height: 25, color: COLOR.fondo });
-      p.drawText(titulo.toUpperCase(), { x: x + 12, y: y + height - 17, size: 8, font: bold, color: COLOR.azul });
+      p.drawRectangle({ x, y: y + height - 20, width, height: 20, color: COLOR.fondo });
+      p.drawText(titulo.toUpperCase(), { x: x + 12, y: y + height - 13, size: 8, font: bold, color: COLOR.azul });
     };
     const etiquetaDato = (p: typeof page, label: string, value: string, x: number, y: number, width: number) => {
       p.drawText(label.toUpperCase(), { x, y, size: 6.5, font: bold, color: COLOR.tenue });
-      texto(p, value, x, y - 14, 9, false, width);
+      texto(p, value, x, y - 11, 9, false, width);
     };
-    seccion(page, 36, 568, 261.5, 133, "1. Datos del cliente");
-    etiquetaDato(page, "Cliente", clienteNombre, 48, 678, 228);
-    etiquetaDato(page, "Documento", documentoCliente, 48, 638, 105);
-    etiquetaDato(page, "Cuenta contrato", cuentaContrato, 164, 638, 112);
-    seccion(page, 297.5, 568, 261.5, 133, "2. Datos de la venta");
-    etiquetaDato(page, "Proveedor", proveedorNombre, 316, 678, 230);
-    etiquetaDato(page, "Asesor", asesorNombre, 316, 638, 105);
-    etiquetaDato(page, "Cotización", codigoCotizacion, 430, 638, 118);
-    etiquetaDato(page, "Fecha de venta", fechaVenta, 316, 598, 230);
-    seccion(page, 36, 449, 523, 103, "3. Resumen económico");
-    etiquetaDato(page, "Total de productos", formatoDinero(totalProductos), 49, 526, 145);
-    etiquetaDato(page, "Anticipo", formatoDinero(anticipo), 210, 526, 110);
-    etiquetaDato(page, "Monto financiado", formatoDinero(montoFinanciado || Math.max(totalProductos - anticipo, 0)), 337, 526, 125);
-    etiquetaDato(page, "Cuotas", numeroCuotas, 475, 526, 68);
-    etiquetaDato(page, "Ambiente", textoSeguro(venta.ambiente), 49, 483, 145);
-    etiquetaDato(page, "Pedido de abono", textoSeguro(venta.pv_abono ?? venta.numero_pedido_abono), 210, 483, 160);
+    seccion(page, 36, 609, 261.5, 129, "1. Datos del cliente");
+    etiquetaDato(page, "Cliente", clienteNombre, 48, 706, 228);
+    etiquetaDato(page, "Documento", documentoCliente, 48, 671, 105);
+    etiquetaDato(page, "Cuenta contrato", cuentaContrato, 164, 671, 112);
+    seccion(page, 297.5, 609, 261.5, 129, "2. Datos de la venta");
+    etiquetaDato(page, "Proveedor", proveedorNombre, 309.5, 706, 230);
+    etiquetaDato(page, "Asesor", asesorNombre, 309.5, 671, 105);
+    etiquetaDato(page, "Cotización", codigoCotizacion, 430, 671, 118);
+    etiquetaDato(page, "Fecha de venta", fechaVenta, 309.5, 636, 230);
+    seccion(page, 36, 499, 523, 100, "3. Resumen económico");
+    etiquetaDato(page, "Total de productos", formatoDinero(totalProductos), 49, 567, 145);
+    etiquetaDato(page, "Anticipo", formatoDinero(anticipo), 210, 567, 110);
+    etiquetaDato(page, "Monto financiado", formatoDinero(montoFinanciado || Math.max(totalProductos - anticipo, 0)), 337, 567, 125);
+    etiquetaDato(page, "Cuotas", numeroCuotas, 475, 567, 68);
+    etiquetaDato(page, "Ambiente", textoSeguro(venta.ambiente), 49, 532, 145);
+    etiquetaDato(page, "Pedido de abono", textoSeguro(venta.pv_abono ?? venta.numero_pedido_abono), 210, 532, 160);
     const detalles = textoSeguro(venta.detalles_adicionales ?? venta.detalle_adicional ?? venta.observaciones ?? cotizacion?.observaciones, "Sin detalles adicionales");
-    seccion(page, 36, 382, 523, 54, "4. Detalles adicionales");
-    texto(page, detalles, 48, 403, 8, false, 493);
+    seccion(page, 36, 435, 523, 54, "4. Detalles adicionales");
+    texto(page, detalles, 48, 456, 8, false, 493);
 
     let hojaItems = page;
-    let yItems = 360;
+    let yItems = 414;
     const pintarCabeceraItems = (continuacion = false) => {
       hojaItems.drawText(continuacion ? "MATERIALES DE LA VENTA · CONTINUACIÓN" : "5. MATERIALES DE LA VENTA", { x: 36, y: yItems, size: 9, font: bold, color: COLOR.azulNoche });
       yItems -= 20;
@@ -207,14 +207,14 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       hojaItems.drawText("SUBTOTAL", { x: 358, y: yItems + 2, size: 6.8, font: bold, color: COLOR.blanco });
       hojaItems.drawText("PEDIDO VENTA", { x: 425, y: yItems + 2, size: 6.3, font: bold, color: COLOR.blanco });
       hojaItems.drawText("PEDIDO ABONO", { x: 494, y: yItems + 2, size: 6.3, font: bold, color: COLOR.blanco });
-      yItems -= 22;
+      yItems -= 8;
     };
     pintarCabeceraItems();
     for (const [index, item] of items.entries()) {
       const tipo = String(item.tipo_pedido ?? "VENTA").toUpperCase();
       const nombre = textoSeguro(item.material_nombre ?? item.nombre_material, "Material");
       const renglones = envolver(nombre, font, 7.2, 263, 2);
-      const altoFila = Math.max(27, 12 + renglones.length * 9);
+      const altoFila = Math.max(22, 9 + renglones.length * 9);
       if (yItems - altoFila < 53) {
         hojaItems = documento.addPage(A4);
         dibujarEncabezado(hojaItems, "Materiales de venta · continuación", pv, font, bold, logo);
