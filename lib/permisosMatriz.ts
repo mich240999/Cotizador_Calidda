@@ -19,6 +19,22 @@ const FIJOS_ADMIN = new Set([
   "crearUsuarioSGT", "actualizarUsuarioSGT", "cambiarPasswordUsuario",
 ]);
 
+// Recursos de gestión de catálogo con denegación inicial para el personal.
+// Siguen apareciendo en la matriz para que administración pueda habilitarlos
+// expresamente por rol, pero nunca heredan permiso solo por el rol base.
+const DENEGADOS_POR_DEFECTO = new Set([
+  "OP_crearMaterial", "OP_crearMaterialSGT", "OP_actualizarMaterialSGT",
+  "OP_validarArchivoMateriales", "OP_cargaMasivaMateriales",
+  "OP_crearTarifa", "OP_cargaMasivaTarifas",
+  "OP_crearCliente", "OP_crearClienteSGT", "OP_actualizarClienteSGT",
+  "OP_validarArchivoClientes", "OP_cargaMasivaClientes",
+]);
+
+const OPERACIONES_PROVEEDOR = new Set([
+  "OP_listarInstalaciones",
+  "OP_registrarInstalacion",
+]);
+
 export function esRecursoSoloAdmin(recurso: string): boolean {
   return FIJOS_ADMIN.has(recurso.replace(/^OP_/, ""));
 }
@@ -66,8 +82,12 @@ export async function verificarPermisoMatriz(
     if (!rolesBase.includes(sesion.rol)) throw errorHttp(`Acción reservada a administración: ${operacion}`, 403);
     return;
   }
-  let permitido = rolesBase.includes(sesion.rol);
   const rolCodigo = codigoRolMatriz(sesion);
+  let permitido = rolCodigo === "PROVEEDOR"
+    ? OPERACIONES_PROVEEDOR.has(recurso)
+    : DENEGADOS_POR_DEFECTO.has(recurso) && rolCodigo !== "ADMIN"
+      ? false
+      : rolesBase.includes(sesion.rol);
   const { data, error } = await service.from("seg_permisos_matriz").select("permitido")
     .eq("rol_codigo", rolCodigo).eq("recurso", recurso).maybeSingle();
   if (error) {
@@ -98,7 +118,18 @@ export async function cargarMatrizOperaciones(
     const rolApp: RolUsuario | null = ["ADMIN", "SUPERADMIN"].includes(rol) ? "admin"
       : rol === "SUPERVISOR" ? "oficina"
         : ["ASESOR", "PROVEEDOR"].includes(rol) ? "asesor" : null;
-    return { rol_codigo: rol, modulo: item.modulo, grupo: item.grupo, recurso: item.key, nombre: item.nombre, permitido: !!rolApp && item.roles.includes(rolApp) };
+    const predeterminadoProveedor = rol === "PROVEEDOR" && OPERACIONES_PROVEEDOR.has(item.key);
+    const predeterminadoCatalogo = rol !== "ADMIN" && DENEGADOS_POR_DEFECTO.has(item.key) ? false : null;
+    return {
+      rol_codigo: rol,
+      modulo: item.modulo,
+      grupo: item.grupo,
+      recurso: item.key,
+      nombre: item.nombre,
+      permitido: rol === "PROVEEDOR"
+        ? predeterminadoProveedor
+        : predeterminadoCatalogo ?? (!!rolApp && item.roles.includes(rolApp)),
+    };
   }));
   if (nuevas.length) {
     const { error } = await service.from("seg_permisos_matriz").upsert(nuevas, { onConflict: "rol_codigo,recurso", ignoreDuplicates: true });

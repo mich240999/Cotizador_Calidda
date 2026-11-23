@@ -73,7 +73,7 @@ export function useRolVista() {
       vivo = false;
     };
   }, []);
-  return { esAdmin: rol === "ADMIN", esProveedor: rol === "PROVEEDOR", detectado };
+  return { rol, esAdmin: rol === "ADMIN", esProveedor: rol === "PROVEEDOR", detectado };
 }
 
 export type Venta = Record<string, unknown>;

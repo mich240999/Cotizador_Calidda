@@ -481,11 +481,10 @@ BEGIN
       OR (modulo = 'CLIENTES' AND recurso IN ('CLIENTES-01','CLIENTES-02','CLIENTES-03','CLIENTES-04'))
       OR (modulo = 'MATERIALES' AND recurso = 'MATERIALES-01'));
 
-  -- PROVEEDOR 3: DASHBOARD 1 + GESTION_COMERCIAL 1 + MATERIALES 1.
-  UPDATE public.seg_permisos_matriz SET permitido = true WHERE rol_codigo = 'PROVEEDOR'
-    AND ((modulo = 'DASHBOARD' AND recurso = 'DASHBOARD-01')
-      OR (modulo = 'GESTION_COMERCIAL' AND recurso = 'GESTION_COMERCIAL-01')
-      OR (modulo = 'MATERIALES' AND recurso = 'MATERIALES-01'));
+  -- PROVEEDOR: sin permisos heredados de módulos internos. La matriz por
+  -- operación habilita únicamente listarInstalaciones y registrarInstalacion.
+  UPDATE public.seg_permisos_matriz SET permitido = false WHERE rol_codigo = 'PROVEEDOR'
+    AND recurso NOT IN ('OP_listarInstalaciones','OP_registrarInstalacion');
 END $$;
 
 -- Ejemplo uso cuota francesa TEA 40% (no se ejecuta, referencia):

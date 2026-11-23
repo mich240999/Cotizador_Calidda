@@ -66,11 +66,11 @@ const ICONOS: Record<string, JSX.Element> = {
 
 const ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: "dashboard", roles: ["ADMIN"] },
-  { href: "/clientes", label: "Clientes", icon: "clientes" },
-  { href: "/cotizaciones", label: "Cotizaciones", icon: "cotizaciones" },
-  { href: "/ventas", label: "Ventas", icon: "ventas" },
+  { href: "/clientes", label: "Clientes", icon: "clientes", roles: ["ADMIN", "ASESOR", "SUPERVISOR"] },
+  { href: "/cotizaciones", label: "Cotizaciones", icon: "cotizaciones", roles: ["ADMIN", "ASESOR", "SUPERVISOR"] },
+  { href: "/ventas", label: "Ventas", icon: "ventas", roles: ["ADMIN", "ASESOR", "SUPERVISOR"] },
   { href: "/instalaciones", label: "Instalaciones", icon: "instalaciones", roles: ["ADMIN", "PROVEEDOR"] },
-  { href: "/materiales", label: "Materiales", icon: "materiales" },
+  { href: "/materiales", label: "Materiales", icon: "materiales", roles: ["ADMIN", "ASESOR"] },
   { href: "/admin", label: "Administración", icon: "admin", roles: ["ADMIN"] },
 ];
 
@@ -170,6 +170,17 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     if (!miRol) return false;
     return r.includes(miRol);
   });
+  const rutaActual = ITEMS.find((it) => pathname === it.href || pathname?.startsWith(`${it.href}/`));
+  const puedeVerRuta = !rutaActual?.roles || (!!miRol && rutaActual.roles.includes(miRol));
+
+  useEffect(() => {
+    if (!miRol || !pathname) return;
+    const ruta = ITEMS.find((it) => pathname === it.href || pathname.startsWith(`${it.href}/`));
+    const roles = ruta?.roles;
+    if (roles && !roles.includes(miRol)) {
+      router.replace(miRol === "PROVEEDOR" ? "/instalaciones" : "/cotizaciones");
+    }
+  }, [miRol, pathname, router]);
 
   useEffect(() => {
     if (estadoTema === null) {
@@ -428,7 +439,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Content */}
-        <main className="flex-1 p-4 lg:p-8 pb-20 md:pb-8 min-w-0">{children}</main>
+        <main className="flex-1 p-4 lg:p-8 pb-20 md:pb-8 min-w-0">
+          {puedeVerRuta ? children : <div className="card p-8 text-center text-sm text-slate-500">Verificando permisos…</div>}
+        </main>
       </div>
 
       {popupCuenta && (

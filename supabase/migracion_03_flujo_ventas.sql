@@ -109,7 +109,7 @@ UPDATE public.seg_permisos_matriz SET nombre = 'Solicitar liquidación (proveedo
 
 UPDATE public.seg_permisos_matriz SET permitido = true
   WHERE rol_codigo = 'ADMIN' AND recurso IN ('GESTION_COMERCIAL-09', 'GESTION_COMERCIAL-10', 'ADMINISTRACION-45');
-UPDATE public.seg_permisos_matriz SET permitido = true
+UPDATE public.seg_permisos_matriz SET permitido = false
   WHERE rol_codigo = 'PROVEEDOR' AND recurso = 'GESTION_COMERCIAL-07';
 UPDATE public.seg_permisos_matriz SET permitido = true
   WHERE rol_codigo = 'ASESOR' AND recurso IN ('GESTION_COMERCIAL-01', 'GESTION_COMERCIAL-02', 'GESTION_COMERCIAL-03');

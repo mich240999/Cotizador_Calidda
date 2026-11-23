@@ -6,6 +6,7 @@ import Shell from "@/components/Shell";
 import ModHead from "@/components/ModHead";
 import { apiOperacion, EmptyState } from "@/components/Tablas";
 import { AccActivar, AccDesactivar, AccEditar } from "@/components/Accion";
+import { useRolVista } from "@/components/VentasComun";
 
 type Espacio = "" | "COTIZACION" | "VENTAS";
 
@@ -591,6 +592,7 @@ function EditarMaterialModal({ material, onClose, onGuardado }: { material: Mate
 /* ------------------------------------------------------------------ */
 
 export default function MaterialesPage() {
+  const { esAdmin } = useRolVista();
   const [modal, setModal] = useState<null | "material" | "carga">(null);
   const [editar, setEditar] = useState<Material | null>(null);
   const [accionando, setAccionando] = useState<string | null>(null);
@@ -707,15 +709,9 @@ export default function MaterialesPage() {
               <button className="btn-white" onClick={() => cargar(qEnviado, espacio)} disabled={loading}>
                 {loading ? "Cargando…" : "Actualizar"}
               </button>
-              <button className="btn-white" onClick={exportar} disabled={loading || rows.length === 0}>
-                Exportar XLSX
-              </button>
-              <button className="btn-white" onClick={() => setModal("carga")}>
-                Carga masiva
-              </button>
-              <button className="btn-green" onClick={() => setModal("material")}>
-                + Nuevo material
-              </button>
+              {esAdmin && <button className="btn-white" onClick={exportar} disabled={loading || rows.length === 0}>Exportar XLSX</button>}
+              {esAdmin && <button className="btn-white" onClick={() => setModal("carga")}>Carga masiva</button>}
+              {esAdmin && <button className="btn-green" onClick={() => setModal("material")}>+ Nuevo material</button>}
             </>
           }
         />
@@ -756,7 +752,7 @@ export default function MaterialesPage() {
           <div className="card p-10 mt-4 text-center text-slate-500">Cargando materiales…</div>
         ) : rows.length === 0 ? (
           <div className="mt-4">
-            <EmptyState titulo="Sin materiales" detalle="Usa «Nuevo material» o «Carga masiva»." />
+            <EmptyState titulo="Sin materiales" detalle={esAdmin ? "Usa «Nuevo material» o «Carga masiva»." : "No hay materiales para mostrar."} />
           </div>
         ) : (
           <div className="table-wrap mt-4">
@@ -772,7 +768,7 @@ export default function MaterialesPage() {
                   <th>ASESOR</th>
                   <th>OFICINA</th>
                   <th>GRUPO</th>
-                  <th>ACCIONES</th>
+                  {esAdmin && <th>ACCIONES</th>}
                 </tr>
               </thead>
               <tbody>
@@ -792,14 +788,14 @@ export default function MaterialesPage() {
                     <td>{m.asesor_nombre ?? "—"}</td>
                     <td>{m.oficina ?? m.id_oficina ?? "—"}</td>
                     <td>{m.grupo ?? m.id_grupo ?? "—"}</td>
-                    <td className="whitespace-nowrap">
+                    {esAdmin && <td className="whitespace-nowrap">
                       <div className="flex gap-1.5">
                         <AccEditar title="Editar material" disabled={accionando === m.id} onClick={() => setEditar(m)} />
                         {activo
                           ? <AccDesactivar title="Desactivar material" disabled={accionando === m.id} onClick={() => cambiarEstado(m)} />
                           : <AccActivar title="Activar material" disabled={accionando === m.id} onClick={() => cambiarEstado(m)} />}
                       </div>
-                    </td>
+                    </td>}
                   </tr>
                   );
                 })}
@@ -808,9 +804,9 @@ export default function MaterialesPage() {
           </div>
         )}
 
-        {modal === "material" && <NuevoMaterialModal onClose={() => setModal(null)} onGuardado={() => cargar(qEnviado, espacio)} />}
-        {modal === "carga" && <CargaMasivaModal onClose={() => setModal(null)} onProcesado={() => cargar(qEnviado, espacio)} />}
-        {editar && <EditarMaterialModal material={editar} onClose={() => setEditar(null)} onGuardado={() => { setInfo("Material actualizado."); cargar(qEnviado, espacio); }} />}
+        {esAdmin && modal === "material" && <NuevoMaterialModal onClose={() => setModal(null)} onGuardado={() => cargar(qEnviado, espacio)} />}
+        {esAdmin && modal === "carga" && <CargaMasivaModal onClose={() => setModal(null)} onProcesado={() => cargar(qEnviado, espacio)} />}
+        {esAdmin && editar && <EditarMaterialModal material={editar} onClose={() => setEditar(null)} onGuardado={() => { setInfo("Material actualizado."); cargar(qEnviado, espacio); }} />}
       </Shell>
     </AuthGate>
   );
